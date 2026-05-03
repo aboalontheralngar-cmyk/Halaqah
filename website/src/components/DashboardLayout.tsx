@@ -26,7 +26,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const router = useRouter();
   const pathname = usePathname();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const { darkMode, toggleDarkMode, centerType, user, setUser, currentCenter, profile } = useStore();
+  const { darkMode, toggleDarkMode, centerType, user, setUser, currentCenter, profile, fetchProfile } = useStore();
 
   const navItems = useMemo(() => {
     const items = [
