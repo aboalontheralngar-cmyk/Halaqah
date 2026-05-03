@@ -21,6 +21,7 @@ import {
   Building2
 } from "lucide-react";
 import { useStore } from "@/store/useStore";
+import { supabase } from "@/lib/supabase";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
