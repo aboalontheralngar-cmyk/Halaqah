@@ -86,7 +86,7 @@ export default function OnboardingPage() {
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950 flex items-center justify-center p-6" dir="rtl">
-      <div className="max-w-2xl w-full bg-white dark:bg-gray-900 rounded-[3rem] border border-gray-100 dark:border-gray-800 shadow-2xl p-10 md:p-16 space-y-12 relative overflow-hidden">
+      <div className="max-w-2xl w-full bg-white dark:bg-gray-900 rounded-3xl border border-gray-100 dark:border-gray-800 shadow-2xl p-10 md:p-16 space-y-12 relative overflow-hidden">
         {/* Background Decor */}
         <div className="absolute top-0 right-0 w-64 h-64 bg-teal-500/5 rounded-full blur-3xl -mr-32 -mt-32" />
         <div className="absolute bottom-0 left-0 w-64 h-64 bg-teal-500/5 rounded-full blur-3xl -ml-32 -mb-32" />
@@ -115,14 +115,14 @@ export default function OnboardingPage() {
                 placeholder="الاسم الثلاثي"
                 value={data.fullName}
                 onChange={(e) => setData({...data, fullName: e.target.value})}
-                className="w-full pr-16 pl-6 py-6 bg-gray-50 dark:bg-gray-800/50 border-none rounded-[2.5rem] text-lg font-bold outline-none focus:ring-4 ring-teal-500/10 dark:text-white transition-all text-center"
+                className="w-full pr-16 pl-6 py-6 bg-gray-50 dark:bg-gray-800/50 border-none rounded-2xl text-lg font-bold outline-none focus:ring-4 ring-teal-500/10 dark:text-white transition-all text-center"
               />
             </div>
 
             <button 
               onClick={() => data.fullName && setStep(2)}
               disabled={!data.fullName}
-              className="bg-teal-600 text-white px-12 py-6 rounded-[2.5rem] font-black text-lg hover:bg-teal-700 shadow-xl shadow-teal-500/20 disabled:opacity-50 disabled:shadow-none transition-all flex items-center justify-center gap-4 mx-auto group"
+              className="bg-teal-600 text-white px-12 py-6 rounded-2xl font-black text-lg hover:bg-teal-700 shadow-xl shadow-teal-500/20 disabled:opacity-50 disabled:shadow-none transition-all flex items-center justify-center gap-4 mx-auto group"
             >
               استمرار
               <ArrowRight className="w-6 h-6 group-hover:-translate-x-2 transition-transform" />
@@ -140,9 +140,9 @@ export default function OnboardingPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <button 
                 onClick={() => setData({...data, role: 'center_admin'})}
-                className={`p-10 rounded-[3rem] border-4 transition-all flex flex-col items-center gap-6 group ${data.role === 'center_admin' ? "border-teal-600 bg-teal-50 dark:bg-teal-900/20" : "border-gray-50 dark:border-gray-800 hover:border-teal-200"}`}
+                className={`p-10 rounded-3xl border-4 transition-all flex flex-col items-center gap-6 group ${data.role === 'center_admin' ? "border-teal-600 bg-teal-50 dark:bg-teal-900/20" : "border-gray-50 dark:border-gray-800 hover:border-teal-200"}`}
               >
-                <div className={`w-20 h-20 rounded-[2rem] flex items-center justify-center transition-all ${data.role === 'center_admin' ? "bg-teal-600 text-white scale-110 rotate-3" : "bg-gray-100 dark:bg-gray-800 text-gray-400"}`}>
+                <div className={`w-20 h-20 rounded-2xl flex items-center justify-center transition-all ${data.role === 'center_admin' ? "bg-teal-600 text-white scale-110 rotate-3" : "bg-gray-100 dark:bg-gray-800 text-gray-400"}`}>
                   <Building2 className="w-10 h-10" />
                 </div>
                 <div className="text-center">
@@ -153,9 +153,9 @@ export default function OnboardingPage() {
 
               <button 
                 onClick={() => setData({...data, role: 'supervisor'})}
-                className={`p-10 rounded-[3rem] border-4 transition-all flex flex-col items-center gap-6 group ${data.role === 'supervisor' ? "border-teal-600 bg-teal-50 dark:bg-teal-900/20" : "border-gray-50 dark:border-gray-800 hover:border-teal-200"}`}
+                className={`p-10 rounded-3xl border-4 transition-all flex flex-col items-center gap-6 group ${data.role === 'supervisor' ? "border-teal-600 bg-teal-50 dark:bg-teal-900/20" : "border-gray-50 dark:border-gray-800 hover:border-teal-200"}`}
               >
-                <div className={`w-20 h-20 rounded-[2rem] flex items-center justify-center transition-all ${data.role === 'supervisor' ? "bg-teal-600 text-white scale-110 -rotate-3" : "bg-gray-100 dark:bg-gray-800 text-gray-400"}`}>
+                <div className={`w-20 h-20 rounded-2xl flex items-center justify-center transition-all ${data.role === 'supervisor' ? "bg-teal-600 text-white scale-110 -rotate-3" : "bg-gray-100 dark:bg-gray-800 text-gray-400"}`}>
                   <ShieldCheck className="w-10 h-10" />
                 </div>
                 <div className="text-center">
@@ -166,10 +166,10 @@ export default function OnboardingPage() {
             </div>
 
             <div className="flex gap-4">
-              <button onClick={() => setStep(1)} className="flex-1 py-6 rounded-[2.5rem] font-black text-gray-400 hover:bg-gray-50 transition-all">رجوع</button>
+              <button onClick={() => setStep(1)} className="flex-1 py-6 rounded-2xl font-black text-gray-400 hover:bg-gray-50 transition-all">رجوع</button>
               <button 
                 onClick={() => setStep(3)}
-                className="flex-[2] bg-teal-600 text-white py-6 rounded-[2.5rem] font-black text-lg hover:bg-teal-700 shadow-xl shadow-teal-500/20 transition-all flex items-center justify-center gap-4 group"
+                className="flex-[2] bg-teal-600 text-white py-6 rounded-2xl font-black text-lg hover:bg-teal-700 shadow-xl shadow-teal-500/20 transition-all flex items-center justify-center gap-4 group"
               >
                 التالي
                 <ArrowRight className="w-6 h-6 group-hover:-translate-x-2 transition-transform" />
@@ -194,7 +194,7 @@ export default function OnboardingPage() {
                     placeholder="اسم مركز التحفيظ"
                     value={data.centerName}
                     onChange={(e) => setData({...data, centerName: e.target.value})}
-                    className="w-full pr-16 pl-6 py-6 bg-gray-50 dark:bg-gray-800/50 border-none rounded-[2.5rem] text-lg font-bold outline-none focus:ring-4 ring-teal-500/10 dark:text-white transition-all"
+                    className="w-full pr-16 pl-6 py-6 bg-gray-50 dark:bg-gray-800/50 border-none rounded-2xl text-lg font-bold outline-none focus:ring-4 ring-teal-500/10 dark:text-white transition-all"
                   />
                 </div>
                 <div className="relative group">
@@ -204,20 +204,20 @@ export default function OnboardingPage() {
                     placeholder="عنوان المركز (اختياري)"
                     value={data.centerAddress}
                     onChange={(e) => setData({...data, centerAddress: e.target.value})}
-                    className="w-full pr-16 pl-6 py-6 bg-gray-50 dark:bg-gray-800/50 border-none rounded-[2.5rem] text-lg font-bold outline-none focus:ring-4 ring-teal-500/10 dark:text-white transition-all"
+                    className="w-full pr-16 pl-6 py-6 bg-gray-50 dark:bg-gray-800/50 border-none rounded-2xl text-lg font-bold outline-none focus:ring-4 ring-teal-500/10 dark:text-white transition-all"
                   />
                 </div>
                 <div className="grid grid-cols-2 gap-6">
                   <button 
                     onClick={() => setData({...data, centerType: 'men'})}
-                    className={`p-6 rounded-[2rem] border-2 transition-all flex flex-col items-center gap-3 ${data.centerType === 'men' ? "border-teal-600 bg-teal-50 dark:bg-teal-900/20 text-teal-700" : "border-gray-50 dark:border-gray-800 text-gray-400"}`}
+                    className={`p-6 rounded-2xl border-2 transition-all flex flex-col items-center gap-3 ${data.centerType === 'men' ? "border-teal-600 bg-teal-50 dark:bg-teal-900/20 text-teal-700" : "border-gray-50 dark:border-gray-800 text-gray-400"}`}
                   >
                     <Users className="w-6 h-6" />
                     <span className="text-sm font-black">مركز رجال</span>
                   </button>
                   <button 
                     onClick={() => setData({...data, centerType: 'women'})}
-                    className={`p-6 rounded-[2rem] border-2 transition-all flex flex-col items-center gap-3 ${data.centerType === 'women' ? "border-rose-500 bg-rose-50 dark:bg-rose-900/20 text-rose-500" : "border-gray-50 dark:border-gray-800 text-gray-400"}`}
+                    className={`p-6 rounded-2xl border-2 transition-all flex flex-col items-center gap-3 ${data.centerType === 'women' ? "border-rose-500 bg-rose-50 dark:bg-rose-900/20 text-rose-500" : "border-gray-50 dark:border-gray-800 text-gray-400"}`}
                   >
                     <VenetianMask className="w-6 h-6" />
                     <span className="text-sm font-black">مركز نساء</span>
@@ -232,17 +232,17 @@ export default function OnboardingPage() {
                   placeholder="اسم الجهة الإشرافية (جمعية، مؤسسة...)"
                   value={data.supervisorName}
                   onChange={(e) => setData({...data, supervisorName: e.target.value})}
-                  className="w-full pr-16 pl-6 py-6 bg-gray-50 dark:bg-gray-800/50 border-none rounded-[2.5rem] text-lg font-bold outline-none focus:ring-4 ring-teal-500/10 dark:text-white transition-all"
+                  className="w-full pr-16 pl-6 py-6 bg-gray-50 dark:bg-gray-800/50 border-none rounded-2xl text-lg font-bold outline-none focus:ring-4 ring-teal-500/10 dark:text-white transition-all"
                 />
               </div>
             )}
 
             <div className="flex gap-4">
-              <button onClick={() => setStep(2)} className="flex-1 py-6 rounded-[2.5rem] font-black text-gray-400 hover:bg-gray-50 transition-all">رجوع</button>
+              <button onClick={() => setStep(2)} className="flex-1 py-6 rounded-2xl font-black text-gray-400 hover:bg-gray-50 transition-all">رجوع</button>
               <button 
                 onClick={handleComplete}
                 disabled={loading || (data.role === 'center_admin' ? !data.centerName : !data.supervisorName)}
-                className="flex-[2] bg-teal-600 text-white py-6 rounded-[2.5rem] font-black text-lg hover:bg-teal-700 shadow-xl shadow-teal-500/20 disabled:opacity-50 transition-all flex items-center justify-center gap-4 group"
+                className="flex-[2] bg-teal-600 text-white py-6 rounded-2xl font-black text-lg hover:bg-teal-700 shadow-xl shadow-teal-500/20 disabled:opacity-50 transition-all flex items-center justify-center gap-4 group"
               >
                 {loading ? <Loader2 className="w-6 h-6 animate-spin" /> : (
                   <>

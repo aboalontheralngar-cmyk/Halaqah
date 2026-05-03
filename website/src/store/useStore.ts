@@ -389,7 +389,10 @@ export const useStore = create<HalaqahStore>((set, get) => ({
         .select('*')
         .eq('center_id', center.id)
         .order('name');
-      if (!error && data) {
+      
+      if (error) throw error;
+      
+      if (data) {
         const mapped = data.map((s: any) => ({
           id: s.id,
           name: s.name,
@@ -404,7 +407,12 @@ export const useStore = create<HalaqahStore>((set, get) => ({
           status: s.status
         }));
         set({ students: mapped as Student[] });
+      } else {
+        set({ students: [] });
       }
+    } catch (err: any) {
+      console.error("Fetch students error:", err);
+      set({ students: [] });
     } finally {
       set({ loading: false });
     }
@@ -631,13 +639,21 @@ export const useStore = create<HalaqahStore>((set, get) => ({
   fetchActivities: async () => {
     const center = get().currentCenter;
     if (!supabase || !center) return;
-    const { data, error } = await supabase
-      .from('activities')
-      .select('*')
-      .eq('center_id', center.id)
-      .order('created_at', { ascending: false })
-      .limit(10);
-    if (!error && data) set({ activities: data as Activity[] });
+    try {
+      const { data, error } = await supabase
+        .from('activities')
+        .select('*')
+        .eq('center_id', center.id)
+        .order('created_at', { ascending: false })
+        .limit(10);
+      
+      if (error) throw error;
+      if (data) set({ activities: data as Activity[] });
+      else set({ activities: [] });
+    } catch (err) {
+      console.error("Fetch activities error:", err);
+      set({ activities: [] });
+    }
   },
 
   resolveViolation: async (pointId) => {

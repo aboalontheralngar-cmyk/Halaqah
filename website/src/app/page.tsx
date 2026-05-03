@@ -24,7 +24,8 @@ import {
   Activity,
   Lightbulb,
   Trophy,
-  X
+  X,
+  Loader2
 } from "lucide-react";
 import { useStore } from "@/store/useStore";
 import { StatCard, ActionButton } from "@/components/ui/DashboardCards";
@@ -32,8 +33,16 @@ import { getHijriDate } from "@/utils/dateUtils";
 
 export default function Dashboard() {
   const router = useRouter();
-  const { students, attendance, memorization, centerType, activities } = useStore();
+  const { students, attendance, memorization, centerType, activities, loading } = useStore();
   const hijriDate = getHijriDate();
+
+  if (loading && students.length === 0) {
+    return (
+      <div className="min-h-[60vh] flex items-center justify-center">
+        <Loader2 className="w-12 h-12 text-teal-600 animate-spin" />
+      </div>
+    );
+  }
   
   const isMen = centerType === 'men';
   const labels = {
@@ -70,7 +79,7 @@ export default function Dashboard() {
         </div>
         
         <div className="flex items-center gap-4">
-          <div className="bg-white dark:bg-gray-900 p-6 rounded-[2.5rem] border border-gray-100 dark:border-gray-800 shadow-xl flex items-center gap-6">
+          <div className="bg-white dark:bg-gray-900 p-6 rounded-3xl border border-gray-100 dark:border-gray-800 shadow-xl flex items-center gap-6">
             <div className="w-14 h-14 bg-teal-50 dark:bg-teal-900/20 rounded-2xl flex items-center justify-center">
               <Calendar className="w-7 h-7 text-teal-600 dark:text-teal-400" />
             </div>
@@ -79,7 +88,7 @@ export default function Dashboard() {
               <p className="text-xl font-black text-gray-800 dark:text-white">{hijriDate.full}</p>
             </div>
           </div>
-          <button className="w-16 h-16 bg-white dark:bg-gray-900 rounded-[1.5rem] flex items-center justify-center border border-gray-100 dark:border-gray-800 shadow-xl text-gray-400 hover:text-teal-600 transition-all">
+          <button className="w-16 h-16 bg-white dark:bg-gray-900 rounded-2xl flex items-center justify-center border border-gray-100 dark:border-gray-800 shadow-xl text-gray-400 hover:text-teal-600 transition-all">
             <Bell className="w-6 h-6" />
           </button>
         </div>
@@ -94,7 +103,7 @@ export default function Dashboard() {
 
       <div className="grid lg:grid-cols-3 gap-10">
         {/* Recent Activities */}
-        <div className="bg-white dark:bg-gray-900 rounded-[3rem] border border-gray-100 dark:border-gray-800 p-8 shadow-sm flex flex-col h-full">
+        <div className="bg-white dark:bg-gray-900 rounded-3xl border border-gray-100 dark:border-gray-800 p-8 shadow-sm flex flex-col h-full">
           <div className="flex items-center justify-between mb-8">
             <h3 className="text-xl font-black text-gray-900 dark:text-white flex items-center gap-2">
               آخر النشاطات
@@ -136,7 +145,7 @@ export default function Dashboard() {
               <button 
                 key={i}
                 onClick={() => router.push(action.href)}
-                className="group flex flex-col items-center justify-center p-8 bg-white dark:bg-gray-900 rounded-[2.5rem] border border-gray-100 dark:border-gray-800 hover:shadow-xl hover:scale-[1.02] transition-all"
+                className="group flex flex-col items-center justify-center p-8 bg-white dark:bg-gray-900 rounded-3xl border border-gray-100 dark:border-gray-800 hover:shadow-xl hover:scale-[1.02] transition-all"
               >
                 <div className={`w-14 h-14 ${action.bg} rounded-2xl flex items-center justify-center mb-4 transition-transform group-hover:scale-110`}>
                   <action.icon className={`w-7 h-7 ${action.color}`} />
@@ -150,7 +159,7 @@ export default function Dashboard() {
 
       <div className="grid lg:grid-cols-3 gap-10">
         {/* Daily Tip */}
-        <div className="bg-teal-50/50 dark:bg-teal-900/10 border border-teal-100 dark:border-teal-800 rounded-[2.5rem] p-8 flex items-center gap-6 relative overflow-hidden group">
+        <div className="bg-teal-50/50 dark:bg-teal-900/10 border border-teal-100 dark:border-teal-800 rounded-3xl p-8 flex items-center gap-6 relative overflow-hidden group">
           <div className="w-14 h-14 bg-teal-600 rounded-2xl flex items-center justify-center text-white shadow-lg shrink-0">
             <Lightbulb className="w-7 h-7" />
           </div>
@@ -164,7 +173,7 @@ export default function Dashboard() {
         </div>
 
         {/* Smart Motivation Banner */}
-        <div className="lg:col-span-2 bg-gray-900 rounded-[3.5rem] p-10 text-white relative overflow-hidden flex flex-col md:flex-row items-center justify-between gap-10">
+        <div className="lg:col-span-2 bg-gray-900 rounded-[2rem] p-10 text-white relative overflow-hidden flex flex-col md:flex-row items-center justify-between gap-10">
           <div className="relative z-10 space-y-6 text-center md:text-right">
             <div className="inline-flex items-center gap-2 px-4 py-2 bg-teal-500/20 rounded-full text-teal-400 text-[10px] font-black uppercase tracking-widest">
               <span className="w-2 h-2 bg-teal-400 rounded-full animate-pulse" /> ميزة جديدة
@@ -178,7 +187,7 @@ export default function Dashboard() {
             </button>
           </div>
           <div className="relative shrink-0">
-            <div className="w-48 h-48 bg-teal-500/20 rounded-[3rem] flex items-center justify-center backdrop-blur-3xl border border-white/10 rotate-12">
+            <div className="w-48 h-48 bg-teal-500/20 rounded-2xl flex items-center justify-center backdrop-blur-3xl border border-white/10 rotate-12">
               <Trophy className="w-24 h-24 text-teal-400 -rotate-12" />
             </div>
             <div className="absolute -top-10 -right-10 w-32 h-32 bg-teal-500/10 rounded-full blur-3xl animate-pulse" />

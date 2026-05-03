@@ -91,7 +91,7 @@ export default function AuthPage() {
         <div className="absolute top-0 right-0 w-full h-full bg-gradient-to-br from-teal-500/20 to-transparent" />
         
         <div className="relative z-10 space-y-8">
-          <div className="w-20 h-20 bg-white/10 rounded-[2.5rem] flex items-center justify-center backdrop-blur-xl border border-white/20">
+          <div className="w-20 h-20 bg-white/10 rounded-3xl flex items-center justify-center backdrop-blur-xl border border-white/20">
             <BookOpen className="w-10 h-10 text-teal-400" />
           </div>
           <h1 className="text-6xl font-black leading-tight">مشروع حلقتي <br /> <span className="text-teal-400">لإدارة الحلقات</span></h1>
@@ -126,7 +126,7 @@ export default function AuthPage() {
                 value={formData.email}
                 onChange={e => setFormData({...formData, email: e.target.value})}
                 placeholder="البريد الإلكتروني"
-                className="w-full pr-14 pl-6 py-5 bg-gray-50 dark:bg-gray-900 border-none rounded-[2rem] text-sm font-bold outline-none focus:ring-2 ring-teal-500/20 dark:text-white transition-all"
+                className="w-full pr-14 pl-6 py-5 bg-gray-50 dark:bg-gray-900 border-none rounded-2xl text-sm font-bold outline-none focus:ring-2 ring-teal-500/20 dark:text-white transition-all"
               />
             </div>
 
@@ -138,7 +138,7 @@ export default function AuthPage() {
                 value={formData.password}
                 onChange={e => setFormData({...formData, password: e.target.value})}
                 placeholder="كلمة المرور"
-                className="w-full pr-14 pl-14 py-5 bg-gray-50 dark:bg-gray-900 border-none rounded-[2rem] text-sm font-bold outline-none focus:ring-2 ring-teal-500/20 dark:text-white transition-all"
+                className="w-full pr-14 pl-14 py-5 bg-gray-50 dark:bg-gray-900 border-none rounded-2xl text-sm font-bold outline-none focus:ring-2 ring-teal-500/20 dark:text-white transition-all"
               />
               <button 
                 type="button"
@@ -158,7 +158,7 @@ export default function AuthPage() {
                   value={formData.confirmPassword}
                   onChange={e => setFormData({...formData, confirmPassword: e.target.value})}
                   placeholder="تأكيد كلمة المرور"
-                  className="w-full pr-14 pl-6 py-5 bg-gray-50 dark:bg-gray-900 border-none rounded-[2rem] text-sm font-bold outline-none focus:ring-2 ring-teal-500/20 dark:text-white transition-all"
+                  className="w-full pr-14 pl-6 py-5 bg-gray-50 dark:bg-gray-900 border-none rounded-2xl text-sm font-bold outline-none focus:ring-2 ring-teal-500/20 dark:text-white transition-all"
                 />
               </div>
             )}
@@ -166,7 +166,7 @@ export default function AuthPage() {
             <button 
               type="submit" 
               disabled={loading}
-              className="w-full py-6 bg-teal-600 text-white rounded-[2.5rem] font-black text-sm hover:bg-teal-700 shadow-2xl shadow-teal-100 dark:shadow-none transition-all flex items-center justify-center gap-3 group"
+              className="w-full py-5 bg-teal-600 text-white rounded-2xl font-black text-lg hover:bg-teal-700 shadow-xl shadow-teal-500/20 dark:shadow-none transition-all flex items-center justify-center gap-3 group"
             >
               {loading ? (
                 <Loader2 className="w-6 h-6 animate-spin" />

@@ -209,7 +209,7 @@ export default function SelectCenterPage() {
       <div className="max-w-4xl w-full space-y-12">
         {/* Header */}
         <div className="text-center space-y-4 animate-in fade-in slide-in-from-top-4 duration-700">
-          <div className="w-20 h-20 bg-teal-600 rounded-[2.5rem] flex items-center justify-center mx-auto shadow-2xl shadow-teal-200 dark:shadow-none mb-6">
+          <div className="w-20 h-20 bg-teal-600 rounded-3xl flex items-center justify-center mx-auto shadow-2xl shadow-teal-200 dark:shadow-none mb-6">
             {step === "center" ? <Building2 className="w-10 h-10 text-white" /> : <LayoutGrid className="w-10 h-10 text-white" />}
           </div>
           <h1 className="text-4xl font-black text-gray-900 dark:text-white">
@@ -225,7 +225,7 @@ export default function SelectCenterPage() {
           {step === "center" ? (
             <>
               {centers.length === 0 ? (
-                <div className="md:col-span-2 text-center py-20 bg-white dark:bg-gray-900 rounded-[3rem] border-2 border-dashed border-gray-200 dark:border-gray-800">
+                <div className="md:col-span-2 text-center py-20 bg-white dark:bg-gray-900 rounded-3xl border-2 border-dashed border-gray-200 dark:border-gray-800">
                   <p className="text-gray-400 font-black mb-6">لا يوجد مراكز مسجلة باسمك حالياً</p>
                   <button onClick={() => setShowCreateCenter(true)} className="px-8 py-4 bg-teal-600 text-white rounded-2xl font-black text-sm">إنشاء مركز جديد</button>
                 </div>
@@ -235,11 +235,11 @@ export default function SelectCenterPage() {
                     <button
                       key={center.id}
                       onClick={() => handleCenterSelect(center)}
-                      className="group relative bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 p-10 rounded-[3.5rem] text-right transition-all hover:shadow-2xl hover:scale-[1.02] overflow-hidden"
+                      className="group relative bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 p-10 rounded-3xl text-right transition-all hover:shadow-2xl hover:scale-[1.02] overflow-hidden"
                     >
                       <div className={`absolute top-0 right-0 w-2 h-full ${center.type === 'men' ? "bg-teal-600" : "bg-rose-500"}`} />
                       <div className="flex items-center gap-6">
-                        <div className={`w-16 h-16 rounded-[2rem] flex items-center justify-center ${center.type === 'men' ? "bg-teal-50 text-teal-600" : "bg-rose-50 text-rose-500"}`}>
+                        <div className={`w-16 h-16 rounded-2xl flex items-center justify-center ${center.type === 'men' ? "bg-teal-50 text-teal-600" : "bg-rose-50 text-rose-500"}`}>
                           {center.type === 'men' ? <Users className="w-8 h-8" /> : <VenetianMask className="w-8 h-8" />}
                         </div>
                         <div className="flex-1">
@@ -252,7 +252,7 @@ export default function SelectCenterPage() {
                   ))}
                   <button 
                     onClick={() => setShowCreateCenter(true)}
-                    className="md:col-span-2 py-6 border-2 border-dashed border-gray-200 dark:border-gray-800 rounded-[2.5rem] flex items-center justify-center gap-3 text-gray-400 font-black hover:border-teal-500 hover:text-teal-600 transition-all"
+                    className="md:col-span-2 py-6 border-2 border-dashed border-gray-200 dark:border-gray-800 rounded-2xl flex items-center justify-center gap-3 text-gray-400 font-black hover:border-teal-500 hover:text-teal-600 transition-all"
                   >
                     <Plus className="w-6 h-6" /> إضافة مركز آخر
                   </button>
@@ -262,7 +262,7 @@ export default function SelectCenterPage() {
           ) : (
             <>
               {halaqat.length === 0 ? (
-                <div className="md:col-span-2 text-center py-20 bg-white dark:bg-gray-900 rounded-[3rem] border-2 border-dashed border-gray-200 dark:border-gray-800">
+                <div className="md:col-span-2 text-center py-20 bg-white dark:bg-gray-900 rounded-3xl border-2 border-dashed border-gray-200 dark:border-gray-800">
                   <p className="text-gray-400 font-black mb-6">لا توجد حلقات مسجلة في هذا المركز</p>
                   <button onClick={() => setShowCreateHalaqa(true)} className="px-8 py-4 bg-teal-600 text-white rounded-2xl font-black text-sm">إضافة حلقة</button>
                 </div>
@@ -272,7 +272,7 @@ export default function SelectCenterPage() {
                     <button
                       key={halaqa.id}
                       onClick={() => handleHalaqaSelect(halaqa)}
-                      className="group bg-white dark:bg-gray-900 border border-teal-100 dark:border-teal-900/30 p-8 rounded-[3rem] text-right transition-all hover:shadow-xl hover:border-teal-500"
+                      className="group bg-white dark:bg-gray-900 border border-teal-100 dark:border-teal-900/30 p-8 rounded-3xl text-right transition-all hover:shadow-xl hover:border-teal-500"
                     >
                       <h3 className="text-lg font-black text-gray-900 dark:text-white mb-2">{halaqa.name}</h3>
                       <div className="flex items-center gap-2 text-teal-600 dark:text-teal-400 text-xs font-bold">
@@ -288,7 +288,7 @@ export default function SelectCenterPage() {
                   ))}
                   <button 
                     onClick={() => setShowCreateHalaqa(true)}
-                    className="md:col-span-2 py-6 border-2 border-dashed border-gray-200 dark:border-gray-800 rounded-[2.5rem] flex items-center justify-center gap-3 text-gray-400 font-black hover:border-teal-500 hover:text-teal-600 transition-all"
+                    className="md:col-span-2 py-6 border-2 border-dashed border-gray-200 dark:border-gray-800 rounded-2xl flex items-center justify-center gap-3 text-gray-400 font-black hover:border-teal-500 hover:text-teal-600 transition-all"
                   >
                     <Plus className="w-6 h-6" /> إضافة حلقة أخرى
                   </button>
