@@ -343,7 +343,9 @@ export const useStore = create<HalaqahStore>((set, get) => ({
   setUserCenters: (centers) => set({ userCenters: centers }),
   setCurrentCenter: (center) => {
     if (center) {
-      localStorage.setItem("centerType", center.type);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem("centerType", center.type);
+      }
       set({ currentCenter: center, centerType: center.type });
     } else {
       set({ currentCenter: null });

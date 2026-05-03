@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { 
   Users, 
@@ -33,17 +33,37 @@ import { getHijriDate } from "@/utils/dateUtils";
 
 export default function Dashboard() {
   const router = useRouter();
-  const { students, attendance, memorization, centerType, activities, loading } = useStore();
+  const [mounted, setMounted] = useState(false);
+  
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  const { 
+    students = [], 
+    attendance = [], 
+    memorization = [], 
+    centerType = 'men', 
+    activities = [], 
+    loading 
+  } = useStore();
+
+  const safeStudents = Array.isArray(students) ? students : [];
+  const safeAttendance = Array.isArray(attendance) ? attendance : [];
+  const safeActivities = Array.isArray(activities) ? activities : [];
+
   const hijriDate = getHijriDate();
 
-  if (loading && students.length === 0) {
+  if (!mounted) return null;
+
+  if (loading && safeStudents.length === 0) {
     return (
       <div className="min-h-[60vh] flex items-center justify-center">
         <Loader2 className="w-12 h-12 text-teal-600 animate-spin" />
       </div>
     );
   }
-  
+
   const isMen = centerType === 'men';
   const labels = {
     welcome: "أهلاً بك 👋",
@@ -53,18 +73,23 @@ export default function Dashboard() {
     addStudent: isMen ? "إضافة طالب" : "إضافة طالبة",
   };
 
-  const stats = useMemo(() => {
+  // Safe Stats Calculation
+  const stats = {
+    totalStudents: safeStudents.length,
+    presentToday: 0,
+    absentToday: 0,
+    attendanceRate: 0
+  };
+
+  try {
     const today = new Date().toISOString().split("T")[0];
-    const todayAttendance = attendance.filter(a => a.date === today);
-    const presentCount = todayAttendance.filter(a => a.status === "present" || a.status === "late").length;
-    const absentCount = todayAttendance.filter(a => a.status === "absent").length;
-    return {
-      totalStudents: students.length,
-      presentToday: presentCount,
-      absentToday: absentCount,
-      attendanceRate: students.length > 0 ? Math.round((presentCount / students.length) * 100) : 0,
-    };
-  }, [students, attendance]);
+    const todayAttendance = safeAttendance.filter(a => a && a.date === today);
+    stats.presentToday = todayAttendance.filter(a => a && (a.status === "present" || a.status === "late")).length;
+    stats.absentToday = todayAttendance.filter(a => a && a.status === "absent").length;
+    stats.attendanceRate = safeStudents.length > 0 ? Math.round((stats.presentToday / safeStudents.length) * 100) : 0;
+  } catch (e) {
+    console.error("Stats calculation error:", e);
+  }
 
   return (
     <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-700">
