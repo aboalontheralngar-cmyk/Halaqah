@@ -289,19 +289,10 @@ export default function AuthPage() {
                 onClick={() => setIsLogin(!isLogin)}
                 className="text-sm font-bold text-gray-500 dark:text-gray-400 hover:text-teal-600 transition-colors"
               >
-                {isLogin ? "ليس لديك حساب؟ إنشاء حساب جديد" : "لديك حساب بالفعل؟ سجل دخولك"}
+                {isLogin ? "ليس لديك حساب؟ إنشاء حساب جديد ✨" : "لديك حساب بالفعل؟ سجل دخولك 👋"}
               </button>
             </div>
           </form>
-
-          <div className="text-center pt-6">
-            <button 
-              onClick={() => setIsLogin(!isLogin)}
-              className="text-sm font-black text-gray-400 hover:text-teal-600 transition-colors"
-            >
-              {isLogin ? "ليس لديك حساب؟ إنشاء مركز جديد" : "لديك حساب بالفعل؟ تسجيل الدخول"}
-            </button>
-          </div>
         </div>
       </div>
     </div>
