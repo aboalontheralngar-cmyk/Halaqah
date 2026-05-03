@@ -110,6 +110,7 @@ interface HalaqahStore {
   userCenters: { id: string, name: string, type: 'men' | 'women' }[];
   currentSupervisor: Supervisor | null;
   teachers: Teacher[];
+  halaqat: { id: string, name: string }[];
 
   // Actions
   setUser: (user: any) => void;
@@ -127,6 +128,7 @@ interface HalaqahStore {
   addStudent: (student: Omit<Student, 'id'>) => Promise<void>;
   updateStudent: (id: string, student: Partial<Student>) => Promise<void>;
   deleteStudent: (id: string) => Promise<void>;
+  fetchHalaqat: () => Promise<void>;
   
   addAttendance: (record: Omit<AttendanceRecord, 'id'>) => Promise<void>;
   updateAttendance: (id: string, status: AttendanceRecord['status'], extra?: Partial<AttendanceRecord>) => Promise<void>;
@@ -171,6 +173,7 @@ export const useStore = create<HalaqahStore>((set, get) => ({
   userCenters: [],
   currentSupervisor: null,
   teachers: [],
+  halaqat: [],
 
   setUser: (user) => {
     set({ user });
@@ -319,6 +322,21 @@ export const useStore = create<HalaqahStore>((set, get) => ({
 
     if (!error) {
       set((state) => ({ teachers: state.teachers.filter(t => t.id !== id) }));
+    }
+  },
+
+  fetchHalaqat: async () => {
+    if (!supabase) return;
+    const center = get().currentCenter;
+    if (!center) return;
+
+    const { data, error } = await supabase
+      .from('halaqat')
+      .select('id, name')
+      .eq('center_id', center.id);
+
+    if (!error && data) {
+      set({ halaqat: data });
     }
   },
 
