@@ -69,39 +69,8 @@ export default function AuthPage() {
         if (authError) throw authError;
         
         if (authData.user) {
-          // Create Profile
-          await supabase.from('profiles').insert([{ 
-            id: authData.user.id, 
-            full_name: formData.fullName, 
-            role: formData.role 
-          }]);
-
-          if (formData.role === 'center_admin') {
-            // Create Center
-            const { error: centerError } = await supabase
-              .from('centers')
-              .insert([{ 
-                name: formData.centerName, 
-                address: formData.centerAddress,
-                type: formData.centerType, 
-                owner_id: authData.user.id 
-              }]);
-            if (centerError) throw centerError;
-          } else {
-            // Create Supervisor
-            const code = 'HAL-' + Math.random().toString(36).substring(2, 8).toUpperCase();
-            const { error: supError } = await supabase
-              .from('supervisors')
-              .insert([{ 
-                name: formData.supervisorName, 
-                code, 
-                owner_id: authData.user.id 
-              }]);
-            if (supError) throw supError;
-          }
-          
           setUser(authData.user);
-          router.push("/select-center");
+          router.push("/onboarding");
         }
       }
     } catch (error: any) {
@@ -126,19 +95,6 @@ export default function AuthPage() {
           <p className="text-xl text-teal-100/60 font-medium max-w-lg leading-relaxed">
             المنصة المتكاملة التي تجمع بين التميز التقني والروحانية الإيمانية، لخدمة كتاب الله وبناء جيل قرآني فريد.
           </p>
-          
-          <div className="grid grid-cols-2 gap-6 pt-10">
-            <div className="bg-white/5 p-6 rounded-3xl border border-white/10 backdrop-blur-sm">
-              <CheckCircle2 className="w-6 h-6 text-teal-400 mb-4" />
-              <p className="font-bold text-sm">عزلة تامة للبيانات</p>
-              <p className="text-[10px] text-teal-100/40 mt-1">كل مركز له عالمه المستقل الخاص</p>
-            </div>
-            <div className="bg-white/5 p-6 rounded-3xl border border-white/10 backdrop-blur-sm">
-              <ShieldCheck className="w-6 h-6 text-teal-400 mb-4" />
-              <p className="font-bold text-sm">أمان عالي المستوى</p>
-              <p className="text-[10px] text-teal-100/40 mt-1">حماية فائقة لخصوصية الطلاب</p>
-            </div>
-          </div>
         </div>
 
         {/* Decorative Circles */}
@@ -159,41 +115,6 @@ export default function AuthPage() {
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-6">
-            {!isLogin && (
-              <div className="grid grid-cols-2 gap-4 mb-8">
-                <button 
-                  type="button"
-                  onClick={() => setFormData({...formData, role: 'center_admin'})}
-                  className={`p-4 rounded-[2rem] border-2 transition-all flex flex-col items-center gap-3 ${formData.role === 'center_admin' ? 'border-teal-600 bg-teal-50 dark:bg-teal-900/20 text-teal-700 dark:text-teal-400' : 'border-gray-100 dark:border-gray-800 text-gray-400'}`}
-                >
-                  <Building2 className="w-6 h-6" />
-                  <span className="text-xs font-black">مركز تحفيظ</span>
-                </button>
-                <button 
-                  type="button"
-                  onClick={() => setFormData({...formData, role: 'supervisor'})}
-                  className={`p-4 rounded-[2rem] border-2 transition-all flex flex-col items-center gap-3 ${formData.role === 'supervisor' ? 'border-teal-600 bg-teal-50 dark:bg-teal-900/20 text-teal-700 dark:text-teal-400' : 'border-gray-100 dark:border-gray-800 text-gray-400'}`}
-                >
-                  <ShieldCheck className="w-6 h-6" />
-                  <span className="text-xs font-black">جهة إشرافية</span>
-                </button>
-              </div>
-            )}
-
-            {!isLogin && (
-              <div className="relative group">
-                <VenetianMask className="absolute right-6 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 group-focus-within:text-teal-600" />
-                <input 
-                  type="text" 
-                  required 
-                  value={formData.fullName}
-                  onChange={e => setFormData({...formData, fullName: e.target.value})}
-                  placeholder="الاسم الكامل للمشرف"
-                  className="w-full pr-14 pl-6 py-5 bg-gray-50 dark:bg-gray-900 border-none rounded-[2rem] text-sm font-bold outline-none focus:ring-2 ring-teal-500/20 dark:text-white transition-all"
-                />
-              </div>
-            )}
-
             <div className="relative group">
               <Mail className="absolute right-6 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 group-focus-within:text-teal-600" />
               <input 
@@ -217,56 +138,6 @@ export default function AuthPage() {
                 className="w-full pr-14 pl-6 py-5 bg-gray-50 dark:bg-gray-900 border-none rounded-[2rem] text-sm font-bold outline-none focus:ring-2 ring-teal-500/20 dark:text-white transition-all"
               />
             </div>
-
-            {!isLogin && formData.role === 'center_admin' && (
-              <div className="space-y-6 animate-in fade-in slide-in-from-top-2">
-                <div className="relative group">
-                  <Building2 className="absolute right-6 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                  <input 
-                    type="text" 
-                    required 
-                    value={formData.centerName}
-                    onChange={e => setFormData({...formData, centerName: e.target.value})}
-                    placeholder="اسم مركز التحفيظ"
-                    className="w-full pr-14 pl-6 py-5 bg-gray-50 dark:bg-gray-900 border-none rounded-[2rem] text-sm font-bold outline-none focus:ring-2 ring-teal-500/20 dark:text-white transition-all"
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <button 
-                    type="button"
-                    onClick={() => setFormData({...formData, centerType: 'men'})}
-                    className={`flex items-center justify-center gap-3 py-4 rounded-2xl border-2 transition-all ${formData.centerType === 'men' ? "border-teal-600 bg-teal-50 dark:bg-teal-900/20 text-teal-700 dark:text-teal-400" : "border-gray-100 dark:border-gray-800 text-gray-400"}`}
-                  >
-                    <Users className="w-4 h-4" />
-                    <span className="text-xs font-black">رجال</span>
-                  </button>
-                  <button 
-                    type="button"
-                    onClick={() => setFormData({...formData, centerType: 'women'})}
-                    className={`flex items-center justify-center gap-3 py-4 rounded-2xl border-2 transition-all ${formData.centerType === 'women' ? "border-rose-500 bg-rose-50 dark:bg-rose-900/20 text-rose-500 dark:text-rose-400" : "border-gray-100 dark:border-gray-800 text-gray-400"}`}
-                  >
-                    <VenetianMask className="w-4 h-4" />
-                    <span className="text-xs font-black">نساء</span>
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {!isLogin && formData.role === 'supervisor' && (
-              <div className="animate-in fade-in slide-in-from-top-2">
-                <div className="relative group">
-                  <ShieldCheck className="absolute right-6 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                  <input 
-                    type="text" 
-                    required 
-                    value={formData.supervisorName}
-                    onChange={e => setFormData({...formData, supervisorName: e.target.value})}
-                    placeholder="اسم الجهة الإشرافية"
-                    className="w-full pr-14 pl-6 py-5 bg-gray-50 dark:bg-gray-900 border-none rounded-[2rem] text-sm font-bold outline-none focus:ring-2 ring-teal-500/20 dark:text-white transition-all"
-                  />
-                </div>
-              </div>
-            )}
 
             <button 
               type="submit" 

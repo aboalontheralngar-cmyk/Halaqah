@@ -32,29 +32,46 @@ export default function SelectCenterPage() {
   const [newHalaqaData, setNewHalaqaData] = useState({ name: "", teacher_name: "" });
   
   useEffect(() => {
-    if (!user && !supabase) {
-      // Mock for demo if no supabase
-      setCenters([
-        { id: "c1", name: "ملتقى الفرقان للبنين", type: "men" },
-        { id: "c2", name: "ملتقى النور للبنات", type: "women" }
-      ]);
-      setLoading(false);
-      return;
-    }
-    
-    if (user) {
-      fetchCenters();
-    } else {
-      // If no user, might be session-based
-      supabase?.auth.getSession().then(({ data }) => {
+    const init = async () => {
+      // 1. Check Session/User
+      if (!user) {
+        if (!supabase) {
+          // Mock for demo if no supabase
+          setCenters([
+            { id: "c1", name: "ملتقى الفرقان للبنين", type: "men" },
+            { id: "c2", name: "ملتقى النور للبنات", type: "women" }
+          ]);
+          setLoading(false);
+          return;
+        }
+
+        const { data } = await supabase.auth.getSession();
         if (data.session) {
           setUser(data.session.user);
+          return;
         } else {
           router.push("/login");
+          return;
         }
-      });
-    }
-  }, [user, profile, currentSupervisor]);
+      }
+
+      // 2. Check Profile
+      if (!profile) {
+        setLoading(true);
+        const { fetchProfile } = useStore.getState();
+        await fetchProfile();
+        const updatedProfile = useStore.getState().profile;
+        if (!updatedProfile) {
+          router.push("/onboarding");
+          return;
+        }
+        setLoading(false);
+      }
+      
+      fetchCenters();
+    };
+    init();
+  }, [user, profile]);
 
   const fetchCenters = async () => {
     if (!supabase || !user) return;

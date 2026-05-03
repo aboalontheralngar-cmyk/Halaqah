@@ -56,14 +56,27 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     return current?.id || "home";
   }, [pathname, navItems]);
 
-  const { fetchStudents, fetchActivities } = useStore();
+  const { fetchStudents, fetchActivities, fetchProfile } = useStore();
   
   useEffect(() => {
-    if (user && currentCenter && pathname !== "/login" && pathname !== "/select-center") {
+    const checkUser = async () => {
+      if (user && !profile) {
+        await fetchProfile();
+        const updatedProfile = useStore.getState().profile;
+        if (!updatedProfile && pathname !== "/onboarding" && pathname !== "/login") {
+          router.push("/onboarding");
+        }
+      }
+    };
+    checkUser();
+  }, [user, profile, pathname]);
+
+  useEffect(() => {
+    if (user && currentCenter && profile && pathname !== "/login" && pathname !== "/select-center" && pathname !== "/onboarding") {
       fetchStudents();
       fetchActivities();
     }
-  }, [user, currentCenter, pathname, fetchStudents, fetchActivities]);
+  }, [user, currentCenter, profile, pathname, fetchStudents, fetchActivities]);
 
   const handleNavClick = (href: string) => {
     router.push(href);
