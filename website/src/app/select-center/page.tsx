@@ -107,7 +107,9 @@ export default function SelectCenterPage() {
 
     const { data, error } = await query;
     
-    if (!error && data) {
+    if (error) {
+      alert("فشل جلب المراكز: " + error.message);
+    } else if (data) {
       setCenters(data);
     }
     setLoading(false);
@@ -129,7 +131,9 @@ export default function SelectCenterPage() {
       .select('*')
       .eq('center_id', centerId);
     
-    if (!error && data) {
+    if (error) {
+      alert("فشل جلب الحلقات: " + error.message);
+    } else if (data) {
       setHalaqat(data);
     }
     setLoading(false);

@@ -168,6 +168,9 @@ CREATE TABLE activities (
 );
 
 -- تفعيل Row Level Security (RLS)
+ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE supervisors ENABLE ROW LEVEL SECURITY;
+ALTER TABLE center_members ENABLE ROW LEVEL SECURITY;
 ALTER TABLE centers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE halaqat ENABLE ROW LEVEL SECURITY;
 ALTER TABLE students ENABLE ROW LEVEL SECURITY;
@@ -179,8 +182,21 @@ ALTER TABLE exam_scores ENABLE ROW LEVEL SECURITY;
 ALTER TABLE vacations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE activities ENABLE ROW LEVEL SECURITY;
 
--- سياسات الوصول (Policies)
--- سياسات جدول المراكز
+-- سياسات الملفات الشخصية (Profiles)
+DROP POLICY IF EXISTS "Allow individual select" ON profiles;
+CREATE POLICY "Allow individual select" ON profiles FOR SELECT USING (auth.uid() = id);
+
+DROP POLICY IF EXISTS "Allow individual insert" ON profiles;
+CREATE POLICY "Allow individual insert" ON profiles FOR INSERT WITH CHECK (auth.uid() = id);
+
+DROP POLICY IF EXISTS "Allow individual update" ON profiles;
+CREATE POLICY "Allow individual update" ON profiles FOR UPDATE USING (auth.uid() = id);
+
+-- سياسات الجهات الإشرافية (Supervisors)
+DROP POLICY IF EXISTS "Manage own supervisor" ON supervisors;
+CREATE POLICY "Manage own supervisor" ON supervisors FOR ALL USING (auth.uid() = owner_id);
+
+-- سياسات المراكز (Centers)
 DROP POLICY IF EXISTS "Enable insert for authenticated users only" ON centers;
 CREATE POLICY "Enable insert for authenticated users only" ON centers
     FOR INSERT WITH CHECK (auth.uid() = owner_id);
@@ -197,43 +213,59 @@ DROP POLICY IF EXISTS "Enable delete for owners" ON centers;
 CREATE POLICY "Enable delete for owners" ON centers
     FOR DELETE USING (auth.uid() = owner_id);
 
--- سياسات الجداول الأخرى تعتمد على center_id
+-- سياسات أعضاء المركز (Center Members)
+DROP POLICY IF EXISTS "Manage center members" ON center_members;
+CREATE POLICY "Manage center members" ON center_members FOR ALL USING (
+    center_id IN (SELECT id FROM centers WHERE owner_id = auth.uid())
+);
+
+-- سياسات الحلقات (Halaqat)
 DROP POLICY IF EXISTS "Access halaqat by center_id" ON halaqat;
 CREATE POLICY "Access halaqat by center_id" ON halaqat FOR ALL USING (
-    center_id IN (SELECT id FROM centers WHERE owner_id = auth.uid())
+    center_id IN (SELECT id FROM centers WHERE owner_id = auth.uid()) OR
+    id IN (SELECT halaqah_id FROM center_members WHERE user_id = auth.uid())
 );
 
+-- سياسات الطلاب (Students)
 DROP POLICY IF EXISTS "Access students by center_id" ON students;
 CREATE POLICY "Access students by center_id" ON students FOR ALL USING (
-    center_id IN (SELECT id FROM centers WHERE owner_id = auth.uid())
+    center_id IN (SELECT id FROM centers WHERE owner_id = auth.uid()) OR
+    halaqa_id IN (SELECT halaqah_id FROM center_members WHERE user_id = auth.uid())
 );
 
+-- سياسات الجداول التابعة (تعطى صلاحية الوصول للأعضاء والمدراء)
 DROP POLICY IF EXISTS "Access attendance by center_id" ON attendance;
 CREATE POLICY "Access attendance by center_id" ON attendance FOR ALL USING (
-    center_id IN (SELECT id FROM centers WHERE owner_id = auth.uid())
+    center_id IN (SELECT id FROM centers WHERE owner_id = auth.uid()) OR
+    center_id IN (SELECT center_id FROM center_members WHERE user_id = auth.uid())
 );
 
 DROP POLICY IF EXISTS "Access memorization by center_id" ON memorization;
 CREATE POLICY "Access memorization by center_id" ON memorization FOR ALL USING (
-    center_id IN (SELECT id FROM centers WHERE owner_id = auth.uid())
+    center_id IN (SELECT id FROM centers WHERE owner_id = auth.uid()) OR
+    center_id IN (SELECT center_id FROM center_members WHERE user_id = auth.uid())
 );
 
 DROP POLICY IF EXISTS "Access points by center_id" ON points;
 CREATE POLICY "Access points by center_id" ON points FOR ALL USING (
-    center_id IN (SELECT id FROM centers WHERE owner_id = auth.uid())
+    center_id IN (SELECT id FROM centers WHERE owner_id = auth.uid()) OR
+    center_id IN (SELECT center_id FROM center_members WHERE user_id = auth.uid())
 );
 
 DROP POLICY IF EXISTS "Access exams by center_id" ON exams;
 CREATE POLICY "Access exams by center_id" ON exams FOR ALL USING (
-    center_id IN (SELECT id FROM centers WHERE owner_id = auth.uid())
+    center_id IN (SELECT id FROM centers WHERE owner_id = auth.uid()) OR
+    center_id IN (SELECT center_id FROM center_members WHERE user_id = auth.uid())
 );
 
 DROP POLICY IF EXISTS "Access vacations by center_id" ON vacations;
 CREATE POLICY "Access vacations by center_id" ON vacations FOR ALL USING (
-    center_id IN (SELECT id FROM centers WHERE owner_id = auth.uid())
+    center_id IN (SELECT id FROM centers WHERE owner_id = auth.uid()) OR
+    center_id IN (SELECT center_id FROM center_members WHERE user_id = auth.uid())
 );
 
 DROP POLICY IF EXISTS "Access activities by center_id" ON activities;
 CREATE POLICY "Access activities by center_id" ON activities FOR ALL USING (
-    center_id IN (SELECT id FROM centers WHERE owner_id = auth.uid())
+    center_id IN (SELECT id FROM centers WHERE owner_id = auth.uid()) OR
+    center_id IN (SELECT center_id FROM center_members WHERE user_id = auth.uid())
 );
