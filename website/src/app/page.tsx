@@ -42,7 +42,6 @@ export default function Dashboard() {
   const { 
     students = [], 
     attendance = [], 
-    memorization = [], 
     centerType = 'men', 
     activities = [], 
     loading 
@@ -50,12 +49,10 @@ export default function Dashboard() {
 
   const safeStudents = Array.isArray(students) ? students : [];
   const safeAttendance = Array.isArray(attendance) ? attendance : [];
-  const safeActivities = Array.isArray(activities) ? activities : [];
-
-  const hijriDate = getHijriDate();
 
   if (!mounted) return null;
 
+  // Render safe loading state
   if (loading && safeStudents.length === 0) {
     return (
       <div className="min-h-[60vh] flex items-center justify-center">
@@ -64,31 +61,37 @@ export default function Dashboard() {
     );
   }
 
+  // Defensively calculate everything
   const isMen = centerType === 'men';
-  const labels = {
-    welcome: "أهلاً بك 👋",
-    students: isMen ? "الطلاب" : "الطالبات",
-    student: isMen ? "طالب" : "طالبة",
-    honorTitle: isMen ? "فرسان الحلقة" : "ملكات الحلقة",
-    addStudent: isMen ? "إضافة طالب" : "إضافة طالبة",
-  };
-
-  // Safe Stats Calculation
-  const stats = {
-    totalStudents: safeStudents.length,
-    presentToday: 0,
-    absentToday: 0,
-    attendanceRate: 0
-  };
+  let stats = { totalStudents: 0, presentToday: 0, absentToday: 0, attendanceRate: 0 };
+  let hijriDateData = { full: "---" };
+  let labels = { welcome: "أهلاً بك", students: "الطلاب", student: "طالب", honorTitle: "الفرسان", addStudent: "إضافة" };
 
   try {
+    const hDate = getHijriDate();
+    if (hDate) hijriDateData = hDate;
+
+    labels = {
+      welcome: "أهلاً بك 👋",
+      students: isMen ? "الطلاب" : "الطالبات",
+      student: isMen ? "طالب" : "طالبة",
+      honorTitle: isMen ? "فرسان الحلقة" : "ملكات الحلقة",
+      addStudent: isMen ? "إضافة طالب" : "إضافة طالبة",
+    };
+
     const today = new Date().toISOString().split("T")[0];
     const todayAttendance = safeAttendance.filter(a => a && a.date === today);
-    stats.presentToday = todayAttendance.filter(a => a && (a.status === "present" || a.status === "late")).length;
-    stats.absentToday = todayAttendance.filter(a => a && a.status === "absent").length;
-    stats.attendanceRate = safeStudents.length > 0 ? Math.round((stats.presentToday / safeStudents.length) * 100) : 0;
-  } catch (e) {
-    console.error("Stats calculation error:", e);
+    const presentToday = todayAttendance.filter(a => a && (a.status === "present" || a.status === "late")).length;
+    const absentToday = todayAttendance.filter(a => a && a.status === "absent").length;
+    
+    stats = {
+      totalStudents: safeStudents.length,
+      presentToday,
+      absentToday,
+      attendanceRate: safeStudents.length > 0 ? Math.round((presentToday / safeStudents.length) * 100) : 0
+    };
+  } catch (err) {
+    console.error("Dashboard calculation error:", err);
   }
 
   return (
@@ -110,7 +113,7 @@ export default function Dashboard() {
             </div>
             <div>
               <p className="text-[11px] font-black text-teal-600 dark:text-teal-400 uppercase tracking-[0.2em] mb-1">التاريخ الهجري</p>
-              <p className="text-xl font-black text-gray-800 dark:text-white">{hijriDate.full}</p>
+              <p className="text-xl font-black text-gray-800 dark:text-white">{hijriDateData.full}</p>
             </div>
           </div>
           <button className="w-16 h-16 bg-white dark:bg-gray-900 rounded-2xl flex items-center justify-center border border-gray-100 dark:border-gray-800 shadow-xl text-gray-400 hover:text-teal-600 transition-all">

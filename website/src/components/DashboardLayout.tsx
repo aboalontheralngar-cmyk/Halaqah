@@ -18,7 +18,8 @@ import {
   ShieldCheck,
   Palmtree,
   LogOut,
-  Building2
+  Building2,
+  Loader2
 } from "lucide-react";
 import { useStore } from "@/store/useStore";
 import { supabase } from "@/lib/supabase";
@@ -27,7 +28,21 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const router = useRouter();
   const pathname = usePathname();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const { darkMode, toggleDarkMode, centerType, user, setUser, currentCenter, profile, fetchProfile } = useStore();
+  
+  const { 
+    darkMode, 
+    toggleDarkMode, 
+    centerType, 
+    user, 
+    setUser, 
+    currentCenter, 
+    profile, 
+    fetchProfile,
+    fetchStudents, 
+    fetchActivities 
+  } = useStore();
+
+  const isAuthPage = pathname === "/login" || pathname === "/onboarding" || pathname === "/select-center";
 
   const navItems = useMemo(() => {
     const items = [
@@ -40,13 +55,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       { id: "reports", label: "التقارير", icon: BarChart3, href: "/reports" },
     ];
 
-    // Only show Teachers management for Center Admins and Supervisors
     if (profile?.role === 'center_admin' || profile?.role === 'supervisor') {
       items.push({ id: "teachers", label: "المعلمون", icon: Users, href: "/teachers" });
     }
 
     items.push({ id: "settings", label: "الإعدادات", icon: Settings, href: "/settings" });
-    
     return items;
   }, [centerType, profile?.role]);
 
@@ -56,9 +69,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     );
     return current?.id || "home";
   }, [pathname, navItems]);
-
-  // Do not apply layout logic or sidebar for auth-related pages
-  const isAuthPage = pathname === "/login" || pathname === "/onboarding" || pathname === "/select-center";
 
   useEffect(() => {
     const checkUser = async () => {
@@ -87,12 +97,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     checkUser();
   }, [user, profile, pathname, isAuthPage]);
 
-  if (isAuthPage) {
-    return <>{children}</>;
-  }
-
-  const { fetchStudents, fetchActivities } = useStore();
-
   useEffect(() => {
     if (user && currentCenter && profile && !isAuthPage) {
       fetchStudents();
@@ -100,32 +104,37 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     }
   }, [user, currentCenter, profile, isAuthPage, fetchStudents, fetchActivities]);
 
+  useEffect(() => {
+    if (isAuthPage) return;
+    
+    if (!user) {
+      router.push("/login");
+    } else if (!currentCenter && pathname !== "/select-center") {
+      router.push("/select-center");
+    }
+  }, [user, currentCenter, pathname, isAuthPage]);
+
   const handleNavClick = (href: string) => {
     router.push(href);
     setMobileMenuOpen(false);
   };
 
-  useEffect(() => {
-    if (pathname === "/login" || pathname === "/select-center" || pathname === "/onboarding") return;
-    
-    if (!user) {
-      router.push("/login");
-    } else if (!currentCenter) {
-      router.push("/select-center");
-    }
-  }, [user, currentCenter, pathname, router]);
+  // --- RENDER LOGIC STARTS HERE ---
 
-  // If it's the login or select-center page, just render the children without the sidebar
-  if (pathname === "/login" || pathname === "/select-center") {
-    return <div dir="rtl">{children}</div>;
+  if (isAuthPage) {
+    return <div dir="rtl" className="min-h-screen bg-gray-50 dark:bg-gray-950">{children}</div>;
   }
 
-  // 1. Check if User is Logged In
   if (!user || !currentCenter) {
-    return null;
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-950">
+        <Loader2 className="w-10 h-10 text-teal-600 animate-spin" />
+      </div>
+    );
   }
 
-  const centerInitial = currentCenter?.name ? currentCenter.name[0] : "?";
+  const centerNameSafe = currentCenter?.name || "المركز";
+  const centerInitial = centerNameSafe[0] || "?";
 
   return (
     <div className={`${darkMode ? "dark" : ""} min-h-screen bg-gray-50 dark:bg-gray-950 flex flex-col lg:flex-row transition-colors duration-500`} dir="rtl">
@@ -208,7 +217,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               {centerInitial}
             </div>
             <div className="flex-1 overflow-hidden">
-              <p className="text-xs font-black text-gray-800 dark:text-white truncate">{currentCenter?.name}</p>
+              <p className="text-xs font-black text-gray-800 dark:text-white truncate">{centerNameSafe}</p>
               <p className="text-[10px] font-bold text-teal-600 dark:text-teal-400 truncate">حلقة: {currentCenter?.activeHalaqa?.name || "عام"}</p>
             </div>
           </div>
