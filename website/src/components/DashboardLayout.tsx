@@ -62,22 +62,26 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   useEffect(() => {
     const checkUser = async () => {
-      if (isAuthPage) return;
+      try {
+        if (isAuthPage) return;
 
-      if (user && !profile) {
-        await fetchProfile();
-        const updatedProfile = useStore.getState().profile;
-        if (!updatedProfile) {
-          router.push("/onboarding");
+        if (user && !profile) {
+          await fetchProfile();
+          const updatedProfile = useStore.getState().profile;
+          if (!updatedProfile) {
+            router.push("/onboarding");
+          }
+        } else if (!user) {
+          if (!supabase) return;
+          const { data } = await supabase.auth.getSession();
+          if (data?.session) {
+            setUser(data.session.user);
+          } else {
+            router.push("/login");
+          }
         }
-      } else if (!user) {
-        // Double check session
-        const { data } = await supabase!.auth.getSession();
-        if (data.session) {
-          setUser(data.session.user);
-        } else {
-          router.push("/login");
-        }
+      } catch (err) {
+        console.error("Auth check error:", err);
       }
     };
     checkUser();
@@ -102,7 +106,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   };
 
   useEffect(() => {
-    if (pathname === "/login" || pathname === "/select-center") return;
+    if (pathname === "/login" || pathname === "/select-center" || pathname === "/onboarding") return;
     
     if (!user) {
       router.push("/login");
@@ -120,6 +124,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   if (!user || !currentCenter) {
     return null;
   }
+
+  const centerInitial = currentCenter?.name ? currentCenter.name[0] : "?";
 
   return (
     <div className={`${darkMode ? "dark" : ""} min-h-screen bg-gray-50 dark:bg-gray-950 flex flex-col lg:flex-row transition-colors duration-500`} dir="rtl">
@@ -196,10 +202,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           ))}
         </nav>
 
-        <div className="mt-auto mb-6 p-5 bg-teal-50 dark:bg-teal-900/20 rounded-[2.5rem] border border-teal-100/50 dark:border-teal-800/30">
+        <div className="mt-auto mb-6 p-5 bg-teal-50 dark:bg-teal-900/20 rounded-3xl border border-teal-100/50 dark:border-teal-800/30">
           <div className="flex items-center gap-3">
             <div className={`w-10 h-10 rounded-2xl flex items-center justify-center text-white font-bold ${centerType === 'men' ? "bg-teal-600" : "bg-rose-500"}`}>
-              {currentCenter?.name[0]}
+              {centerInitial}
             </div>
             <div className="flex-1 overflow-hidden">
               <p className="text-xs font-black text-gray-800 dark:text-white truncate">{currentCenter?.name}</p>
@@ -210,7 +216,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
         <button 
           onClick={() => router.push("/select-center")}
-          className="mb-3 p-4 bg-gray-50 dark:bg-gray-800 rounded-3xl border border-gray-100 dark:border-gray-700 group hover:bg-teal-600 transition-all text-right"
+          className="mb-3 p-4 bg-gray-50 dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 group hover:bg-teal-600 transition-all text-right"
         >
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-teal-100 dark:bg-teal-900/30 rounded-2xl flex items-center justify-center text-teal-600 group-hover:bg-white group-hover:text-teal-600 transition-all">
@@ -228,7 +234,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             setUser(null);
             router.push("/login");
           }}
-          className="p-4 bg-rose-50 dark:bg-rose-900/20 rounded-3xl border border-rose-100/50 dark:border-rose-800/30 group hover:bg-rose-600 transition-all text-right"
+          className="p-4 bg-rose-50 dark:bg-rose-900/20 rounded-2xl border border-rose-100/50 dark:border-rose-800/30 group hover:bg-rose-600 transition-all text-right"
         >
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-rose-600 rounded-2xl flex items-center justify-center text-white font-bold group-hover:bg-white group-hover:text-rose-600 transition-all">
