@@ -171,6 +171,7 @@ export const useStore = create<HalaqahStore>((set, get) => ({
   setProfile: (profile) => set({ profile }),
 
   fetchProfile: async () => {
+    if (!supabase) return;
     const user = get().user;
     if (!user) return;
 
@@ -196,6 +197,7 @@ export const useStore = create<HalaqahStore>((set, get) => ({
   },
 
   createSupervisor: async (name) => {
+    if (!supabase) return null;
     const user = get().user;
     if (!user) return null;
 
@@ -214,6 +216,7 @@ export const useStore = create<HalaqahStore>((set, get) => ({
   },
 
   joinSupervisor: async (code) => {
+    if (!supabase) return false;
     const center = get().currentCenter;
     if (!center) return false;
 
