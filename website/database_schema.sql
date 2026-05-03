@@ -58,10 +58,12 @@ CREATE TABLE halaqat (
 CREATE TABLE center_members (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     center_id UUID REFERENCES centers(id) ON DELETE CASCADE,
-    user_id UUID REFERENCES auth.users(id),
+    user_id UUID REFERENCES auth.users(id), -- اختياري حتى يقوم المعلم بالتسجيل
+    email TEXT NOT NULL, -- البريد الإلكتروني للمعلم
     role TEXT CHECK (role IN ('admin', 'teacher')) DEFAULT 'teacher',
+    halaqah_id UUID REFERENCES halaqat(id) ON DELETE SET NULL, -- الحلقة المسندة للمعلم
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    UNIQUE(center_id, user_id)
+    UNIQUE(center_id, email)
 );
 
 -- 3. جدول الطلاب (Students)

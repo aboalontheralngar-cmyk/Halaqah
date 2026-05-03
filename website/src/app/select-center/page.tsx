@@ -72,6 +72,18 @@ export default function SelectCenterPage() {
         setLoading(false);
         return;
       }
+    } else if (profile?.role === 'teacher') {
+      // Fetch centers where user is a teacher
+      const { data: memberData } = await supabase
+        .from('center_members')
+        .select('center_id, centers (*)')
+        .eq('user_id', user.id);
+      
+      if (memberData) {
+        setCenters(memberData.map((m: any) => m.centers).filter(Boolean));
+        setLoading(false);
+        return;
+      }
     } else {
       query = query.eq('owner_id', user.id);
     }

@@ -26,18 +26,28 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const router = useRouter();
   const pathname = usePathname();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const { darkMode, toggleDarkMode, centerType, user, setUser, currentCenter } = useStore();
+  const { darkMode, toggleDarkMode, centerType, user, setUser, currentCenter, profile } = useStore();
 
-  const navItems = useMemo(() => [
-    { id: "home", label: "الرئيسية", icon: Home, href: "/" },
-    { id: "students", label: centerType === 'men' ? "الطلاب" : "الطالبات", icon: Users, href: "/students" },
-    { id: "attendance", label: "الحضور", icon: ClipboardCheck, href: "/attendance" },
-    { id: "memorization", label: "الحفظ", icon: BookOpen, href: "/memorization" },
-    { id: "points", label: "السلوك والنقاط", icon: ShieldCheck, href: "/points" },
-    { id: "exams", label: "الامتحانات", icon: FileText, href: "/exams" },
-    { id: "reports", label: "التقارير", icon: BarChart3, href: "/reports" },
-    { id: "settings", label: "الإعدادات", icon: Settings, href: "/settings" },
-  ], [centerType]);
+  const navItems = useMemo(() => {
+    const items = [
+      { id: "home", label: "الرئيسية", icon: Home, href: "/" },
+      { id: "students", label: centerType === 'men' ? "الطلاب" : "الطالبات", icon: Users, href: "/students" },
+      { id: "attendance", label: "الحضور", icon: ClipboardCheck, href: "/attendance" },
+      { id: "memorization", label: "الحفظ", icon: BookOpen, href: "/memorization" },
+      { id: "points", label: "السلوك والنقاط", icon: ShieldCheck, href: "/points" },
+      { id: "exams", label: "الامتحانات", icon: FileText, href: "/exams" },
+      { id: "reports", label: "التقارير", icon: BarChart3, href: "/reports" },
+    ];
+
+    // Only show Teachers management for Center Admins and Supervisors
+    if (profile?.role === 'center_admin' || profile?.role === 'supervisor') {
+      items.push({ id: "teachers", label: "المعلمون", icon: Users, href: "/teachers" });
+    }
+
+    items.push({ id: "settings", label: "الإعدادات", icon: Settings, href: "/settings" });
+    
+    return items;
+  }, [centerType, profile?.role]);
 
   const activeNav = useMemo(() => {
     const current = navItems.find(item => 

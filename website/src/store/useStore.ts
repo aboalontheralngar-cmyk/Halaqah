@@ -15,6 +15,14 @@ export interface Supervisor {
   code: string;
 }
 
+export interface Teacher {
+  id: string;
+  email: string;
+  role: 'admin' | 'teacher';
+  halaqahId?: string;
+  halaqahName?: string;
+}
+
 export interface Student {
   id: string;
   name: string;
@@ -101,6 +109,7 @@ interface HalaqahStore {
   currentCenter: { id: string, name: string, type: 'men' | 'women', activeHalaqa?: { id: string, name: string } } | null;
   userCenters: { id: string, name: string, type: 'men' | 'women' }[];
   currentSupervisor: Supervisor | null;
+  teachers: Teacher[];
 
   // Actions
   setUser: (user: any) => void;
@@ -108,6 +117,9 @@ interface HalaqahStore {
   setProfile: (profile: Profile | null) => void;
   createSupervisor: (name: string) => Promise<string | null>;
   joinSupervisor: (code: string) => Promise<boolean>;
+  fetchTeachers: () => Promise<void>;
+  addTeacher: (email: string, halaqahId?: string) => Promise<void>;
+  removeTeacher: (id: string) => Promise<void>;
   setUserCenters: (centers: { id: string, name: string, type: 'men' | 'women' }[]) => void;
   setCurrentCenter: (center: { id: string, name: string, type: 'men' | 'women' } | null) => void;
   setCenterType: (type: 'men' | 'women') => void;
@@ -158,13 +170,14 @@ export const useStore = create<HalaqahStore>((set, get) => ({
   currentCenter: null,
   userCenters: [],
   currentSupervisor: null,
+  teachers: [],
 
   setUser: (user) => {
     set({ user });
     if (user) {
       get().fetchProfile();
     } else {
-      set({ profile: null, currentCenter: null, userCenters: [], currentSupervisor: null });
+      set({ profile: null, currentCenter: null, userCenters: [], currentSupervisor: null, teachers: [] });
     }
   },
 
@@ -192,6 +205,17 @@ export const useStore = create<HalaqahStore>((set, get) => ({
           .eq('owner_id', user.id)
           .single();
         if (supData) set({ currentSupervisor: { id: supData.id, name: supData.name, code: supData.code } });
+      }
+    } else {
+      // If no profile, check if user is a teacher in any center
+      const { data: memberData } = await supabase
+        .from('center_members')
+        .select('role')
+        .eq('user_id', user.id)
+        .limit(1);
+      
+      if (memberData && memberData.length > 0) {
+        set({ profile: { id: user.id, fullName: user.user_metadata?.full_name || 'معلم', role: 'teacher' } });
       }
     }
   },
@@ -235,6 +259,67 @@ export const useStore = create<HalaqahStore>((set, get) => ({
       return !error;
     }
     return false;
+  },
+
+  fetchTeachers: async () => {
+    if (!supabase) return;
+    const center = get().currentCenter;
+    if (!center) return;
+
+    const { data, error } = await supabase
+      .from('center_members')
+      .select(`
+        id,
+        email,
+        role,
+        halaqah_id,
+        halaqat (name)
+      `)
+      .eq('center_id', center.id);
+
+    if (!error && data) {
+      const mapped = data.map((t: any) => ({
+        id: t.id,
+        email: t.email,
+        role: t.role,
+        halaqahId: t.halaqah_id,
+        halaqahName: t.halaqat?.name
+      }));
+      set({ teachers: mapped as Teacher[] });
+    }
+  },
+
+  addTeacher: async (email, halaqahId) => {
+    if (!supabase) return;
+    const center = get().currentCenter;
+    if (!center) return;
+
+    const { error } = await supabase
+      .from('center_members')
+      .insert([{ 
+        email, 
+        center_id: center.id, 
+        halaqah_id: halaqahId,
+        role: 'teacher' 
+      }]);
+
+    if (!error) {
+      get().fetchTeachers();
+    } else {
+      alert("فشل إضافة المعلم: " + error.message);
+    }
+  },
+
+  removeTeacher: async (id) => {
+    if (!supabase) return;
+    const { error } = await supabase
+      .from('center_members')
+      .delete()
+      .eq('id', id);
+
+    if (!error) {
+      set((state) => ({ teachers: state.teachers.filter(t => t.id !== id) }));
+    }
   },
 
   setUserCenters: (centers) => set({ userCenters: centers }),
