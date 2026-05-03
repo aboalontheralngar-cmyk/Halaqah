@@ -14,7 +14,9 @@ import {
   Loader2,
   ShieldCheck,
   Users,
-  VenetianMask
+  VenetianMask,
+  Eye,
+  EyeOff
 } from "lucide-react";
 import { useStore } from "@/store/useStore";
 import { supabase } from "@/lib/supabase";
@@ -23,30 +25,31 @@ export default function AuthPage() {
   const router = useRouter();
   const [isLogin, setIsLogin] = useState(true);
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const { setCenterType, setUser } = useStore();
 
   const [formData, setFormData] = useState({
     email: "",
     password: "",
-    fullName: "",
-    role: "center_admin" as "center_admin" | "supervisor",
-    centerName: "",
-    centerAddress: "",
-    centerType: "men" as "men" | "women",
-    supervisorName: ""
+    confirmPassword: ""
   });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    if (!isLogin && formData.password !== formData.confirmPassword) {
+      alert("كلمات المرور غير متطابقة!");
+      return;
+    }
+
     setLoading(true);
     
     if (!supabase) {
       // Mock for demo
       setTimeout(() => {
         setLoading(false);
-        setCenterType(formData.centerType);
         setUser({ id: "mock-user", email: formData.email, name: "مشرف الحلقة" });
-        router.push("/select-center");
+        router.push("/onboarding");
       }, 1500);
       return;
     }
@@ -116,7 +119,7 @@ export default function AuthPage() {
 
           <form onSubmit={handleSubmit} className="space-y-6">
             <div className="relative group">
-              <Mail className="absolute right-6 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 group-focus-within:text-teal-600" />
+              <Mail className="absolute right-6 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 group-focus-within:text-teal-600 transition-colors" />
               <input 
                 type="email" 
                 required 
@@ -128,16 +131,37 @@ export default function AuthPage() {
             </div>
 
             <div className="relative group">
-              <Lock className="absolute right-6 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 group-focus-within:text-teal-600" />
+              <Lock className="absolute right-6 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 group-focus-within:text-teal-600 transition-colors" />
               <input 
-                type="password" 
+                type={showPassword ? "text" : "password"} 
                 required 
                 value={formData.password}
                 onChange={e => setFormData({...formData, password: e.target.value})}
                 placeholder="كلمة المرور"
-                className="w-full pr-14 pl-6 py-5 bg-gray-50 dark:bg-gray-900 border-none rounded-[2rem] text-sm font-bold outline-none focus:ring-2 ring-teal-500/20 dark:text-white transition-all"
+                className="w-full pr-14 pl-14 py-5 bg-gray-50 dark:bg-gray-900 border-none rounded-[2rem] text-sm font-bold outline-none focus:ring-2 ring-teal-500/20 dark:text-white transition-all"
               />
+              <button 
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute left-6 top-1/2 -translate-y-1/2 text-gray-400 hover:text-teal-600 transition-colors"
+              >
+                {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+              </button>
             </div>
+
+            {!isLogin && (
+              <div className="relative group animate-in fade-in slide-in-from-top-2">
+                <Lock className="absolute right-6 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 group-focus-within:text-teal-600 transition-colors" />
+                <input 
+                  type={showPassword ? "text" : "password"} 
+                  required 
+                  value={formData.confirmPassword}
+                  onChange={e => setFormData({...formData, confirmPassword: e.target.value})}
+                  placeholder="تأكيد كلمة المرور"
+                  className="w-full pr-14 pl-6 py-5 bg-gray-50 dark:bg-gray-900 border-none rounded-[2rem] text-sm font-bold outline-none focus:ring-2 ring-teal-500/20 dark:text-white transition-all"
+                />
+              </div>
+            )}
 
             <button 
               type="submit" 
