@@ -433,6 +433,53 @@ class DatabaseService {
     }
   }
 
+  Future<void> restoreFromBackup(Map<String, dynamic> backup) async {
+    final db = await database;
+
+    await db.transaction((txn) async {
+      // Clear existing data (children first, then parents)
+      await txn.delete('daily_records');
+      await txn.delete('memorization_progress');
+      await txn.delete('behavior_points');
+      await txn.delete('vacations');
+      await txn.delete('exams');
+      await txn.delete('students');
+      await txn.delete('settings');
+
+      Future<void> insertAll(String table, dynamic list) async {
+        if (list is! List) return;
+        for (final item in list) {
+          if (item is Map) {
+            await txn.insert(
+              table,
+              Map<String, dynamic>.from(item),
+              conflictAlgorithm: ConflictAlgorithm.replace,
+            );
+          }
+        }
+      }
+
+      await insertAll('students', backup['students']);
+      await insertAll('daily_records', backup['records']);
+      await insertAll('memorization_progress', backup['memorizations']);
+      await insertAll('behavior_points', backup['behavior_points']);
+      await insertAll('vacations', backup['vacations']);
+      await insertAll('exams', backup['exams']);
+
+      final settings = backup['settings'];
+      if (settings is Map) {
+        for (final entry in settings.entries) {
+          if (entry.value == null) continue;
+          await txn.insert(
+            'settings',
+            {'key': entry.key.toString(), 'value': entry.value.toString()},
+            conflictAlgorithm: ConflictAlgorithm.replace,
+          );
+        }
+      }
+    });
+  }
+
   Future<Map<String, dynamic>> getStudentStatistics(String studentId) async {
     final db = await database;
     

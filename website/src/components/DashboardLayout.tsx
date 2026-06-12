@@ -17,6 +17,12 @@ import {
   Sun,
   ShieldCheck,
   Palmtree,
+  Wallet,
+  Target,
+  AlertTriangle,
+  Trophy,
+  User,
+  Bell,
   LogOut,
   Building2,
   Loader2
@@ -38,8 +44,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     currentCenter, 
     profile, 
     fetchProfile,
-    fetchStudents, 
-    fetchActivities 
+    fetchCenterData 
   } = useStore();
 
   const isAuthPage = pathname === "/login" || pathname === "/onboarding" || pathname === "/select-center";
@@ -48,11 +53,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     const items = [
       { id: "home", label: "الرئيسية", icon: Home, href: "/" },
       { id: "students", label: centerType === 'men' ? "الطلاب" : "الطالبات", icon: Users, href: "/students" },
+      { id: "parents", label: "أولياء الأمور", icon: User, href: "/parents" },
       { id: "attendance", label: "الحضور", icon: ClipboardCheck, href: "/attendance" },
+      { id: "discipline", label: "الانضباط", icon: AlertTriangle, href: "/discipline" },
       { id: "memorization", label: "الحفظ", icon: BookOpen, href: "/memorization" },
+      { id: "plans", label: "الخطط الذكية", icon: Target, href: "/plans" },
       { id: "points", label: "السلوك والنقاط", icon: ShieldCheck, href: "/points" },
+      { id: "fund", label: "صندوق الحلقة", icon: Wallet, href: "/fund" },
+      { id: "vacations", label: "الإجازات", icon: Palmtree, href: "/vacations" },
       { id: "exams", label: "الامتحانات", icon: FileText, href: "/exams" },
+      { id: "honor-board", label: "لوحة الشرف", icon: Trophy, href: "/honor-board" },
       { id: "reports", label: "التقارير", icon: BarChart3, href: "/reports" },
+      { id: "notifications", label: "الإشعارات", icon: Bell, href: "/notifications" },
     ];
 
     if (profile?.role === 'center_admin' || profile?.role === 'supervisor') {
@@ -99,10 +111,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   useEffect(() => {
     if (user && currentCenter && profile && !isAuthPage) {
-      fetchStudents();
-      fetchActivities();
+      fetchCenterData();
     }
-  }, [user, currentCenter, profile, isAuthPage, fetchStudents, fetchActivities]);
+  }, [user, currentCenter, profile, isAuthPage, fetchCenterData]);
 
   useEffect(() => {
     if (isAuthPage) return;
