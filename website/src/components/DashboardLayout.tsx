@@ -38,8 +38,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     currentCenter, 
     profile, 
     fetchProfile,
-    fetchStudents, 
-    fetchActivities 
+    fetchCenterData 
   } = useStore();
 
   const isAuthPage = pathname === "/login" || pathname === "/onboarding" || pathname === "/select-center";
@@ -51,6 +50,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       { id: "attendance", label: "الحضور", icon: ClipboardCheck, href: "/attendance" },
       { id: "memorization", label: "الحفظ", icon: BookOpen, href: "/memorization" },
       { id: "points", label: "السلوك والنقاط", icon: ShieldCheck, href: "/points" },
+      { id: "vacations", label: "الإجازات", icon: Palmtree, href: "/vacations" },
       { id: "exams", label: "الامتحانات", icon: FileText, href: "/exams" },
       { id: "reports", label: "التقارير", icon: BarChart3, href: "/reports" },
     ];
@@ -99,10 +99,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   useEffect(() => {
     if (user && currentCenter && profile && !isAuthPage) {
-      fetchStudents();
-      fetchActivities();
+      fetchCenterData();
     }
-  }, [user, currentCenter, profile, isAuthPage, fetchStudents, fetchActivities]);
+  }, [user, currentCenter, profile, isAuthPage, fetchCenterData]);
 
   useEffect(() => {
     if (isAuthPage) return;

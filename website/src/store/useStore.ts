@@ -146,18 +146,18 @@ interface HalaqahStore {
   addActivity: (type: string, description: string) => Promise<void>;
   fetchActivities: () => Promise<void>;
 
+  fetchAttendance: () => Promise<void>;
+  fetchMemorization: () => Promise<void>;
+  fetchPoints: () => Promise<void>;
+  fetchVacations: () => Promise<void>;
+  fetchExams: () => Promise<void>;
+  fetchCenterData: () => Promise<void>;
+
   toggleDarkMode: () => void;
-  setInitialData: () => void;
 }
 
-const initialStudents: Student[] = [
-  { id: '1', name: 'أحمد محمد', phone: '0551234567', parentPhone: '0551234568', age: 12, level: 'متوسط', joinDate: '2024-09-01', planType: 'ayahs', planAmount: 5, status: 'active' },
-  { id: '2', name: 'عمر علي', phone: '0552345678', parentPhone: '0552345679', age: 10, level: 'مبتدئ', joinDate: '2024-09-15', planType: 'ayahs', planAmount: 3, status: 'active' },
-  { id: '3', name: 'خالد يوسف', phone: '0553456789', parentPhone: '0553456780', age: 14, level: 'متقدم', joinDate: '2024-08-20', planType: 'pages', planAmount: 1, status: 'active' },
-];
-
 export const useStore = create<HalaqahStore>((set, get) => ({
-  students: initialStudents,
+  students: [],
   attendance: [],
   memorization: [],
   points: [],
@@ -378,8 +378,6 @@ export const useStore = create<HalaqahStore>((set, get) => ({
     localStorage.setItem("darkMode", String(newMode));
     set({ darkMode: newMode });
   },
-
-  setInitialData: () => set({ students: initialStudents }),
 
   fetchStudents: async () => {
     const center = get().currentCenter;
@@ -708,6 +706,140 @@ export const useStore = create<HalaqahStore>((set, get) => ({
         set((state) => ({ exams: [...state.exams, { ...data, maxDegree: data.max_degree, studentScores: [] } as any] }));
       }
     }
+  },
+
+  fetchAttendance: async () => {
+    const center = get().currentCenter;
+    if (!supabase || !center) return;
+    const { data, error } = await supabase
+      .from('attendance')
+      .select('*')
+      .eq('center_id', center.id)
+      .order('date', { ascending: false })
+      .limit(2000);
+    if (!error && data) {
+      set({
+        attendance: data.map((a: any) => ({
+          id: a.id,
+          studentId: a.student_id,
+          date: a.date,
+          status: a.status,
+          arrivalTime: a.arrival_time,
+          absenceReason: a.absence_reason,
+          notes: a.notes,
+        })) as AttendanceRecord[],
+      });
+    }
+  },
+
+  fetchMemorization: async () => {
+    const center = get().currentCenter;
+    if (!supabase || !center) return;
+    const { data, error } = await supabase
+      .from('memorization')
+      .select('*')
+      .eq('center_id', center.id)
+      .order('date', { ascending: false })
+      .limit(2000);
+    if (!error && data) {
+      set({
+        memorization: data.map((m: any) => ({
+          id: m.id,
+          studentId: m.student_id,
+          surah: m.surah,
+          fromAyah: m.from_ayah,
+          toAyah: m.to_ayah,
+          date: m.date,
+          degree: m.degree,
+          notes: m.notes,
+        })) as MemorizationRecord[],
+      });
+    }
+  },
+
+  fetchPoints: async () => {
+    const center = get().currentCenter;
+    if (!supabase || !center) return;
+    const { data, error } = await supabase
+      .from('points')
+      .select('*')
+      .eq('center_id', center.id)
+      .order('date', { ascending: false })
+      .limit(2000);
+    if (!error && data) {
+      set({
+        points: data.map((p: any) => ({
+          id: p.id,
+          studentId: p.student_id,
+          type: p.type,
+          amount: p.amount,
+          reason: p.reason,
+          date: p.date,
+          resolved: p.resolved,
+        })) as PointRecord[],
+      });
+    }
+  },
+
+  fetchVacations: async () => {
+    const center = get().currentCenter;
+    if (!supabase || !center) return;
+    const { data, error } = await supabase
+      .from('vacations')
+      .select('*')
+      .eq('center_id', center.id)
+      .order('start_date', { ascending: false });
+    if (!error && data) {
+      set({
+        vacations: data.map((v: any) => ({
+          id: v.id,
+          studentId: v.student_id,
+          startDate: v.start_date,
+          endDate: v.end_date,
+          reason: v.reason,
+          approved: v.approved,
+        })) as Vacation[],
+      });
+    }
+  },
+
+  fetchExams: async () => {
+    const center = get().currentCenter;
+    if (!supabase || !center) return;
+    const { data, error } = await supabase
+      .from('exams')
+      .select('*, exam_scores (student_id, degree, notes)')
+      .eq('center_id', center.id)
+      .order('date', { ascending: false });
+    if (!error && data) {
+      set({
+        exams: data.map((e: any) => ({
+          id: e.id,
+          title: e.title,
+          date: e.date,
+          type: e.type,
+          maxDegree: e.max_degree,
+          studentScores: (e.exam_scores || []).map((s: any) => ({
+            studentId: s.student_id,
+            degree: s.degree,
+            notes: s.notes,
+          })),
+        })) as Exam[],
+      });
+    }
+  },
+
+  fetchCenterData: async () => {
+    const g = get();
+    await Promise.all([
+      g.fetchStudents(),
+      g.fetchAttendance(),
+      g.fetchMemorization(),
+      g.fetchPoints(),
+      g.fetchVacations(),
+      g.fetchExams(),
+      g.fetchActivities(),
+    ]);
   },
 
   updateExamScore: async (examId, studentId, degree, notes) => {
