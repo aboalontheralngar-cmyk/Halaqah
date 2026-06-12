@@ -12,12 +12,7 @@ dependencies:
   
   cupertino_icons: ^1.0.6
   
-  # Firebase
-  firebase_core: ^4.7.0
-  firebase_auth: ^6.4.0
-  cloud_firestore: ^6.3.0
-  
-  # Local Storage (Keep for legacy/cache)
+  # Local Storage
   sqflite: ^2.3.0
   path: ^1.8.3
   path_provider: ^2.1.1

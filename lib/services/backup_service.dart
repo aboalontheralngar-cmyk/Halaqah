@@ -22,8 +22,12 @@ class BackupService {
     final allVacations = <Map<String, dynamic>>[];
     
     for (final student in students) {
-      final records = await _db.getStudentRecords(student.id, limit: 1000);
+      final records = await _db.getStudentRecords(student.id, limit: 100000);
       allRecords.addAll(records.map((r) => r.toMap()));
+
+      final memorizations = await _db.getStudentMemorization(student.id);
+      allMemorizations.addAll(memorizations.map((m) => m.toMap()));
+
       
       final points = await _db.getStudentBehaviorPoints(student.id);
       allBehaviorPoints.addAll(points.map((p) => p.toMap()));
@@ -63,10 +67,17 @@ class BackupService {
     try {
       final file = File(filePath);
       if (!await file.exists()) return false;
-      
+
       final jsonString = await file.readAsString();
-      json.decode(jsonString) as Map<String, dynamic>;
-      
+      final backup = json.decode(jsonString) as Map<String, dynamic>;
+
+      // Validate backup structure before touching the database
+      if (backup['version'] == null || backup['students'] is! List) {
+        return false;
+      }
+
+      await _db.restoreFromBackup(backup);
+
       return true;
     } catch (e) {
       return false;
