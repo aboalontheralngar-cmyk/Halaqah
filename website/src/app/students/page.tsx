@@ -20,10 +20,12 @@ import {
   Target,
   Camera,
   CircleCheck,
-  CircleDashed
+  CircleDashed,
+  Map
 } from "lucide-react";
 import { useStore, Student } from "@/store/useStore";
 import { QRCodeSVG } from "qrcode.react";
+import MushafVisualizer from "@/components/MushafVisualizer";
 
 const levels = [
   { id: "الكل", label: "الكل" },
@@ -38,6 +40,7 @@ export default function StudentsPage() {
   const [selectedLevel, setSelectedLevel] = useState("الكل");
   const [showForm, setShowForm] = useState(false);
   const [showQR, setShowQR] = useState<Student | null>(null);
+  const [visualizingStudent, setVisualizingStudent] = useState<Student | null>(null);
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [formData, setFormData] = useState<Omit<Student, 'id'>>({ 
@@ -197,6 +200,13 @@ export default function StudentsPage() {
             </div>
 
             <div className={`flex gap-3 ${viewMode === "grid" ? "mt-8 justify-center border-t border-gray-50 dark:border-gray-800 pt-8" : "mt-4 md:mt-0"}`}>
+              <button 
+                onClick={() => setVisualizingStudent(student)} 
+                className="w-12 h-12 bg-teal-50 dark:bg-teal-900/20 text-teal-600 rounded-2xl flex items-center justify-center hover:bg-teal-600 hover:text-white transition-all"
+                title="خريطة المصحف"
+              >
+                <Map className="w-5 h-5" />
+              </button>
               <button onClick={() => setShowQR(student)} className="w-12 h-12 bg-amber-50 dark:bg-amber-900/20 text-amber-600 rounded-2xl flex items-center justify-center hover:bg-amber-600 hover:text-white transition-all"><QrCode className="w-5 h-5" /></button>
               <button onClick={() => handleEdit(student)} className="w-12 h-12 bg-blue-50 dark:bg-blue-900/20 text-blue-600 rounded-2xl flex items-center justify-center hover:bg-blue-600 hover:text-white transition-all"><Edit2 className="w-5 h-5" /></button>
               <button onClick={() => handleDelete(student.id)} className="w-12 h-12 bg-rose-50 dark:bg-rose-900/20 text-rose-600 rounded-2xl flex items-center justify-center hover:bg-rose-600 hover:text-white transition-all"><Trash2 className="w-5 h-5" /></button>
@@ -297,6 +307,14 @@ export default function StudentsPage() {
             <p className="text-xs font-bold text-gray-400 mt-2">كود الحضور الذكي</p>
           </div>
         </div>
+      )}
+
+      {/* Mushaf Map Modal */}
+      {visualizingStudent && (
+        <MushafVisualizer 
+          student={visualizingStudent} 
+          onClose={() => setVisualizingStudent(null)} 
+        />
       )}
     </div>
   );

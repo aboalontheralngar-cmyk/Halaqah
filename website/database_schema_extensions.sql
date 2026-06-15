@@ -257,6 +257,37 @@ CREATE TABLE IF NOT EXISTS center_settings (
 );
 
 -- ---------------------------------------------------------------------
+-- 11-b) التقييمات المتقدمة وتقدم المصحف للطلاب
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS homework_grades (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    student_id UUID NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+    center_id UUID REFERENCES centers(id) ON DELETE CASCADE,
+    halaqa_id UUID REFERENCES halaqas(id) ON DELETE CASCADE,
+    surah TEXT NOT NULL,
+    from_ayah INTEGER NOT NULL,
+    to_ayah INTEGER NOT NULL,
+    date DATE NOT NULL DEFAULT CURRENT_DATE,
+    grade_mark TEXT NOT NULL CHECK (grade_mark IN ('excellent', 'very_good', 'good', 'needs_work', 'absent')),
+    mistakes_count INTEGER DEFAULT 0,
+    is_revision BOOLEAN DEFAULT FALSE,
+    remark TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS mushaf_progress (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    student_id UUID NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+    center_id UUID REFERENCES centers(id) ON DELETE CASCADE,
+    hizb_number INTEGER NOT NULL CHECK (hizb_number BETWEEN 1 AND 60),
+    thumun_number INTEGER NOT NULL CHECK (thumun_number BETWEEN 1 AND 8),
+    average_grade NUMERIC(3,2) DEFAULT 0.0,
+    last_graded_date DATE,
+    is_pre_memorized BOOLEAN DEFAULT FALSE,
+    UNIQUE(student_id, hizb_number, thumun_number)
+);
+
+-- ---------------------------------------------------------------------
 -- 12) فهارس للأداء
 -- ---------------------------------------------------------------------
 CREATE INDEX IF NOT EXISTS idx_fund_tx_center_date ON fund_transactions(center_id, date);
@@ -269,6 +300,8 @@ CREATE INDEX IF NOT EXISTS idx_notifications_center ON notifications(center_id, 
 CREATE INDEX IF NOT EXISTS idx_competition_entries ON competition_entries(competition_id, score);
 CREATE INDEX IF NOT EXISTS idx_points_category ON points(center_id, category, date);
 CREATE INDEX IF NOT EXISTS idx_attendance_student_date ON attendance(student_id, date);
+CREATE INDEX IF NOT EXISTS idx_homework_grades_student_date ON homework_grades(student_id, date);
+CREATE INDEX IF NOT EXISTS idx_mushaf_progress_student ON mushaf_progress(student_id);
 
 -- ---------------------------------------------------------------------
 -- 13) تفعيل RLS وسياسات الوصول للجداول الجديدة
@@ -286,6 +319,8 @@ ALTER TABLE exam_questions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE weekly_competitions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE competition_entries ENABLE ROW LEVEL SECURITY;
 ALTER TABLE center_settings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE homework_grades ENABLE ROW LEVEL SECURITY;
+ALTER TABLE mushaf_progress ENABLE ROW LEVEL SECURITY;
 
 -- سياسة موحدة: مالك المركز أو عضو فيه
 DO $$
@@ -295,7 +330,8 @@ BEGIN
   FOREACH t IN ARRAY ARRAY[
     'fund_transactions', 'plans', 'recitation_errors', 'prayer_tracking',
     'appearance_checks', 'absence_followups', 'notifications',
-    'message_templates', 'exam_templates', 'weekly_competitions', 'center_settings'
+    'message_templates', 'exam_templates', 'weekly_competitions', 'center_settings',
+    'homework_grades', 'mushaf_progress'
   ]
   LOOP
     EXECUTE format('DROP POLICY IF EXISTS "Access %I by center" ON %I', t, t);
