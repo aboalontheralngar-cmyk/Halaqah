@@ -7,6 +7,9 @@ import '../models/behavior_point.dart';
 import '../models/vacation.dart';
 import '../models/exam.dart';
 import '../models/settings.dart';
+import '../models/fund_transaction.dart';
+import '../models/plan.dart';
+import '../models/notification_log.dart';
 
 class DatabaseService {
   static final DatabaseService _instance = DatabaseService._internal();
@@ -25,8 +28,9 @@ class DatabaseService {
     String path = join(await getDatabasesPath(), 'halaqah.db');
     return await openDatabase(
       path,
-      version: 1,
+      version: 2,
       onCreate: _onCreate,
+      onUpgrade: _onUpgrade,
     );
   }
 
@@ -147,6 +151,62 @@ class DatabaseService {
     await db.execute('CREATE INDEX idx_daily_records_student ON daily_records(student_id)');
     await db.execute('CREATE INDEX idx_memorization_student ON memorization_progress(student_id)');
     await db.execute('CREATE INDEX idx_behavior_student ON behavior_points(student_id)');
+    await _createVersion2Tables(db);
+  }
+
+  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+      await _createVersion2Tables(db);
+    }
+  }
+
+  Future<void> _createVersion2Tables(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS fund_transactions (
+        id TEXT PRIMARY KEY,
+        student_id TEXT,
+        type TEXT NOT NULL,
+        amount REAL NOT NULL,
+        note TEXT,
+        date TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (student_id) REFERENCES students (id) ON DELETE SET NULL
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS plans (
+        id TEXT PRIMARY KEY,
+        student_id TEXT NOT NULL,
+        period TEXT NOT NULL,
+        start_date TEXT NOT NULL,
+        end_date TEXT NOT NULL,
+        unit TEXT NOT NULL DEFAULT 'ayahs',
+        new_amount INTEGER NOT NULL DEFAULT 5,
+        review_amount INTEGER NOT NULL DEFAULT 10,
+        status TEXT NOT NULL DEFAULT 'active',
+        notes TEXT,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (student_id) REFERENCES students (id) ON DELETE CASCADE
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS notifications (
+        id TEXT PRIMARY KEY,
+        student_id TEXT NOT NULL,
+        type TEXT NOT NULL,
+        title TEXT NOT NULL,
+        body TEXT NOT NULL,
+        read INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (student_id) REFERENCES students (id) ON DELETE CASCADE
+      )
+    ''');
+
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_fund_transactions_student ON fund_transactions(student_id)');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_plans_student ON plans(student_id)');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_notifications_student ON notifications(student_id)');
   }
 
   Future<List<Student>> getStudents({String? status}) async {
@@ -372,6 +432,22 @@ class DatabaseService {
     await db.delete('vacations', where: 'id = ?', whereArgs: [id]);
   }
 
+  Future<List<Vacation>> getAllVacations() async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.query('vacations', orderBy: 'start_date DESC');
+    return List.generate(maps.length, (i) => Vacation.fromMap(maps[i]));
+  }
+
+  Future<void> updateVacationApproval(String id, bool approved) async {
+    final db = await database;
+    await db.update(
+      'vacations',
+      {'approved': approved ? 1 : 0},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
   Future<void> insertExam(Exam exam) async {
     final db = await database;
     await db.insert('exams', exam.toMap());
@@ -514,5 +590,135 @@ class DatabaseService {
       'points': pointsResult.first['total'] ?? 0,
       'exams': examResult.first,
     };
+  }
+
+  // Fund Transactions CRUD
+  Future<void> insertFundTransaction(FundTransaction transaction) async {
+    final db = await database;
+    await db.insert('fund_transactions', transaction.toMap());
+  }
+
+  Future<List<FundTransaction>> getFundTransactions() async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.query('fund_transactions', orderBy: 'date DESC');
+    return List.generate(maps.length, (i) => FundTransaction.fromMap(maps[i]));
+  }
+
+  Future<List<FundTransaction>> getStudentFundTransactions(String studentId) async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.query(
+      'fund_transactions',
+      where: 'student_id = ?',
+      whereArgs: [studentId],
+      orderBy: 'date DESC',
+    );
+    return List.generate(maps.length, (i) => FundTransaction.fromMap(maps[i]));
+  }
+
+  Future<double> getFundBalance() async {
+    final db = await database;
+    final List<Map<String, dynamic>> result = await db.rawQuery('''
+      SELECT 
+        SUM(CASE WHEN type IN ('subscription', 'penalty', 'donation') THEN amount ELSE -amount END) as balance
+      FROM fund_transactions
+    ''');
+    return (result.first['balance'] as num?)?.toDouble() ?? 0.0;
+  }
+
+  // Plans CRUD
+  Future<void> insertSmartPlan(SmartPlan plan) async {
+    final db = await database;
+    await db.insert('plans', plan.toMap());
+  }
+
+  Future<void> updateSmartPlan(SmartPlan plan) async {
+    final db = await database;
+    await db.update(
+      'plans',
+      plan.toMap(),
+      where: 'id = ?',
+      whereArgs: [plan.id],
+    );
+  }
+
+  Future<List<SmartPlan>> getSmartPlans() async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.query('plans', orderBy: 'created_at DESC');
+    return List.generate(maps.length, (i) => SmartPlan.fromMap(maps[i]));
+  }
+
+  Future<List<SmartPlan>> getStudentSmartPlans(String studentId) async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.query(
+      'plans',
+      where: 'student_id = ?',
+      whereArgs: [studentId],
+      orderBy: 'created_at DESC',
+    );
+    return List.generate(maps.length, (i) => SmartPlan.fromMap(maps[i]));
+  }
+
+  Future<SmartPlan?> getActiveStudentPlan(String studentId) async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.query(
+      'plans',
+      where: 'student_id = ? AND status = ?',
+      whereArgs: [studentId, 'active'],
+      orderBy: 'created_at DESC',
+      limit: 1,
+    );
+    if (maps.isEmpty) return null;
+    return SmartPlan.fromMap(maps.first);
+  }
+
+  // Notifications CRUD
+  Future<void> insertNotification(NotificationLog notification) async {
+    final db = await database;
+    await db.insert('notifications', notification.toMap());
+  }
+
+  Future<List<NotificationLog>> getNotifications() async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.query('notifications', orderBy: 'created_at DESC');
+    return List.generate(maps.length, (i) => NotificationLog.fromMap(maps[i]));
+  }
+
+  Future<List<NotificationLog>> getStudentNotifications(String studentId) async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.query(
+      'notifications',
+      where: 'student_id = ?',
+      whereArgs: [studentId],
+      orderBy: 'created_at DESC',
+    );
+    return List.generate(maps.length, (i) => NotificationLog.fromMap(maps[i]));
+  }
+
+  Future<void> markNotificationAsRead(String id) async {
+    final db = await database;
+    await db.update(
+      'notifications',
+      {'read': 1},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  Future<void> markAllNotificationsAsRead() async {
+    final db = await database;
+    await db.update(
+      'notifications',
+      {'read': 1},
+      where: 'read = ?',
+      whereArgs: [0],
+    );
+  }
+
+  Future<int> getUnreadNotificationsCount() async {
+    final db = await database;
+    final List<Map<String, dynamic>> result = await db.rawQuery('''
+      SELECT COUNT(*) as count FROM notifications WHERE read = 0
+    ''');
+    return (result.first['count'] as int?) ?? 0;
   }
 }

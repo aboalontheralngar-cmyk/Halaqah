@@ -21,6 +21,7 @@ export interface Teacher {
   role: 'admin' | 'teacher';
   halaqahId?: string;
   halaqahName?: string;
+  invitation_code?: string;
 }
 
 export interface Student {
@@ -132,6 +133,10 @@ interface HalaqahStore {
   
   addAttendance: (record: Omit<AttendanceRecord, 'id'>) => Promise<void>;
   updateAttendance: (id: string, status: AttendanceRecord['status'], extra?: Partial<AttendanceRecord>) => Promise<void>;
+  clearHalaqaData: () => void;
+  fetchAllHalaqat: (centerId: string) => Promise<void>;
+  assignTeacherToHalaqa: (memberId: string, halaqahId: string | null) => Promise<void>;
+  joinWithCode: (code: string) => Promise<boolean>;
   
   addMemorization: (record: Omit<MemorizationRecord, 'id'>) => Promise<void>;
   addPoints: (record: Omit<PointRecord, 'id'>) => Promise<void>;
@@ -195,30 +200,47 @@ export const useStore = create<HalaqahStore>((set, get) => ({
       .from('profiles')
       .select('*')
       .eq('id', user.id)
-      .single();
+      .maybeSingle();
 
     if (data && !error) {
       set({ profile: { id: data.id, fullName: data.full_name, role: data.role } });
       
-      // If supervisor, fetch their supervisor record
       if (data.role === 'supervisor') {
         const { data: supData } = await supabase
           .from('supervisors')
           .select('*')
           .eq('owner_id', user.id)
-          .single();
+          .maybeSingle();
         if (supData) set({ currentSupervisor: { id: supData.id, name: supData.name, code: supData.code } });
       }
     } else {
-      // If no profile, check if user is a teacher in any center
-      const { data: memberData } = await supabase
-        .from('center_members')
-        .select('role')
-        .eq('user_id', user.id)
+      // Check if user owns any centers (fallback for admins)
+      const { data: centerData } = await supabase
+        .from('centers')
+        .select('id, owner_id')
+        .eq('owner_id', user.id)
         .limit(1);
       
-      if (memberData && memberData.length > 0) {
-        set({ profile: { id: user.id, fullName: user.user_metadata?.full_name || 'معلم', role: 'teacher' } });
+      if (centerData && centerData.length > 0) {
+        set({ profile: { id: user.id, fullName: user.user_metadata?.full_name || 'مدير المركز', role: 'center_admin' } });
+        return;
+      }
+
+      // Check center_members
+      const { data: memberData } = await supabase
+        .from('center_members')
+        .select('id, role, user_id')
+        .eq('email', user.email)
+        .maybeSingle();
+      
+      if (memberData) {
+        if (!memberData.user_id) {
+          await supabase
+            .from('center_members')
+            .update({ user_id: user.id })
+            .eq('id', memberData.id);
+        }
+        set({ profile: { id: user.id, fullName: user.user_metadata?.full_name || 'عضو', role: memberData.role as UserRole } });
       }
     }
   },
@@ -276,6 +298,7 @@ export const useStore = create<HalaqahStore>((set, get) => ({
         email,
         role,
         halaqah_id,
+        invitation_code,
         halaqat (name)
       `)
       .eq('center_id', center.id);
@@ -286,7 +309,8 @@ export const useStore = create<HalaqahStore>((set, get) => ({
         email: t.email,
         role: t.role,
         halaqahId: t.halaqah_id,
-        halaqahName: t.halaqat?.name
+        halaqahName: t.halaqat?.name,
+        invitation_code: t.invitation_code
       }));
       set({ teachers: mapped as Teacher[] });
     }
@@ -297,13 +321,15 @@ export const useStore = create<HalaqahStore>((set, get) => ({
     const center = get().currentCenter;
     if (!center) return;
 
+    const invitation_code = 'HAL-SEC-' + Math.random().toString(36).substring(2, 14).toUpperCase();
     const { error } = await supabase
       .from('center_members')
       .insert([{ 
         email, 
         center_id: center.id, 
         halaqah_id: halaqahId,
-        role: 'teacher' 
+        role: 'teacher',
+        invitation_code
       }]);
 
     if (!error) {
@@ -384,11 +410,17 @@ export const useStore = create<HalaqahStore>((set, get) => ({
     if (!supabase || !center) return;
     set({ loading: true });
     try {
-      const { data, error } = await supabase
+      let query = supabase
         .from('students')
         .select('*')
-        .eq('center_id', center.id)
-        .order('name');
+        .eq('center_id', center.id);
+      
+      // Filter by halaqa if activeHalaqa is selected
+      if (center.activeHalaqa?.id) {
+        query = query.eq('halaqa_id', center.activeHalaqa.id);
+      }
+
+      const { data, error } = await query.order('name');
       
       if (error) throw error;
       
@@ -434,7 +466,8 @@ export const useStore = create<HalaqahStore>((set, get) => ({
           plan_type: student.planType,
           plan_amount: student.planAmount,
           status: student.status,
-          center_id: center.id 
+          center_id: center.id,
+          halaqa_id: center.activeHalaqa?.id // Assign to current halaqa
         }])
         .select()
         .single();
@@ -515,6 +548,7 @@ export const useStore = create<HalaqahStore>((set, get) => ({
         .insert([{ 
           student_id: record.studentId,
           center_id: center.id,
+          halaqa_id: center.activeHalaqa?.id,
           date: record.date,
           status: record.status,
           arrival_time: record.arrivalTime,
@@ -550,6 +584,162 @@ export const useStore = create<HalaqahStore>((set, get) => ({
     }));
   },
 
+  fetchAttendance: async () => {
+    const center = get().currentCenter;
+    if (!supabase || !center) return;
+    try {
+      let query = supabase.from('attendance').select('*').eq('center_id', center.id);
+      if (center.activeHalaqa?.id) query = query.eq('halaqa_id', center.activeHalaqa.id);
+      
+      const { data, error } = await query.order('date', { ascending: false });
+      if (error) throw error;
+      if (data) {
+        const mapped = data.map((a: any) => ({
+          id: a.id,
+          studentId: a.student_id,
+          date: a.date,
+          status: a.status,
+          arrivalTime: a.arrival_time,
+          absenceReason: a.absence_reason,
+          notes: a.notes
+        }));
+        set({ attendance: mapped as AttendanceRecord[] });
+      }
+    } catch (err) {
+      console.error("Fetch attendance error:", err);
+    }
+  },
+
+  fetchMemorization: async () => {
+    const center = get().currentCenter;
+    if (!supabase || !center) return;
+    try {
+      let query = supabase.from('memorization').select('*').eq('center_id', center.id);
+      if (center.activeHalaqa?.id) query = query.eq('halaqa_id', center.activeHalaqa.id);
+      
+      const { data, error } = await query.order('date', { ascending: false });
+      if (error) throw error;
+      if (data) {
+        const mapped = data.map((m: any) => ({
+          id: m.id,
+          studentId: m.student_id,
+          surah: m.surah,
+          fromAyah: m.from_ayah,
+          toAyah: m.to_ayah,
+          date: m.date,
+          degree: m.degree,
+          notes: m.notes
+        }));
+        set({ memorization: mapped as MemorizationRecord[] });
+      }
+    } catch (err) {
+      console.error("Fetch memorization error:", err);
+    }
+  },
+
+  fetchPoints: async () => {
+    const center = get().currentCenter;
+    if (!supabase || !center) return;
+    try {
+      let query = supabase.from('points').select('*').eq('center_id', center.id);
+      if (center.activeHalaqa?.id) query = query.eq('halaqa_id', center.activeHalaqa.id);
+      
+      const { data, error } = await query.order('date', { ascending: false });
+      if (error) throw error;
+      if (data) {
+        const mapped = data.map((p: any) => ({
+          id: p.id,
+          studentId: p.student_id,
+          type: p.type,
+          amount: p.amount,
+          reason: p.reason,
+          date: p.date,
+          resolved: p.resolved
+        }));
+        set({ points: mapped as PointRecord[] });
+      }
+    } catch (err) {
+      console.error("Fetch points error:", err);
+    }
+  },
+
+  clearHalaqaData: () => set({ 
+    students: [], 
+    attendance: [], 
+    memorization: [], 
+    points: [], 
+    activities: [],
+    loading: true 
+  }),
+
+  fetchAllHalaqat: async (centerId: string) => {
+    if (!supabase) return;
+    const { data, error } = await supabase
+      .from('halaqat')
+      .select('*')
+      .eq('center_id', centerId);
+    if (!error && data) {
+      set({ halaqat: data });
+    }
+  },
+
+  assignTeacherToHalaqa: async (memberId, halaqahId) => {
+    if (!supabase) return;
+    const { error } = await supabase
+      .from('center_members')
+      .update({ halaqah_id: halaqahId })
+      .eq('id', memberId);
+    
+    if (!error) {
+      get().fetchTeachers();
+    } else {
+      alert("فشل إسناد المعلم: " + error.message);
+    }
+  },
+
+  joinWithCode: async (code: string) => {
+    const user = get().user;
+    if (!supabase || !user) return false;
+
+    // 1. Find the invitation
+    const { data: member, error: findError } = await supabase
+      .from('center_members')
+      .select('id, user_id, email')
+      .eq('invitation_code', code)
+      .single();
+    
+    if (findError || !member) {
+      alert("الكود غير صحيح أو منتهي الصلاحية");
+      return false;
+    }
+
+    // Security Check: Email must match the invited email
+    if (member.email.toLowerCase() !== user.email?.toLowerCase()) {
+      alert(`عذراً، هذا الكود مخصص للبريد: ${member.email}. يرجى التسجيل بهذا البريد للمتابعة.`);
+      return false;
+    }
+
+    if (member.user_id && member.user_id !== user.id) {
+      alert("هذا الكود تم استخدامه من قبل حساب آخر");
+      return false;
+    }
+
+    // 2. Link the user and clear the code (so it's one-time use if preferred, or keep it)
+    const { error: updateError } = await supabase
+      .from('center_members')
+      .update({ user_id: user.id })
+      .eq('id', member.id);
+    
+    if (updateError) {
+      alert("فشل الانضمام: " + updateError.message);
+      return false;
+    }
+
+    // 3. Refresh profile and return success
+    await get().fetchProfile();
+    return true;
+  },
+
   addMemorization: async (record) => {
     const center = get().currentCenter;
     if (supabase && center) {
@@ -558,6 +748,7 @@ export const useStore = create<HalaqahStore>((set, get) => ({
         .insert([{ 
           student_id: record.studentId,
           center_id: center.id,
+          halaqa_id: center.activeHalaqa?.id,
           surah: record.surah,
           from_ayah: record.fromAyah,
           to_ayah: record.toAyah,
@@ -594,6 +785,7 @@ export const useStore = create<HalaqahStore>((set, get) => ({
         .insert([{ 
           student_id: record.studentId,
           center_id: center.id,
+          halaqa_id: center.activeHalaqa?.id,
           type: record.type,
           amount: record.amount,
           reason: record.reason,
@@ -627,7 +819,12 @@ export const useStore = create<HalaqahStore>((set, get) => ({
     if (supabase && center) {
       const { data, error } = await supabase
         .from('activities')
-        .insert([{ type, description, center_id: center.id }])
+        .insert([{ 
+          type, 
+          description, 
+          center_id: center.id,
+          halaqa_id: center.activeHalaqa?.id 
+        }])
         .select()
         .single();
       if (!error && data) {
@@ -640,10 +837,16 @@ export const useStore = create<HalaqahStore>((set, get) => ({
     const center = get().currentCenter;
     if (!supabase || !center) return;
     try {
-      const { data, error } = await supabase
+      let query = supabase
         .from('activities')
         .select('*')
-        .eq('center_id', center.id)
+        .eq('center_id', center.id);
+      
+      if (center.activeHalaqa?.id) {
+        query = query.eq('halaqa_id', center.activeHalaqa.id);
+      }
+
+      const { data, error } = await query
         .order('created_at', { ascending: false })
         .limit(10);
       
@@ -670,7 +873,11 @@ export const useStore = create<HalaqahStore>((set, get) => ({
     if (supabase && center) {
       const { data, error } = await supabase
         .from('vacations')
-        .insert([{ ...vacation, center_id: center.id }])
+        .insert([{ 
+          ...vacation, 
+          center_id: center.id,
+          halaqa_id: center.activeHalaqa?.id 
+        }])
         .select()
         .single();
       if (error) {
@@ -695,7 +902,14 @@ export const useStore = create<HalaqahStore>((set, get) => ({
     if (supabase && center) {
       const { data, error } = await supabase
         .from('exams')
-        .insert([{ title: exam.title, date: exam.date, type: exam.type, max_degree: exam.maxDegree, center_id: center.id }])
+        .insert([{ 
+          title: exam.title, 
+          date: exam.date, 
+          type: exam.type, 
+          max_degree: exam.maxDegree, 
+          center_id: center.id,
+          halaqa_id: center.activeHalaqa?.id 
+        }])
         .select()
         .single();
       if (error) {
@@ -708,78 +922,6 @@ export const useStore = create<HalaqahStore>((set, get) => ({
     }
   },
 
-  fetchAttendance: async () => {
-    const center = get().currentCenter;
-    if (!supabase || !center) return;
-    const { data, error } = await supabase
-      .from('attendance')
-      .select('*')
-      .eq('center_id', center.id)
-      .order('date', { ascending: false })
-      .limit(2000);
-    if (!error && data) {
-      set({
-        attendance: data.map((a: any) => ({
-          id: a.id,
-          studentId: a.student_id,
-          date: a.date,
-          status: a.status,
-          arrivalTime: a.arrival_time,
-          absenceReason: a.absence_reason,
-          notes: a.notes,
-        })) as AttendanceRecord[],
-      });
-    }
-  },
-
-  fetchMemorization: async () => {
-    const center = get().currentCenter;
-    if (!supabase || !center) return;
-    const { data, error } = await supabase
-      .from('memorization')
-      .select('*')
-      .eq('center_id', center.id)
-      .order('date', { ascending: false })
-      .limit(2000);
-    if (!error && data) {
-      set({
-        memorization: data.map((m: any) => ({
-          id: m.id,
-          studentId: m.student_id,
-          surah: m.surah,
-          fromAyah: m.from_ayah,
-          toAyah: m.to_ayah,
-          date: m.date,
-          degree: m.degree,
-          notes: m.notes,
-        })) as MemorizationRecord[],
-      });
-    }
-  },
-
-  fetchPoints: async () => {
-    const center = get().currentCenter;
-    if (!supabase || !center) return;
-    const { data, error } = await supabase
-      .from('points')
-      .select('*')
-      .eq('center_id', center.id)
-      .order('date', { ascending: false })
-      .limit(2000);
-    if (!error && data) {
-      set({
-        points: data.map((p: any) => ({
-          id: p.id,
-          studentId: p.student_id,
-          type: p.type,
-          amount: p.amount,
-          reason: p.reason,
-          date: p.date,
-          resolved: p.resolved,
-        })) as PointRecord[],
-      });
-    }
-  },
 
   fetchVacations: async () => {
     const center = get().currentCenter;

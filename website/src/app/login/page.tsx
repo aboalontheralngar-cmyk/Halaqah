@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useState, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { 
   Mail, 
   Lock, 
@@ -21,15 +21,18 @@ import {
 import { useStore } from "@/store/useStore";
 import { supabase } from "@/lib/supabase";
 
-export default function AuthPage() {
+function AuthContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const emailParam = searchParams.get("email");
+  
   const [isLogin, setIsLogin] = useState(true);
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const { setCenterType, setUser } = useStore();
 
   const [formData, setFormData] = useState({
-    email: "",
+    email: emailParam || "",
     password: "",
     confirmPassword: ""
   });
@@ -191,5 +194,17 @@ export default function AuthPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function AuthPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-950 flex items-center justify-center">
+        <Loader2 className="w-10 h-10 text-teal-600 animate-spin" />
+      </div>
+    }>
+      <AuthContent />
+    </Suspense>
   );
 }

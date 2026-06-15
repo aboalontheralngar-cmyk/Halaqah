@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:permission_handler/permission_handler.dart';
+import '../../services/sound_service.dart';
 import '../../services/database_service.dart';
 import '../../services/qr_service.dart';
 import '../../models/student.dart';
@@ -100,24 +102,11 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      backgroundColor: Colors.transparent,
       builder: (context) => SizedBox(
-        height: MediaQuery.of(context).size.height * 0.7,
+        height: MediaQuery.of(context).size.height * 0.75,
         child: _QrScannerSheet(
-          onStudentScanned: (studentId) async {
-            final student = await _db.getStudent(studentId);
-            if (student != null && mounted) {
-              Navigator.pop(context);
-              await _updateAttendance(studentId, 'present');
-              if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('تم تحضير ${student.name}'),
-                    backgroundColor: Colors.green,
-                  ),
-                );
-              }
-            }
-          },
+          onRefresh: _loadData,
         ),
       ),
     );
@@ -606,78 +595,429 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
 }
 
 class _QrScannerSheet extends StatefulWidget {
-  final Function(String) onStudentScanned;
+  final VoidCallback onRefresh;
 
-  const _QrScannerSheet({required this.onStudentScanned});
+  const _QrScannerSheet({required this.onRefresh});
 
   @override
   State<_QrScannerSheet> createState() => _QrScannerSheetState();
 }
 
 class _QrScannerSheetState extends State<_QrScannerSheet> {
-  MobileScannerController? _controller;
+  final DatabaseService _db = DatabaseService();
+  final MobileScannerController _controller = MobileScannerController();
   bool _isProcessing = false;
+  bool _torchEnabled = false;
+  
+  // Status feedback properties
+  String _statusMessage = '';
+  Color _statusColor = Colors.transparent;
+  IconData _statusIcon = Icons.info;
+  
+  // Attendance mode selector: 'present' or 'late'
+  String _attendanceMode = 'present';
+  int _presentCount = 0;
 
   @override
   void initState() {
     super.initState();
-    _controller = MobileScannerController();
+    _loadPresentCount();
+  }
+
+  Future<void> _loadPresentCount() async {
+    try {
+      final records = await _db.getDailyRecordsForDate(DateTime.now());
+      final count = records.where((r) => r.attendance == 'present' || r.attendance == 'late').length;
+      setState(() => _presentCount = count);
+    } catch (_) {}
+  }
+
+  void _toggleTorch() {
+    _controller.toggleTorch();
+    setState(() => _torchEnabled = !_torchEnabled);
+  }
+
+  Future<Student?> _findStudentByBarcode(String barcode) async {
+    // 1. Try decoding as Halaqah custom QR format
+    final decodedId = QrService.decodeQrData(barcode);
+    if (decodedId != null) {
+      final s = await _db.getStudent(decodedId);
+      if (s != null) return s;
+    }
+    
+    // 2. Try raw ID match
+    final sById = await _db.getStudent(barcode);
+    if (sById != null) return sById;
+    
+    // 3. Try raw qr_code match
+    final sByQr = await _db.getStudentByQrCode(barcode);
+    if (sByQr != null) return sByQr;
+    
+    // 4. Try phone match
+    final allStudents = await _db.getStudents();
+    for (final s in allStudents) {
+      if (s.phone == barcode || s.guardianPhone == barcode) {
+        return s;
+      }
+    }
+    
+    return null;
+  }
+
+  Future<void> _handleBarcode(BarcodeCapture capture) async {
+    if (_isProcessing) return;
+    final barcode = capture.barcodes.firstOrNull;
+    if (barcode == null || barcode.rawValue == null) return;
+
+    setState(() => _isProcessing = true);
+    final code = barcode.rawValue!;
+
+    try {
+      final student = await _findStudentByBarcode(code);
+      if (student == null) {
+        await SoundService.playError();
+        _showStatus('طالب غير معروف!', Colors.red, Icons.person_off_outlined);
+      } else {
+        // Check if already checked in today
+        final todayRecord = await _db.getDailyRecord(student.id, DateTime.now());
+        if (todayRecord != null && (todayRecord.attendance == 'present' || todayRecord.attendance == 'late')) {
+          await SoundService.playWarning();
+          _showStatus('${student.name}\nمسجل مسبقاً ✓', Colors.orange[800]!, Icons.info_outline);
+        } else {
+          // Update attendance
+          final record = todayRecord ?? DailyRecord(studentId: student.id, date: DateTime.now());
+          final updated = record.copyWith(
+            attendance: _attendanceMode,
+            arrivalTime: DateTime.now(),
+          );
+          await _db.saveDailyRecord(updated);
+          await _loadPresentCount();
+          await SoundService.playSuccess();
+          _showStatus(
+            '${student.name}\nتم تسجيل ${_attendanceMode == 'present' ? 'الحضور' : 'التأخر'} ✓',
+            const Color(0xFF047857),
+            Icons.check_circle_outline,
+          );
+          widget.onRefresh();
+        }
+      }
+    } catch (e) {
+      await SoundService.playError();
+      _showStatus('حدث خطأ أثناء التسجيل: $e', Colors.red, Icons.error_outline);
+    }
+
+    await Future.delayed(const Duration(seconds: 2));
+    if (mounted) {
+      setState(() {
+        _isProcessing = false;
+        _statusMessage = '';
+      });
+    }
+  }
+
+  void _showStatus(String message, Color color, IconData icon) {
+    if (mounted) {
+      setState(() {
+        _statusMessage = message;
+        _statusColor = color;
+        _statusIcon = icon;
+      });
+    }
   }
 
   @override
   void dispose() {
-    _controller?.dispose();
+    _controller.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    
     return Column(
       children: [
+        // App bar panel inside sheet
         Container(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: BoxDecoration(
+            color: isDark ? const Color(0xFF1E293B) : Colors.white,
+            borderRadius: const BorderRadius.only(
+              topLeft: Radius.circular(28),
+              topRight: Radius.circular(28),
+            ),
+          ),
+          child: Column(
             children: [
-              const Text(
-                'مسح QR Code',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'مسح التحضير اليومي',
+                    style: GoogleFonts.tajawal(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  Row(
+                    children: [
+                      IconButton(
+                        icon: Icon(
+                          _torchEnabled ? Icons.flash_on : Icons.flash_off,
+                          color: _torchEnabled ? Colors.amber[600] : Colors.grey,
+                        ),
+                        onPressed: _toggleTorch,
+                        tooltip: 'الفلاش',
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close),
+                        onPressed: () => Navigator.pop(context),
+                      ),
+                    ],
+                  ),
+                ],
               ),
-              IconButton(
-                icon: const Icon(Icons.close),
-                onPressed: () => Navigator.pop(context),
+              const SizedBox(height: 8),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  // Mode Selector Segmented Button
+                  SegmentedButton<String>(
+                    segments: const [
+                      ButtonSegment(
+                        value: 'present',
+                        label: Text('حضور'),
+                        icon: Icon(Icons.check_circle_outline, size: 16),
+                      ),
+                      ButtonSegment(
+                        value: 'late',
+                        label: Text('تأخر'),
+                        icon: Icon(Icons.access_time, size: 16),
+                      ),
+                    ],
+                    selected: {_attendanceMode},
+                    onSelectionChanged: (set) {
+                      setState(() {
+                        _attendanceMode = set.first;
+                      });
+                    },
+                    style: SegmentedButton.styleFrom(
+                      visualDensity: VisualDensity.compact,
+                    ),
+                  ),
+                  
+                  // Total Scanned Badge
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF0D9488).withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.people_outline, size: 16, color: Color(0xFF0D9488)),
+                        const SizedBox(width: 6),
+                        Text(
+                          'المسجلين اليوم: $_presentCount',
+                          style: GoogleFonts.tajawal(
+                            color: const Color(0xFF0D9488),
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
         ),
+        
+        // Scanner viewport
         Expanded(
-          child: MobileScanner(
-            controller: _controller,
-            onDetect: (capture) {
-              if (_isProcessing) return;
+          child: Stack(
+            children: [
+              MobileScanner(
+                controller: _controller,
+                onDetect: _handleBarcode,
+              ),
+              Positioned.fill(
+                child: Container(
+                  decoration: ShapeDecoration(
+                    shape: QrScannerOverlayShape(
+                      borderColor: _attendanceMode == 'present' ? const Color(0xFF10B981) : const Color(0xFFF59E0B),
+                      borderRadius: 20,
+                      borderLength: 30,
+                      borderWidth: 6,
+                      cutOutSize: 240,
+                    ),
+                  ),
+                ),
+              ),
               
-              final barcodes = capture.barcodes;
-              if (barcodes.isEmpty) return;
-              
-              final code = barcodes.first.rawValue;
-              if (code == null) return;
-              
-              final studentId = QrService.decodeQrData(code);
-              if (studentId != null) {
-                setState(() => _isProcessing = true);
-                widget.onStudentScanned(studentId);
-              }
-            },
+              // Scanning delay overlay
+              if (_isProcessing && _statusMessage.isEmpty)
+                Positioned.fill(
+                  child: Container(
+                    color: Colors.black38,
+                    child: const Center(
+                      child: CircularProgressIndicator(),
+                    ),
+                  ),
+                ),
+                
+              // Floating animated status card
+              if (_statusMessage.isNotEmpty)
+                Positioned(
+                  bottom: 30,
+                  left: 20,
+                  right: 20,
+                  child: Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: _statusColor,
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: [
+                        BoxShadow(
+                          color: _statusColor.withOpacity(0.3),
+                          blurRadius: 16,
+                          offset: const Offset(0, 8),
+                        )
+                      ],
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          _statusIcon,
+                          color: Colors.white,
+                          size: 28,
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Text(
+                            _statusMessage,
+                            style: GoogleFonts.tajawal(
+                              color: Colors.white,
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+            ],
           ),
         ),
-        Padding(
-          padding: const EdgeInsets.all(16),
-          child: Text(
-            'وجه الكاميرا نحو QR Code الخاص بالطالب',
-            style: TextStyle(color: Colors.grey[600]),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
+          color: isDark ? const Color(0xFF1E293B) : Colors.grey[50],
+          child: Center(
+            child: Text(
+              'وجه الكاميرا نحو رمز الاستجابة السريعة للطالب لتسجيله تلقائياً',
+              textAlign: TextAlign.center,
+              style: GoogleFonts.tajawal(
+                color: Colors.grey[600],
+                fontSize: 12,
+              ),
+            ),
           ),
         ),
       ],
     );
   }
+}
+
+class QrScannerOverlayShape extends ShapeBorder {
+  final Color borderColor;
+  final double borderWidth;
+  final double borderLength;
+  final double borderRadius;
+  final double cutOutSize;
+
+  const QrScannerOverlayShape({
+    this.borderColor = Colors.teal,
+    this.borderWidth = 6.0,
+    this.borderLength = 30.0,
+    this.borderRadius = 20.0,
+    this.cutOutSize = 240.0,
+  });
+
+  @override
+  EdgeInsetsGeometry get dimensions => const EdgeInsets.all(10);
+
+  @override
+  Path getInnerPath(Rect rect, {TextDirection? textDirection}) => Path();
+
+  @override
+  Path getOuterPath(Rect rect, {TextDirection? textDirection}) {
+    return Path()..addRect(rect);
+  }
+
+  @override
+  void paint(Canvas canvas, Rect rect, {TextDirection? textDirection}) {
+    final width = rect.width;
+    final height = rect.height;
+    final size = cutOutSize;
+
+    final left = (width - size) / 2;
+    final top = (height - size) / 2;
+
+    final backgroundPaint = Paint()
+      ..color = Colors.black.withOpacity(0.5)
+      ..style = PaintingStyle.fill;
+
+    // Draw dark mask around the cutout area
+    final clipPath = Path()
+      ..addRect(rect)
+      ..addRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(left, top, size, size),
+          Radius.circular(borderRadius),
+        ),
+      )
+      ..fillType = PathFillType.evenOdd;
+
+    canvas.drawPath(clipPath, backgroundPaint);
+
+    final borderPaint = Paint()
+      ..color = borderColor
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = borderWidth
+      ..strokeCap = StrokeCap.round;
+
+    final borderPath = Path();
+
+    // Top Left Corner
+    borderPath.moveTo(left, top + borderLength);
+    borderPath.lineTo(left, top + borderRadius);
+    borderPath.quadraticBezierTo(left, top, left + borderRadius, top);
+    borderPath.lineTo(left + borderLength, top);
+
+    // Top Right Corner
+    borderPath.moveTo(left + size - borderLength, top);
+    borderPath.lineTo(left + size - borderRadius, top);
+    borderPath.quadraticBezierTo(left + size, top, left + size, top + borderRadius);
+    borderPath.lineTo(left + size, top + borderLength);
+
+    // Bottom Left Corner
+    borderPath.moveTo(left, top + size - borderLength);
+    borderPath.lineTo(left, top + size - borderRadius);
+    borderPath.quadraticBezierTo(left, top + size, left + borderRadius, top + size);
+    borderPath.lineTo(left + borderLength, top + size);
+
+    // Bottom Right Corner
+    borderPath.moveTo(left + size - borderLength, top + size);
+    borderPath.lineTo(left + size - borderRadius, top + size);
+    borderPath.quadraticBezierTo(left + size, top + size, left + size, top + size - borderRadius);
+    borderPath.lineTo(left + size, top + size - borderLength);
+
+    canvas.drawPath(borderPath, borderPaint);
+  }
+
+  @override
+  ShapeBorder scale(double t) => this;
 }

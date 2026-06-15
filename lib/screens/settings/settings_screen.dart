@@ -3,6 +3,7 @@ import 'dart:io';
 import '../../services/database_service.dart';
 import '../../services/backup_service.dart';
 import '../../models/settings.dart';
+import '../../app/app.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -336,10 +337,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'العرض',
+              'العرض والمظهر',
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 16),
+            ListTile(
+              title: const Text('المظهر'),
+              subtitle: Text(
+                _settings.theme == 'dark' ? 'الوضع الداكن' : 'الوضع الفاتح',
+              ),
+              trailing: SegmentedButton<String>(
+                segments: const [
+                  ButtonSegment(value: 'light', label: Text('فاتح')),
+                  ButtonSegment(value: 'dark', label: Text('داكن')),
+                ],
+                selected: {_settings.theme},
+                onSelectionChanged: (set) {
+                  setState(() {
+                    _settings = _settings.copyWith(theme: set.first);
+                  });
+                  _saveSettings();
+                  themeNotifier.value = set.first == 'dark' ? ThemeMode.dark : ThemeMode.light;
+                },
+              ),
+            ),
+            const Divider(height: 24),
             SwitchListTile(
               title: const Text('التقويم الهجري'),
               subtitle: const Text('عرض التواريخ بالتقويم الهجري'),
@@ -351,6 +373,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 _saveSettings();
               },
             ),
+            const Divider(height: 24),
             ListTile(
               title: const Text('ترتيب المراجعة'),
               subtitle: Text(

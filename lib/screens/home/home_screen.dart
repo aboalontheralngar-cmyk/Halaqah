@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../../services/database_service.dart';
 import '../../models/student.dart';
 import '../../utils/helpers.dart';
@@ -9,6 +10,12 @@ import '../settings/settings_screen.dart';
 import '../memorization/memorization_screen.dart';
 import '../behavior/behavior_screen.dart';
 import '../exam/exams_screen.dart';
+import '../fund/fund_screen.dart';
+import '../plans/plans_screen.dart';
+import '../notifications/notifications_screen.dart';
+import '../honor_board/honor_board_screen.dart';
+import '../vacations/vacations_screen.dart';
+
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -25,6 +32,11 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _isLoading = true;
   int _presentToday = 0;
   int _absentToday = 0;
+  int _unreadNotifications = 0;
+  double _fundBalance = 0.0;
+  String _halaqahName = 'حلقتي';
+  String _mosqueName = 'المسجد';
+  Map<String, String> _todayAttendance = {};
 
   @override
   void initState() {
@@ -37,10 +49,15 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       final students = await _db.getStudents(status: 'active');
       final todayRecords = await _db.getDailyRecordsForDate(DateTime.now());
-      
+      final settings = await _db.getSettings();
+      final unreadCount = await _db.getUnreadNotificationsCount();
+      final balance = await _db.getFundBalance();
+
       int present = 0;
       int absent = 0;
+      final Map<String, String> attMap = {};
       for (final record in todayRecords) {
+        attMap[record.studentId] = record.attendance;
         if (record.attendance == 'present' || record.attendance == 'late') {
           present++;
         } else if (record.attendance == 'absent') {
@@ -52,6 +69,11 @@ class _HomeScreenState extends State<HomeScreen> {
         _students = students;
         _presentToday = present;
         _absentToday = absent;
+        _unreadNotifications = unreadCount;
+        _fundBalance = balance;
+        _halaqahName = settings.halaqahName;
+        _mosqueName = settings.mosqueName.isNotEmpty ? settings.mosqueName : 'المسجد الرئيسي';
+        _todayAttendance = attMap;
         _isLoading = false;
       });
     } catch (e) {
@@ -71,8 +93,8 @@ class _HomeScreenState extends State<HomeScreen> {
         },
         destinations: const [
           NavigationDestination(
-            icon: Icon(Icons.home_outlined),
-            selectedIcon: Icon(Icons.home),
+            icon: Icon(Icons.dashboard_outlined),
+            selectedIcon: Icon(Icons.dashboard),
             label: 'الرئيسية',
           ),
           NavigationDestination(
@@ -81,9 +103,9 @@ class _HomeScreenState extends State<HomeScreen> {
             label: 'الطلاب',
           ),
           NavigationDestination(
-            icon: Icon(Icons.check_circle_outlined),
-            selectedIcon: Icon(Icons.check_circle),
-            label: 'الحضور',
+            icon: Icon(Icons.qr_code_scanner),
+            selectedIcon: Icon(Icons.qr_code_scanner_outlined),
+            label: 'القارئ',
           ),
           NavigationDestination(
             icon: Icon(Icons.assessment_outlined),
@@ -118,40 +140,73 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildHomeTab() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    
     return RefreshIndicator(
       onRefresh: _loadData,
       child: CustomScrollView(
         slivers: [
           SliverAppBar(
-            expandedHeight: 120,
+            expandedHeight: 150,
             pinned: true,
             flexibleSpace: FlexibleSpaceBar(
-              title: const Text('حلقتي'),
+              titlePadding: const EdgeInsets.only(right: 20, bottom: 16),
+              title: Text(
+                _halaqahName,
+                style: GoogleFonts.tajawal(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 22,
+                  color: isDark ? Colors.white : const Color(0xFF0F172A),
+                ),
+              ),
               background: Container(
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
-                    colors: [
-                      Theme.of(context).primaryColor,
-                      Theme.of(context).primaryColor.withOpacity(0.8),
-                    ],
+                    colors: isDark
+                        ? [const Color(0xFF0F172A), const Color(0xFF1E293B)]
+                        : [const Color(0xFFCCFBF1), const Color(0xFFF8FAFC)],
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
                   ),
+                ),
+                padding: const EdgeInsets.only(right: 20, top: 48),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.mosque_outlined,
+                          size: 16,
+                          color: isDark ? Colors.teal[300] : const Color(0xFF0D9488),
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          _mosqueName,
+                          style: GoogleFonts.tajawal(
+                            color: isDark ? Colors.grey[400] : const Color(0xFF475569),
+                            fontSize: 13,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
               ),
             ),
           ),
           SliverPadding(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             sliver: SliverList(
               delegate: SliverChildListDelegate([
                 _buildDateCard(),
                 const SizedBox(height: 16),
                 _buildStatsRow(),
-                const SizedBox(height: 16),
+                const SizedBox(height: 20),
                 _buildQuickActions(),
-                const SizedBox(height: 16),
+                const SizedBox(height: 24),
                 _buildRecentActivity(),
+                const SizedBox(height: 40),
               ]),
             ),
           ),
@@ -162,6 +217,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildDateCard() {
     final now = DateTime.now();
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -170,33 +227,37 @@ class _HomeScreenState extends State<HomeScreen> {
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: Theme.of(context).primaryColor.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(12),
+                color: const Color(0xFF0D9488).withOpacity(0.1),
+                shape: BoxShape.circle,
               ),
-              child: Icon(
+              child: const Icon(
                 Icons.calendar_today,
-                color: Theme.of(context).primaryColor,
+                color: Color(0xFF0D9488),
+                size: 20,
               ),
             ),
             const SizedBox(width: 16),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  Helpers.getDayName(now),
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    Helpers.getDayName(now),
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  Helpers.getFullHijriDate(now),
-                  style: TextStyle(
-                    color: Colors.grey[600],
+                  const SizedBox(height: 4),
+                  Text(
+                    Helpers.getFullHijriDate(now),
+                    style: TextStyle(
+                      color: isDark ? Colors.grey[400] : Colors.grey[600],
+                      fontSize: 13,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ],
         ),
@@ -211,26 +272,26 @@ class _HomeScreenState extends State<HomeScreen> {
           child: _buildStatCard(
             'الطلاب',
             '${_students.length}',
-            Icons.people,
-            Colors.blue,
+            Icons.people_outline,
+            const Color(0xFF3B82F6),
           ),
         ),
         const SizedBox(width: 12),
         Expanded(
           child: _buildStatCard(
-            'الحضور',
+            'حاضر اليوم',
             '$_presentToday',
-            Icons.check_circle,
-            Colors.green,
+            Icons.check_circle_outline,
+            const Color(0xFF10B981),
           ),
         ),
         const SizedBox(width: 12),
         Expanded(
           child: _buildStatCard(
-            'الغياب',
+            'غائب اليوم',
             '$_absentToday',
-            Icons.cancel,
-            Colors.red,
+            Icons.highlight_off,
+            const Color(0xFFEF4444),
           ),
         ),
       ],
@@ -238,17 +299,25 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildStatCard(String label, String value, IconData icon, Color color) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
         child: Column(
           children: [
-            Icon(icon, color: color, size: 28),
-            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: color.withOpacity(0.1),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(icon, color: color, size: 22),
+            ),
+            const SizedBox(height: 12),
             Text(
               value,
-              style: const TextStyle(
-                fontSize: 24,
+              style: GoogleFonts.outfit(
+                fontSize: 26,
                 fontWeight: FontWeight.bold,
               ),
             ),
@@ -256,8 +325,8 @@ class _HomeScreenState extends State<HomeScreen> {
             Text(
               label,
               style: TextStyle(
-                color: Colors.grey[600],
-                fontSize: 12,
+                color: isDark ? Colors.grey[400] : Colors.grey[600],
+                fontSize: 11,
               ),
             ),
           ],
@@ -270,79 +339,113 @@ class _HomeScreenState extends State<HomeScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'إجراءات سريعة',
-          style: TextStyle(
+        Text(
+          'إدارة وتطوير الحلقة',
+          style: GoogleFonts.tajawal(
             fontSize: 18,
             fontWeight: FontWeight.bold,
           ),
         ),
         const SizedBox(height: 12),
-        Row(
+        GridView.count(
+          crossAxisCount: 3,
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          mainAxisSpacing: 12,
+          crossAxisSpacing: 12,
+          childAspectRatio: 0.9,
           children: [
-            Expanded(
-              child: _buildActionButton(
-                'تسجيل الحضور',
-                Icons.qr_code_scanner,
-                () => setState(() => _currentIndex = 2),
-              ),
+            _buildActionItem(
+              'تسجيل الحضور',
+              Icons.qr_code_scanner,
+              const Color(0xFF0D9488),
+              () => setState(() => _currentIndex = 2),
             ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: _buildActionButton(
-                'إضافة طالب',
-                Icons.person_add,
-                () => setState(() => _currentIndex = 1),
-              ),
+            _buildActionItem(
+              'الحفظ والتسميع',
+              Icons.menu_book,
+              const Color(0xFF3B82F6),
+              () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const MemorizationScreen()),
+              ).then((_) => _loadData()),
             ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        Row(
-          children: [
-            Expanded(
-              child: _buildActionButton(
-                'الحفظ والمراجعة',
-                Icons.menu_book,
-                () => Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => const MemorizationScreen()),
-                ),
-              ),
+            _buildActionItem(
+              'النقاط والسلوك',
+              Icons.thumb_up_alt_outlined,
+              const Color(0xFFEAB308),
+              () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const BehaviorScreen()),
+              ).then((_) => _loadData()),
             ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: _buildActionButton(
-                'النقاط والسلوك',
-                Icons.emoji_events,
-                () => Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => const BehaviorScreen()),
-                ),
-              ),
+            _buildActionItem(
+              'لوحة الشرف',
+              Icons.emoji_events,
+              const Color(0xFFF59E0B),
+              () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const HonorBoardScreen()),
+              ).then((_) => _loadData()),
             ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        Row(
-          children: [
-            Expanded(
-              child: _buildActionButton(
-                'الامتحانات',
-                Icons.quiz,
-                () => Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => const ExamsScreen()),
-                ),
-              ),
+            _buildActionItem(
+              'إجازات الطلاب',
+              Icons.beach_access,
+              const Color(0xFF06B6D4),
+              () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const VacationsScreen()),
+              ).then((_) => _loadData()),
             ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: _buildActionButton(
-                'التقارير',
-                Icons.assessment,
-                () => setState(() => _currentIndex = 3),
-              ),
+            _buildActionItem(
+              'الامتحانات والاختبار',
+              Icons.quiz,
+              const Color(0xFFA855F7),
+              () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const ExamsScreen()),
+              ).then((_) => _loadData()),
+            ),
+            _buildActionItem(
+              'صندوق الحلقة',
+              Icons.account_balance_wallet,
+              const Color(0xFF10B981),
+              badgeText: _fundBalance > 0 ? '${_fundBalance.toInt()}' : null,
+              () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const FundScreen()),
+              ).then((_) => _loadData()),
+            ),
+            _buildActionItem(
+              'الخطط الذكية',
+              Icons.track_changes,
+              const Color(0xFFEC4899),
+              () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const PlansScreen()),
+              ).then((_) => _loadData()),
+            ),
+            _buildActionItem(
+              'سجل التنبيهات',
+              Icons.notifications,
+              const Color(0xFFEF4444),
+              badgeCount: _unreadNotifications,
+              () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const NotificationsScreen()),
+              ).then((_) => _loadData()),
+            ),
+            _buildActionItem(
+              'التقارير والإحصاءات',
+              Icons.assessment,
+              const Color(0xFFF97316),
+              () => setState(() => _currentIndex = 3),
+            ),
+            _buildActionItem(
+              'الإعدادات',
+              Icons.settings,
+              const Color(0xFF64748B),
+              () => setState(() => _currentIndex = 4),
             ),
           ],
         ),
@@ -350,21 +453,102 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildActionButton(String label, IconData icon, VoidCallback onTap) {
+  Widget _buildActionItem(String label, IconData icon, Color color, VoidCallback onTap, {int badgeCount = 0, String? badgeText}) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
+      borderRadius: BorderRadius.circular(24),
       child: Card(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(icon, color: Theme.of(context).primaryColor),
-              const SizedBox(width: 8),
-              Text(label),
-            ],
+        margin: EdgeInsets.zero,
+        elevation: 0,
+        color: isDark ? const Color(0xFF1E293B) : Colors.white,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(24),
+          side: BorderSide(
+            color: isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0),
+            width: 1,
           ),
+        ),
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: color.withOpacity(0.1),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      icon,
+                      color: color,
+                      size: 24,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    label,
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.tajawal(
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (badgeCount > 0)
+              Positioned(
+                top: 8,
+                right: 8,
+                child: Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: const BoxDecoration(
+                    color: Colors.red,
+                    shape: BoxShape.circle,
+                  ),
+                  constraints: const BoxConstraints(
+                    minWidth: 18,
+                    minHeight: 18,
+                  ),
+                  child: Text(
+                    '$badgeCount',
+                    style: GoogleFonts.outfit(
+                      color: Colors.white,
+                      fontSize: 9,
+                      fontWeight: FontWeight.bold,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              )
+            else if (badgeText != null)
+              Positioned(
+                top: 6,
+                right: 6,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF059669), // Emerald 600
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    badgeText,
+                    style: GoogleFonts.outfit(
+                      color: Colors.white,
+                      fontSize: 8,
+                      fontWeight: FontWeight.bold,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ),
+          ],
         ),
       ),
     );
@@ -385,7 +569,7 @@ class _HomeScreenState extends State<HomeScreen> {
               const SizedBox(height: 16),
               Text(
                 'ابدأ بإضافة طلاب للحلقة',
-                style: TextStyle(color: Colors.grey[600]),
+                style: GoogleFonts.tajawal(color: Colors.grey[600]),
               ),
             ],
           ),
@@ -399,9 +583,9 @@ class _HomeScreenState extends State<HomeScreen> {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            const Text(
-              'الطلاب',
-              style: TextStyle(
+            Text(
+              'قائمة الطلاب',
+              style: GoogleFonts.tajawal(
                 fontSize: 18,
                 fontWeight: FontWeight.bold,
               ),
@@ -413,28 +597,91 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         ),
         const SizedBox(height: 8),
-        ..._students.take(5).map((student) => _buildStudentTile(student)),
+        ..._students.take(4).map((student) => _buildStudentTile(student)),
       ],
     );
   }
 
   Widget _buildStudentTile(Student student) {
+    final attendanceStatus = _todayAttendance[student.id] ?? 'none';
+    
+    Color statusColor;
+    String statusText;
+    switch (attendanceStatus) {
+      case 'present':
+        statusColor = const Color(0xFF10B981);
+        statusText = 'حاضر';
+        break;
+      case 'late':
+        statusColor = const Color(0xFFF59E0B);
+        statusText = 'متأخر';
+        break;
+      case 'absent':
+        statusColor = const Color(0xFFEF4444);
+        statusText = 'غائب';
+        break;
+      case 'excused':
+        statusColor = const Color(0xFF3B82F6);
+        statusText = 'مستأذن';
+        break;
+      default:
+        statusColor = Colors.grey;
+        statusText = 'لم يسجل';
+    }
+
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return Card(
-      margin: const EdgeInsets.only(bottom: 8),
+      margin: const EdgeInsets.only(bottom: 12),
       child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         leading: CircleAvatar(
+          radius: 24,
           backgroundColor: Theme.of(context).primaryColor.withOpacity(0.1),
           child: Text(
             student.name.isNotEmpty ? student.name[0] : '؟',
             style: TextStyle(
               color: Theme.of(context).primaryColor,
               fontWeight: FontWeight.bold,
+              fontSize: 18,
             ),
           ),
         ),
-        title: Text(student.name),
-        subtitle: Text('الحفظ: ${student.totalMemorized} آية'),
-        trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+        title: Text(
+          student.name,
+          style: const TextStyle(fontWeight: FontWeight.bold),
+        ),
+        subtitle: Padding(
+          padding: const EdgeInsets.only(top: 4),
+          child: Row(
+            children: [
+              const Icon(Icons.menu_book, size: 14, color: Colors.grey),
+              const SizedBox(width: 4),
+              Text(
+                '${student.totalMemorized} آية محفوظ',
+                style: GoogleFonts.outfit(
+                  fontSize: 12,
+                  color: isDark ? Colors.grey[400] : Colors.grey[600],
+                ),
+              ),
+            ],
+          ),
+        ),
+        trailing: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            color: statusColor.withOpacity(0.15),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Text(
+            statusText,
+            style: TextStyle(
+              color: statusColor,
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
         onTap: () {
           setState(() => _currentIndex = 1);
         },

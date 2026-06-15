@@ -66,13 +66,9 @@ class _StudentsScreenState extends State<StudentsScreen> {
           Padding(
             padding: const EdgeInsets.all(16),
             child: TextField(
-              decoration: InputDecoration(
-                hintText: 'بحث عن طالب...',
-                prefixIcon: const Icon(Icons.search),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                filled: true,
+              decoration: const InputDecoration(
+                hintText: 'بحث عن اسم الطالب أو رقم الهاتف...',
+                prefixIcon: Icon(Icons.search),
               ),
               onChanged: (value) {
                 setState(() {
@@ -142,7 +138,7 @@ class _StudentsScreenState extends State<StudentsScreen> {
       margin: const EdgeInsets.only(bottom: 12),
       child: InkWell(
         onTap: () => _navigateToDetail(student),
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(24),
         child: Padding(
           padding: const EdgeInsets.all(16),
           child: Row(
