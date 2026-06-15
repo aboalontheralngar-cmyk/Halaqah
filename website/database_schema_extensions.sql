@@ -264,7 +264,7 @@ CREATE TABLE IF NOT EXISTS homework_grades (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     student_id UUID NOT NULL REFERENCES students(id) ON DELETE CASCADE,
     center_id UUID REFERENCES centers(id) ON DELETE CASCADE,
-    halaqa_id UUID REFERENCES halaqas(id) ON DELETE CASCADE,
+    halaqa_id UUID REFERENCES halaqat(id) ON DELETE CASCADE,
     surah TEXT NOT NULL,
     from_ayah INTEGER NOT NULL,
     to_ayah INTEGER NOT NULL,
