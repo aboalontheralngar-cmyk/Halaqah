@@ -1,4 +1,8 @@
+import 'dart:ui' as ui;
+import 'dart:typed_data';
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import '../../services/quran_service.dart';
 import '../../services/database_service.dart';
@@ -7,8 +11,8 @@ import '../../models/student.dart';
 import '../../models/memorization.dart';
 import '../../models/daily_record.dart';
 import '../../models/ayah.dart';
-import '../../models/homework_grade.dart';
 import '../../widgets/surah_picker.dart';
+import '../../utils/helpers.dart';
 
 class RecitationScreen extends StatefulWidget {
   final Student student;
@@ -783,7 +787,22 @@ class _RecitationScreenState extends State<RecitationScreen> {
                             await _saveRecitation(sendToParent: true);
                           },
                     icon: const Icon(Icons.share),
-                    label: const Text('حفظ وإرسال لولي الأمر'),
+                    label: const Text('حفظ وإرسال لولي الأمر (نص)'),
+                  ),
+                  const SizedBox(height: 8),
+                  ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.amber[800],
+                      foregroundColor: Colors.white,
+                    ),
+                    onPressed: _isSaving
+                        ? null
+                        : () async {
+                            Navigator.pop(context); // Close sheet
+                            await _saveRecitation(sendToParent: true, sendAsImage: true);
+                          },
+                    icon: const Icon(Icons.image),
+                    label: const Text('حفظ وإرسال كصورة'),
                   ),
                 ],
               ),
@@ -794,7 +813,7 @@ class _RecitationScreenState extends State<RecitationScreen> {
     );
   }
 
-  Future<void> _saveRecitation({bool sendToParent = false}) async {
+  Future<void> _saveRecitation({bool sendToParent = false, bool sendAsImage = false}) async {
     setState(() => _isSaving = true);
 
     try {
@@ -850,20 +869,42 @@ class _RecitationScreenState extends State<RecitationScreen> {
 
       // 5. Send message to parent if selected
       if (sendToParent) {
-        final template = await _db.getMessageTemplate('grading');
-        String templateText = template?.content ?? 
-            'السلام عليكم ورحمة الله وبركاته، تسميع الطالب {اسم_الطالب} اليوم في سورة {السورة} من آية {من} إلى آية {إلى}:\n- التقييم: {التقييم}\n- الأخطاء: {الأخطاء}\n- ملاحظة: {الملاحظة}';
+        if (sendAsImage) {
+          final bytes = await _drawReportCardImage(
+            studentName: widget.student.name,
+            surahName: _selectedSurah?.name ?? '',
+            fromAyah: _fromAyah,
+            toAyah: _toAyah,
+            grade: _selectedGrade,
+            mistakes: _mistakesCount,
+            isRevision: _isRevision,
+            remark: _remarkController.text,
+          );
 
-        String message = templateText
-            .replaceAll('{اسم_الطالب}', widget.student.name)
-            .replaceAll('{السورة}', _selectedSurah?.name ?? '')
-            .replaceAll('{من}', '$_fromAyah')
-            .replaceAll('{إلى}', '$_toAyah')
-            .replaceAll('{التقييم}', homeworkGrade.gradeMarkArabic)
-            .replaceAll('{الأخطاء}', '$_mistakesCount')
-            .replaceAll('{الملاحظة}', _remarkController.text.isNotEmpty ? _remarkController.text : 'لا يوجد');
+          final tempDir = await getTemporaryDirectory();
+          final file = await File('${tempDir.path}/report_${widget.student.name}.png').create();
+          await file.writeAsBytes(bytes);
 
-        await Share.share(message);
+          await Share.shareXFiles(
+            [XFile(file.path)],
+            text: 'تقرير تسميع الطالب ${widget.student.name} لليوم',
+          );
+        } else {
+          final template = await _db.getMessageTemplate('grading');
+          String templateText = template?.content ?? 
+              'السلام عليكم ورحمة الله وبركاته، تسميع الطالب {اسم_الطالب} اليوم في سورة {السورة} من آية {من} إلى آية {إلى}:\n- التقييم: {التقييم}\n- الأخطاء: {الأخطاء}\n- ملاحظة: {الملاحظة}';
+
+          String message = templateText
+              .replaceAll('{اسم_الطالب}', widget.student.name)
+              .replaceAll('{السورة}', _selectedSurah?.name ?? '')
+              .replaceAll('{من}', '$_fromAyah')
+              .replaceAll('{إلى}', '$_toAyah')
+              .replaceAll('{التقييم}', homeworkGrade.gradeMarkArabic)
+              .replaceAll('{الأخطاء}', '$_mistakesCount')
+              .replaceAll('{الملاحظة}', _remarkController.text.isNotEmpty ? _remarkController.text : 'لا يوجد');
+
+          await Share.share(message);
+        }
       }
 
       if (mounted) {
@@ -879,9 +920,246 @@ class _RecitationScreenState extends State<RecitationScreen> {
       setState(() => _isSaving = false);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('حدث خطأ: $e'), backgroundColor: Colors.red),
+          SnackBar(content: Text('حدث خطأ أثناء حفظ التقييم: $e')),
         );
       }
     }
+  }
+
+  Future<Uint8List> _drawReportCardImage({
+    required String studentName,
+    required String surahName,
+    required int fromAyah,
+    required int toAyah,
+    required String grade,
+    required int mistakes,
+    required bool isRevision,
+    required String remark,
+  }) async {
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder, const Rect.fromLTWH(0, 0, 800, 500));
+
+    // Paint background gradient
+    final paintBg = Paint()
+      ..shader = ui.Gradient.linear(
+        const Offset(0, 0),
+        const Offset(800, 500),
+        [
+          const Color(0xFF0F766E),
+          const Color(0xFF115E59),
+        ],
+      );
+    canvas.drawRect(const Rect.fromLTWH(0, 0, 800, 500), paintBg);
+
+    final paintCircle = Paint()..color = Colors.white.withOpacity(0.03);
+    canvas.drawCircle(const Offset(80, 80), 150, paintCircle);
+    canvas.drawCircle(const Offset(720, 420), 200, paintCircle);
+
+    final paintCard = Paint()..color = Colors.white;
+    final rrectCard = RRect.fromRectAndRadius(
+      const Rect.fromLTWH(40, 40, 720, 420),
+      const Radius.circular(30),
+    );
+    canvas.drawRRect(rrectCard, paintCard);
+
+    final paintBorder = Paint()
+      ..color = const Color(0xFF14B8A6).withOpacity(0.2)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 4;
+    canvas.drawRRect(rrectCard, paintBorder);
+
+    final paintBanner = Paint()..color = const Color(0xFF14B8A6);
+    final rrectBanner = RRect.fromRectAndRadius(
+      const Rect.fromLTWH(250, 20, 300, 50),
+      const Radius.circular(15),
+    );
+    canvas.drawRRect(rrectBanner, paintBanner);
+
+    _drawText(
+      canvas: canvas,
+      text: 'بطاقة تقييم التسميع اليومي 📖',
+      offset: const Offset(400, 45),
+      fontSize: 20,
+      color: Colors.white,
+      fontWeight: FontWeight.bold,
+      textAlign: TextAlign.center,
+    );
+
+    const rightAlignX = 700.0;
+    
+    _drawText(
+      canvas: canvas,
+      text: 'اسم الطالب: $studentName',
+      offset: const Offset(rightAlignX, 110),
+      fontSize: 26,
+      color: const Color(0xFF0F172A),
+      fontWeight: FontWeight.bold,
+      textAlign: TextAlign.right,
+    );
+
+    _drawText(
+      canvas: canvas,
+      text: 'الواجب المنجز: سورة $surahName (الآيات $fromAyah إلى $toAyah)',
+      offset: const Offset(rightAlignX, 175),
+      fontSize: 21,
+      color: const Color(0xFF334155),
+      fontWeight: FontWeight.bold,
+      textAlign: TextAlign.right,
+    );
+
+    final typeText = isRevision ? 'مراجعة' : 'حفظ جديد';
+    _drawText(
+      canvas: canvas,
+      text: 'نوع التسميع: $typeText',
+      offset: const Offset(rightAlignX, 225),
+      fontSize: 21,
+      color: const Color(0xFF334155),
+      fontWeight: FontWeight.bold,
+      textAlign: TextAlign.right,
+    );
+
+    if (grade != 'absent') {
+      _drawText(
+        canvas: canvas,
+        text: 'عدد الأخطاء: $mistakes',
+        offset: const Offset(rightAlignX, 275),
+        fontSize: 21,
+        color: mistakes > 0 ? Colors.red : const Color(0xFF0F766E),
+        fontWeight: FontWeight.bold,
+        textAlign: TextAlign.right,
+      );
+    }
+
+    if (remark.isNotEmpty) {
+      _drawText(
+        canvas: canvas,
+        text: 'ملاحظات المعلم: $remark',
+        offset: const Offset(rightAlignX, 325),
+        fontSize: 18,
+        color: const Color(0xFF475569),
+        fontWeight: FontWeight.w500,
+        textAlign: TextAlign.right,
+      );
+    }
+
+    final dateText = Helpers.formatGregorianDate(DateTime.now());
+    _drawText(
+      canvas: canvas,
+      text: 'التاريخ: $dateText',
+      offset: const Offset(rightAlignX, 375),
+      fontSize: 16,
+      color: const Color(0xFF94A3B8),
+      fontWeight: FontWeight.bold,
+      textAlign: TextAlign.right,
+    );
+
+    Color badgeBg;
+    Color badgeText;
+    String badgeLabel;
+
+    switch (grade) {
+      case 'excellent':
+        badgeBg = const Color(0xFFDCFCE7);
+        badgeText = const Color(0xFF15803D);
+        badgeLabel = 'ممتاز';
+        break;
+      case 'very_good':
+        badgeBg = const Color(0xFFDCFCE7);
+        badgeText = const Color(0xFF166534);
+        badgeLabel = 'جيد جداً';
+        break;
+      case 'good':
+        badgeBg = const Color(0xFFFEF3C7);
+        badgeText = const Color(0xFFB45309);
+        badgeLabel = 'جيد';
+        break;
+      case 'needs_work':
+        badgeBg = const Color(0xFFFFEDD5);
+        badgeText = const Color(0xFFC2410C);
+        badgeLabel = 'مقبول';
+        break;
+      case 'absent':
+      default:
+        badgeBg = const Color(0xFFFEE2E2);
+        badgeText = const Color(0xFFB91C1C);
+        badgeLabel = 'غائب';
+        break;
+    }
+
+    final paintBadge = Paint()..color = badgeBg;
+    final rrectBadge = RRect.fromRectAndRadius(
+      const Rect.fromLTWH(80, 160, 200, 160),
+      const Radius.circular(20),
+    );
+    canvas.drawRRect(rrectBadge, paintBadge);
+
+    _drawText(
+      canvas: canvas,
+      text: badgeLabel,
+      offset: const Offset(180, 225),
+      fontSize: 34,
+      color: badgeText,
+      fontWeight: FontWeight.bold,
+      textAlign: TextAlign.center,
+    );
+
+    _drawText(
+      canvas: canvas,
+      text: 'التقييم العام',
+      offset: const Offset(180, 280),
+      fontSize: 16,
+      color: badgeText,
+      fontWeight: FontWeight.bold,
+      textAlign: TextAlign.center,
+    );
+
+    _drawText(
+      canvas: canvas,
+      text: 'مقرأة حلقة القرآن الكريم الإلكترونية',
+      offset: const Offset(400, 435),
+      fontSize: 18,
+      color: const Color(0xFF0F766E),
+      fontWeight: FontWeight.bold,
+      textAlign: TextAlign.center,
+    );
+
+    final picture = recorder.endRecording();
+    final img = await picture.toImage(800, 500);
+    final byteData = await img.toByteData(format: ui.ImageByteFormat.png);
+    return byteData!.buffer.asUint8List();
+  }
+
+  void _drawText({
+    required Canvas canvas,
+    required String text,
+    required Offset offset,
+    required double fontSize,
+    required Color color,
+    required FontWeight fontWeight,
+    required TextAlign textAlign,
+  }) {
+    final textSpan = TextSpan(
+      text: text,
+      style: TextStyle(
+        fontSize: fontSize,
+        color: color,
+        fontWeight: fontWeight,
+      ),
+    );
+    final textPainter = TextPainter(
+      text: textSpan,
+      textDirection: TextDirection.rtl,
+      textAlign: textAlign,
+    );
+    textPainter.layout(minWidth: 0, maxWidth: 650);
+
+    double x = offset.dx;
+    if (textAlign == TextAlign.right) {
+      x = offset.dx - textPainter.width;
+    } else if (textAlign == TextAlign.center) {
+      x = offset.dx - (textPainter.width / 2);
+    }
+    final y = offset.dy - (textPainter.height / 2);
+    textPainter.paint(canvas, Offset(x, y));
   }
 }

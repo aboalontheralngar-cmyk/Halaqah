@@ -252,6 +252,7 @@ CREATE TABLE IF NOT EXISTS center_settings (
     penalty_reduction_percent INTEGER DEFAULT 50 CHECK (penalty_reduction_percent BETWEEN 0 AND 100),
     dismissal_absence_days INTEGER DEFAULT 0,     -- فصل تلقائي بعد كذا يوم غياب (0 = معطل)
     subscription_amount NUMERIC(10, 2) DEFAULT 0, -- قيمة الاشتراك الشهري للصندوق
+    currency_symbol TEXT DEFAULT 'ر.س',           -- رمز العملة للصندوق المالي
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );

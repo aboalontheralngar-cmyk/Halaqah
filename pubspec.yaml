@@ -35,6 +35,11 @@ dependencies:
   flutter_slidable: ^4.0.3
   google_fonts: ^8.1.0
   share_plus: ^9.0.0
+  supabase_flutter: ^2.8.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
 
 flutter:
   uses-material-design: true

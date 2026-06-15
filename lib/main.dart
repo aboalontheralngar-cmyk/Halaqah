@@ -3,10 +3,12 @@ import 'package:flutter/services.dart';
 import 'app/app.dart';
 import 'services/database_service.dart';
 import 'services/quran_service.dart';
+import 'services/supabase_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
+  await SupabaseService.initialize();
   await QuranService.instance.initialize();
   
   // Load saved theme settings from DB

@@ -13,6 +13,7 @@ class Student {
   String status;
   String? photoPath;
   String? notes;
+  String memorizationDirection; // 'desc' or 'asc'
   DateTime createdAt;
   DateTime updatedAt;
 
@@ -29,6 +30,7 @@ class Student {
     this.status = 'active',
     this.photoPath,
     this.notes,
+    this.memorizationDirection = 'desc',
     DateTime? createdAt,
     DateTime? updatedAt,
   })  : id = id ?? const Uuid().v4(),
@@ -50,6 +52,7 @@ class Student {
         'status': status,
         'photo_path': photoPath,
         'notes': notes,
+        'memorization_direction': memorizationDirection,
         'created_at': createdAt.toIso8601String(),
         'updated_at': updatedAt.toIso8601String(),
       };
@@ -67,6 +70,7 @@ class Student {
         status: map['status'] ?? 'active',
         photoPath: map['photo_path'],
         notes: map['notes'],
+        memorizationDirection: map['memorization_direction'] ?? 'desc',
         createdAt: DateTime.parse(map['created_at']),
         updatedAt: DateTime.parse(map['updated_at']),
       );
@@ -81,6 +85,7 @@ class Student {
     String? status,
     String? photoPath,
     String? notes,
+    String? memorizationDirection,
   }) {
     return Student(
       id: id,
@@ -95,6 +100,7 @@ class Student {
       status: status ?? this.status,
       photoPath: photoPath ?? this.photoPath,
       notes: notes ?? this.notes,
+      memorizationDirection: memorizationDirection ?? this.memorizationDirection,
       createdAt: createdAt,
       updatedAt: DateTime.now(),
     );

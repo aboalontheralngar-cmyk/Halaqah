@@ -5,6 +5,7 @@ import '../../models/fund_transaction.dart';
 import '../../models/student.dart';
 import '../../services/database_service.dart';
 import '../../app/theme.dart';
+import '../../models/settings.dart';
 
 class FundScreen extends StatefulWidget {
   const FundScreen({super.key});
@@ -18,6 +19,7 @@ class _FundScreenState extends State<FundScreen> {
   double _balance = 0.0;
   List<FundTransaction> _transactions = [];
   List<Student> _students = [];
+  HalaqahSettings _settings = HalaqahSettings();
   bool _isLoading = true;
 
   @override
@@ -32,10 +34,12 @@ class _FundScreenState extends State<FundScreen> {
       final balance = await _db.getFundBalance();
       final transactions = await _db.getFundTransactions();
       final students = await _db.getStudents();
+      final settings = await _db.getSettings();
       setState(() {
         _balance = balance;
         _transactions = transactions;
         _students = students;
+        _settings = settings;
         _isLoading = false;
       });
     } catch (e) {
@@ -123,9 +127,9 @@ class _FundScreenState extends State<FundScreen> {
 
                   // Amount Field
                   TextFormField(
-                    decoration: const InputDecoration(
-                      labelText: 'المبلغ (ريال)',
-                      prefixIcon: Icon(Icons.attach_money),
+                    decoration: InputDecoration(
+                      labelText: 'المبلغ (${_settings.currencySymbol})',
+                      prefixIcon: const Icon(Icons.attach_money),
                     ),
                     keyboardType: const TextInputType.numberWithOptions(decimal: true),
                     validator: (val) {
@@ -317,7 +321,7 @@ class _FundScreenState extends State<FundScreen> {
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
                                 Text(
-                                  '${_balance.toStringAsFixed(2)} ر.س',
+                                  '${_balance.toStringAsFixed(2)} ${_settings.currencySymbol}',
                                   style: GoogleFonts.outfit(
                                     color: Colors.white,
                                     fontSize: 32,
@@ -428,7 +432,7 @@ class _FundScreenState extends State<FundScreen> {
                                       style: const TextStyle(fontWeight: FontWeight.bold),
                                     ),
                                     Text(
-                                      '${isExpense ? "-" : "+"}${tx.amount.toStringAsFixed(1)} ر.س',
+                                      '${isExpense ? "-" : "+"}${tx.amount.toStringAsFixed(1)} ${_settings.currencySymbol}',
                                       style: GoogleFonts.outfit(
                                         color: isExpense ? Colors.red : const Color(0xFF10B981),
                                         fontWeight: FontWeight.bold,

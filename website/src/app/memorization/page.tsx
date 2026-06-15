@@ -176,6 +176,153 @@ export default function MemorizationPage() {
     }
   };
 
+  const handleShareImage = async (grade: HomeworkGrade) => {
+    const student = students.find(s => s.id === grade.studentId);
+    const studentName = student?.name || "طالب";
+    const parentPhone = student?.parentPhone || "";
+
+    const canvas = document.createElement("canvas");
+    canvas.width = 800;
+    canvas.height = 500;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    // Background Gradient (Teal to Slate/Cyan)
+    const gradient = ctx.createLinearGradient(0, 0, 800, 500);
+    gradient.addColorStop(0, "#0f766e"); // dark teal
+    gradient.addColorStop(1, "#115e59"); // deeper teal
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, 800, 500);
+
+    // Subtle decorative circles
+    ctx.fillStyle = "rgba(255, 255, 255, 0.03)";
+    ctx.beginPath();
+    ctx.arc(80, 80, 150, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(720, 420, 200, 0, Math.PI * 2);
+    ctx.fill();
+
+    // White card background
+    ctx.fillStyle = "rgba(255, 255, 255, 0.96)";
+    ctx.beginPath();
+    ctx.roundRect(40, 40, 720, 420, 30);
+    ctx.fill();
+
+    // Border
+    ctx.strokeStyle = "rgba(20, 184, 166, 0.2)";
+    ctx.lineWidth = 4;
+    ctx.stroke();
+
+    // Title Banner
+    ctx.fillStyle = "#14b8a6"; // teal-500
+    ctx.beginPath();
+    ctx.roundRect(250, 20, 300, 50, 15);
+    ctx.fill();
+
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 20px 'Segoe UI', Tahoma, Arial";
+    ctx.textAlign = "center";
+    ctx.fillText("بطاقة تقييم التسميع اليومي 📖", 400, 52);
+
+    // Text details (Align Right since it's Arabic)
+    ctx.textAlign = "right";
+    ctx.textBaseline = "middle";
+
+    // Student Name
+    ctx.fillStyle = "#0f172a"; // slate-900
+    ctx.font = "bold 26px 'Segoe UI', Tahoma, Arial";
+    ctx.fillText(`اسم الطالب: ${studentName}`, 700, 120);
+
+    // Surah and Ayahs
+    ctx.fillStyle = "#334155"; // slate-700
+    ctx.font = "bold 22px 'Segoe UI', Tahoma, Arial";
+    ctx.fillText(`الواجب المنجز: سورة ${grade.surah} (الآيات ${grade.fromAyah} إلى ${grade.toAyah})`, 700, 180);
+
+    // Type of homework
+    const typeText = grade.isRevision ? "مراجعة" : "حفظ جديد";
+    ctx.fillText(`نوع التسميع: ${typeText}`, 700, 230);
+
+    // Mistakes Count
+    if (grade.gradeMark !== "absent") {
+      ctx.fillStyle = grade.mistakesCount > 0 ? "#e11d48" : "#0f766e";
+      ctx.fillText(`عدد الأخطاء: ${grade.mistakesCount}`, 700, 280);
+    }
+
+    // Remark
+    if (grade.remark) {
+      ctx.fillStyle = "#475569";
+      ctx.font = "italic 18px 'Segoe UI', Tahoma, Arial";
+      ctx.fillText(`ملاحظات المعلم: ${grade.remark}`, 700, 330);
+    }
+
+    // Date
+    ctx.fillStyle = "#94a3b8";
+    ctx.font = "bold 16px 'Segoe UI', Tahoma, Arial";
+    ctx.fillText(`التاريخ: ${grade.date}`, 700, 380);
+
+    // Draw Grade Badge (Left Side)
+    const gradeBadges: Record<string, { label: string; bg: string; text: string }> = {
+      excellent: { label: "ممتاز", bg: "#dcfce7", text: "#15803d" },
+      very_good: { label: "جيد جداً", bg: "#dcfce7", text: "#166534" },
+      good: { label: "جيد", bg: "#fef3c7", text: "#b45309" },
+      needs_work: { label: "مقبول", bg: "#ffedd5", text: "#c2410c" },
+      absent: { label: "غائب", bg: "#fee2e2", text: "#b91c1c" }
+    };
+    const badge = gradeBadges[grade.gradeMark] || gradeBadges.good;
+
+    ctx.fillStyle = badge.bg;
+    ctx.beginPath();
+    ctx.roundRect(80, 160, 200, 160, 20);
+    ctx.fill();
+
+    ctx.fillStyle = badge.text;
+    ctx.font = "bold 34px 'Segoe UI', Tahoma, Arial";
+    ctx.textAlign = "center";
+    ctx.fillText(badge.label, 180, 230);
+
+    ctx.font = "bold 16px 'Segoe UI', Tahoma, Arial";
+    ctx.fillText("التقييم العام", 180, 280);
+
+    // Footer brand logo
+    ctx.fillStyle = "#0f766e";
+    ctx.font = "bold 18px 'Segoe UI', Tahoma, Arial";
+    ctx.fillText("مقرأة حلقة القرآن الكريم الإلكترونية", 400, 435);
+
+    // Process sharing
+    try {
+      canvas.toBlob(async (blob) => {
+        if (!blob) return;
+        const file = new File([blob], `grade_report_${studentName}.png`, { type: "image/png" });
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          await navigator.share({
+            files: [file],
+            title: `تقرير تسميع ${studentName}`,
+            text: `تقرير تسميع الطالب ${studentName} لليوم`,
+          });
+          showToast("تمت مشاركة الصورة بنجاح");
+        } else {
+          // Fallback to direct download
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = `تقرير_تسميع_${studentName}.png`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+          showToast("تم تحميل صورة التقرير بنجاح");
+          if (parentPhone) {
+            window.open(`https://wa.me/${parentPhone}`, "_blank");
+          }
+        }
+      }, "image/png");
+    } catch (e) {
+      console.error(e);
+      showToast("فشلت المشاركة، جاري التحميل بدلاً من ذلك");
+    }
+  };
+
   const filteredGrades = useMemo(() => {
     return homeworkGrades
       .filter(m => !studentFilter || m.studentId === studentFilter)
@@ -342,10 +489,18 @@ export default function MemorizationPage() {
                       <button 
                         onClick={() => handleShareExisting(grade)}
                         className="bg-teal-50 hover:bg-teal-100 text-teal-700 dark:bg-teal-900/20 dark:hover:bg-teal-900/40 dark:text-teal-400 p-3 rounded-2xl text-xs font-bold flex items-center gap-2 transition-colors"
-                        title="مشاركة عبر واتساب"
+                        title="مشاركة النص"
                       >
                         <MessageCircle className="w-4 h-4" />
-                        <span>مشاركة</span>
+                        <span>مشاركة النص</span>
+                      </button>
+                      <button 
+                        onClick={() => handleShareImage(grade)}
+                        className="bg-amber-50 hover:bg-amber-100 text-amber-700 dark:bg-amber-900/20 dark:hover:bg-amber-900/40 dark:text-amber-400 p-3 rounded-2xl text-xs font-bold flex items-center gap-2 transition-colors"
+                        title="مشاركة كصورة"
+                      >
+                        <Share2 className="w-4 h-4" />
+                        <span>مشاركة كصورة</span>
                       </button>
                     </div>
                   </div>

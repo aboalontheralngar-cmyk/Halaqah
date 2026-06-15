@@ -20,6 +20,7 @@ class _StudentFormScreenState extends State<StudentFormScreen> {
   
   String _planType = 'ayahs';
   int _planAmount = 5;
+  String _memorizationDirection = 'desc';
   final DatabaseService _db = DatabaseService();
   bool _isSaving = false;
 
@@ -35,6 +36,7 @@ class _StudentFormScreenState extends State<StudentFormScreen> {
       _notesController.text = widget.student!.notes ?? '';
       _planType = widget.student!.planType;
       _planAmount = widget.student!.planAmount;
+      _memorizationDirection = widget.student!.memorizationDirection;
     }
   }
 
@@ -61,6 +63,7 @@ class _StudentFormScreenState extends State<StudentFormScreen> {
           planType: _planType,
           planAmount: _planAmount,
           notes: _notesController.text.trim(),
+          memorizationDirection: _memorizationDirection,
         );
         await _db.updateStudent(updated);
       } else {
@@ -71,6 +74,7 @@ class _StudentFormScreenState extends State<StudentFormScreen> {
           planType: _planType,
           planAmount: _planAmount,
           notes: _notesController.text.trim(),
+          memorizationDirection: _memorizationDirection,
         );
         await _db.insertStudent(student);
       }
@@ -207,6 +211,37 @@ class _StudentFormScreenState extends State<StudentFormScreen> {
                   ],
                 ),
               ),
+            ),
+            const SizedBox(height: 24),
+            const Text(
+              'منهج الحفظ والتقدم',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String>(
+              value: _memorizationDirection,
+              decoration: const InputDecoration(
+                labelText: 'اتجاه الحفظ والتقدم',
+                prefixIcon: Icon(Icons.explore),
+              ),
+              items: const [
+                DropdownMenuItem(
+                  value: 'desc',
+                  child: Text('من الناس إلى البقرة (القصار أولاً - صعودي)'),
+                ),
+                DropdownMenuItem(
+                  value: 'asc',
+                  child: Text('من البقرة إلى الناس (الطوال أولاً - نزولي)'),
+                ),
+              ],
+              onChanged: (val) {
+                if (val != null) {
+                  setState(() => _memorizationDirection = val);
+                }
+              },
             ),
             const SizedBox(height: 16),
             

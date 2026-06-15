@@ -37,6 +37,7 @@ export interface Student {
   planType: 'ayahs' | 'pages';
   planAmount: number;
   status: 'active' | 'inactive';
+  memorizationDirection?: 'asc' | 'desc';
 }
 
 export interface AttendanceRecord {
@@ -136,6 +137,7 @@ interface HalaqahStore {
   homeworkGrades: HomeworkGrade[];
   mushafProgress: MushafProgress[];
   messageTemplates: MessageTemplate[];
+  currencySymbol: string;
   loading: boolean;
   darkMode: boolean;
   centerType: 'men' | 'women';
@@ -198,6 +200,8 @@ interface HalaqahStore {
   togglePreMemorized: (studentId: string, hizbNumber: number, thumunNumber: number, isPre: boolean) => Promise<void>;
   fetchMessageTemplates: () => Promise<void>;
   saveMessageTemplate: (type: 'assignment' | 'grading', content: string) => Promise<void>;
+  fetchCenterSettings: () => Promise<void>;
+  updateCurrencySymbol: (symbol: string) => Promise<void>;
 
   toggleDarkMode: () => void;
 }
@@ -213,6 +217,7 @@ export const useStore = create<HalaqahStore>((set, get) => ({
   homeworkGrades: [],
   mushafProgress: [],
   messageTemplates: [],
+  currencySymbol: 'ر.س',
   loading: false,
   centerType: typeof window !== "undefined" ? (localStorage.getItem("centerType") as 'men' | 'women') || 'men' : 'men',
   darkMode: typeof window !== "undefined" ? localStorage.getItem("darkMode") === "true" : false,
@@ -480,7 +485,8 @@ export const useStore = create<HalaqahStore>((set, get) => ({
           photoUrl: s.photo_url,
           planType: s.plan_type,
           planAmount: s.plan_amount,
-          status: s.status
+          status: s.status,
+          memorizationDirection: s.memorization_direction || 'desc'
         }));
         set({ students: mapped as Student[] });
       } else {
@@ -511,7 +517,8 @@ export const useStore = create<HalaqahStore>((set, get) => ({
           plan_amount: student.planAmount,
           status: student.status,
           center_id: center.id,
-          halaqa_id: center.activeHalaqa?.id // Assign to current halaqa
+          halaqa_id: center.activeHalaqa?.id, // Assign to current halaqa
+          memorization_direction: student.memorizationDirection || 'desc'
         }])
         .select()
         .single();
@@ -532,7 +539,8 @@ export const useStore = create<HalaqahStore>((set, get) => ({
           joinDate: data.join_date,
           planType: data.plan_type,
           planAmount: data.plan_amount,
-          status: data.status
+          status: data.status,
+          memorizationDirection: data.memorization_direction || 'desc'
         };
         set((state) => ({ students: [...state.students, mapped as Student] }));
         get().addActivity('student_added', `تم إضافة ${isMen ? 'طالب' : 'طالبة'} جديد: ${student.name}`);
@@ -542,7 +550,7 @@ export const useStore = create<HalaqahStore>((set, get) => ({
 
   updateStudent: async (id, student) => {
     if (supabase) {
-      const mapped = {
+      const mapped: any = {
         name: student.name,
         phone: student.phone,
         parent_phone: student.parentPhone,
@@ -553,6 +561,9 @@ export const useStore = create<HalaqahStore>((set, get) => ({
         plan_amount: student.planAmount,
         status: student.status,
       };
+      if (student.memorizationDirection !== undefined) {
+        mapped.memorization_direction = student.memorizationDirection;
+      }
       const { error } = await supabase
         .from('students')
         .update(mapped)
@@ -1027,6 +1038,7 @@ export const useStore = create<HalaqahStore>((set, get) => ({
       g.fetchActivities(),
       g.fetchHomeworkGrades(),
       g.fetchMessageTemplates(),
+      g.fetchCenterSettings(),
     ]);
   },
 
@@ -1345,6 +1357,46 @@ export const useStore = create<HalaqahStore>((set, get) => ({
       await get().fetchMessageTemplates();
     } catch (err) {
       console.error("Save message template error:", err);
+    }
+  },
+
+  fetchCenterSettings: async () => {
+    const center = get().currentCenter;
+    if (!supabase || !center) return;
+    try {
+      const { data, error } = await supabase
+        .from('center_settings')
+        .select('currency_symbol')
+        .eq('center_id', center.id)
+        .maybeSingle();
+
+      if (error) throw error;
+      if (data && data.currency_symbol) {
+        set({ currencySymbol: data.currency_symbol });
+      } else {
+        set({ currencySymbol: 'ر.س' });
+      }
+    } catch (err) {
+      console.error("Fetch center settings error:", err);
+    }
+  },
+
+  updateCurrencySymbol: async (symbol: string) => {
+    const center = get().currentCenter;
+    if (!supabase || !center) return;
+    try {
+      const { error } = await supabase
+        .from('center_settings')
+        .upsert([{
+          center_id: center.id,
+          currency_symbol: symbol
+        }], { onConflict: 'center_id' });
+
+      if (error) throw error;
+      set({ currencySymbol: symbol });
+    } catch (err) {
+      console.error("Update currency symbol error:", err);
+      alert("فشل تحديث رمز العملة: " + (err as any).message);
     }
   },
 }));

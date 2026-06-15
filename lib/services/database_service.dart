@@ -31,7 +31,7 @@ class DatabaseService {
     String path = join(await getDatabasesPath(), 'halaqah.db');
     return await openDatabase(
       path,
-      version: 3,
+      version: 4,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -52,6 +52,7 @@ class DatabaseService {
         status TEXT DEFAULT 'active',
         photo_path TEXT,
         notes TEXT,
+        memorization_direction TEXT DEFAULT 'desc',
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       )
@@ -164,6 +165,9 @@ class DatabaseService {
     }
     if (oldVersion < 3) {
       await _createVersion3Tables(db);
+    }
+    if (oldVersion < 4) {
+      await _upgradeToVersion4(db);
     }
   }
 
@@ -795,6 +799,14 @@ class DatabaseService {
     }, conflictAlgorithm: ConflictAlgorithm.ignore);
   }
 
+  Future<void> _upgradeToVersion4(Database db) async {
+    try {
+      await db.execute("ALTER TABLE students ADD COLUMN memorization_direction TEXT DEFAULT 'desc'");
+    } catch (e) {
+      print("Error upgrading database to version 4: $e");
+    }
+  }
+
   // HomeworkGrade CRUD methods
   Future<void> insertHomeworkGrade(HomeworkGrade grade) async {
     final db = await database;
@@ -861,5 +873,23 @@ class DatabaseService {
       template.toMap(),
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
+  }
+
+  Future<List<HomeworkGrade>> getAllHomeworkGrades() async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.query('homework_grades');
+    return List.generate(maps.length, (i) => HomeworkGrade.fromMap(maps[i]));
+  }
+
+  Future<List<DailyRecord>> getAllDailyRecords() async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.query('daily_records');
+    return List.generate(maps.length, (i) => DailyRecord.fromMap(maps[i]));
+  }
+
+  Future<List<MushafProgress>> getAllMushafProgress() async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.query('mushaf_progress');
+    return List.generate(maps.length, (i) => MushafProgress.fromMap(maps[i]));
   }
 }

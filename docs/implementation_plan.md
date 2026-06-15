@@ -1,190 +1,84 @@
-# تنفيذ ميزات Halaqat في مشروع Halaqah
+# خطة تطوير ميزات الصندوق المالي، تقرير التسميع، واتجاه الحفظ، والربط السحابي
 
-## الهدف
-إضافة 5 ميزات متقدمة مستوحاة من مشروع Halaqat إلى تطبيق Halaqah Flutter، مع الحفاظ على خفة التطبيق والأداء الحالي.
+تهدف هذه الخطة إلى تفصيل تصميم وتطبيق التحديثات المطلوبة على الصندوق المالي (العملة المخصصة)، ومشاركة تقارير واتس كبطاقة مرئية، وتصميم منطق غياب المعلم، والتقرير الإحصائي لتقدم الحفظ، والتحكم باتجاه الحفظ (من الناس أو من البقرة)، بالإضافة إلى توضيح المعمارية المقترحة لربط تطبيق الأندرويد بالسحابة.
+
+---
 
 ## User Review Required
 
 > [!IMPORTANT]
-> الميزات مرتبة بالأولوية. هل تريد تنفيذ الكل أم البدء بميزات محددة؟
+> **1. ربط تطبيق الأندرويد بالسحابة (Supabase Cloud Link):**
+> نقترح تفعيل معمارية سحابية هجينة (Offline-First Hybrid Sync):
+> * سنستخدم مكتبة `supabase_flutter` في التطبيق.
+> * سنحافظ على سرعة التطبيق ووضعه غير المتصل بالإنترنت باستخدام قاعدة بيانات SQLite المحلية كـ Cache، مع مزامنة دورية (Background Sync) في الخلفية عند توفر الإنترنت.
+> * بديل مبسط: إضافة خيار "مزامنة سحابية يدوية" (Manual Backup & Restore) بضغطة زر داخل لوحة التحكم لرفع/تحميل البيانات السحابية لـ Supabase دون تعديل كامل معمارية التطبيق الحالية.
+> **يرجى اختيار البديل المفضل للمتابعة.**
+
+> [!TIP]
+> **2. ميزة مشاركة صورة للواتس بتصميم جميل (Image Sharing):**
+> * **في الويب:** سنقوم برسم بطاقة التقرير ديناميكيًا على عنصر `<canvas>` من HTML5 وتصديرها كصورة PNG قابلة للمشاركة أو التنزيل الفوري، لتفادي مشاكل المكتبات الخارجية الكبيرة.
+> * **في الموبايل:** سنستخدم ودجت `RepaintBoundary` المدمجة في Flutter لالتقاط بطاقة التقرير كصورة وحفظها في مجلد مؤقت ثم مشاركتها عبر `share_plus`.
 
 > [!WARNING]
-> التطبيق سيحتاج ترقية قاعدة البيانات من version 2 → 3. هذا آمن للبيانات الموجودة بفضل نظام `onUpgrade`.
-
-## Open Questions
-
-1. **تقارير Excel**: هل تفضل CSV خفيف (بدون مكتبات إضافية) أم Excel حقيقي (يحتاج مكتبة `excel` ~200KB)؟
-2. **قوالب الرسائل**: هل تريد فتح واتساب مباشرة أم مشاركة عبر نظام المشاركة العام؟
-
----
-
-## الحالة الحالية للمشروع
-
-| الملف | الوظيفة | الحالة |
-|---|---|---|
-| [memorization.dart](file:///c:/Users/salman/Documents/flutter_App/Halaqah/lib/models/memorization.dart) | نموذج الحفظ | ✅ موجود (بسيط - `quality_rating: int`) |
-| [recitation_screen.dart](file:///c:/Users/salman/Documents/flutter_App/Halaqah/lib/screens/memorization/recitation_screen.dart) | شاشة التسميع | ✅ موجودة (تحتاج تحسين التقييم) |
-| [quran_service.dart](file:///c:/Users/salman/Documents/flutter_App/Halaqah/lib/services/quran_service.dart) | خدمة القرآن | ✅ موجودة (بيانات السور + الأجزاء) |
-| [database_service.dart](file:///c:/Users/salman/Documents/flutter_App/Halaqah/lib/services/database_service.dart) | قاعدة البيانات | ✅ v2 (تحتاج ترقية لـ v3) |
+> **3. غياب المعلم دون بديل (Teacher Absence Log):**
+> نقترح تصميم الميزة بالشكل التالي:
+> * يستطيع **مدير المركز** تحديد "حالة غياب" للحلقة وتعيين معلم بديل (Substitute) مؤقتًا بضغطة زر لرؤية وإدخال تحضير الطلاب.
+> * في حال عدم الحضور بعد بدء الحلقة بـ 15 دقيقة، تظهر لوحة إشعار لمدير المركز تخبره بأن "الحلقة X بدون معلم حاليًا" وتتيح له استلام التحضير وتسميع الطلاب بنفسه كبديل تلقائي.
 
 ---
 
 ## Proposed Changes
 
-### المرحلة 1: تحسين نظام التسميع + نموذج الواجبات 🔴
+### 1. الصندوق المالي بعملة عالمية مخصصة 🪙
 
-الحفظ والتسميع موجودان فعلاً. سنحسّنهما بإضافة نظام تقييم 5 مستويات (مثل Halaqat) + حقل عدد الأخطاء.
+#### [MODIFY] [database_schema_extensions.sql](file:///c:/Users/salman/Documents/flutter_App/Halaqah/website/database_schema_extensions.sql)
+* إضافة عمود `currency_symbol TEXT DEFAULT 'ر.س'` إلى جدول `center_settings`.
 
----
+#### [MODIFY] [useStore.ts](file:///c:/Users/salman/Documents/flutter_App/Halaqah/website/src/store/useStore.ts)
+* تحديث إعدادات المركز لتشمل `currencySymbol` ومزامنتها مع Supabase.
 
-#### [MODIFY] [database_service.dart](file:///c:/Users/salman/Documents/flutter_App/Halaqah/lib/services/database_service.dart)
-- ترقية من `version: 2` → `version: 3`
-- إضافة جداول جديدة في `_createVersion3Tables`:
-  - `homework_grades` — حقل `grade_mark` (Excellent/VeryGood/Good/NeedsWork/Absent) + `mistakes_count`
-  - `mushaf_progress` — تتبع تقدم الحفظ بالأثمان (480 صف محتمل)
-  - `message_templates` — قوالب الرسائل
-- إضافة CRUD methods للجداول الجديدة
+#### [MODIFY] [page.tsx (fund)](file:///c:/Users/salman/Documents/flutter_App/Halaqah/website/src/app/fund/page.tsx)
+* استبدال رمز العملة الثابت `ر.س` بمتغير العملة الديناميكي المأخوذ من إعدادات المركز.
 
-#### [NEW] `lib/models/homework_grade.dart`
-- نموذج `HomeworkGrade`:
-  ```dart
-  {id, studentId, date, startSurah, startAyah, endSurah, endAyah, 
-   gradeMark: 'excellent'|'very_good'|'good'|'needs_work'|'absent',
-   mistakesCount: int, isRevision: bool, remark: String?}
-  ```
-
-#### [MODIFY] [recitation_screen.dart](file:///c:/Users/salman/Documents/flutter_App/Halaqah/lib/screens/memorization/recitation_screen.dart)
-- إضافة واجهة اختيار تقييم 5 مستويات بدلاً من `quality_rating` الرقمي
-- إضافة حقل "عدد الأخطاء" مع عداد +/-
-- إضافة حقل "ملاحظات" نصي
-- أزرار ملونة لكل مستوى تقييم
+#### [MODIFY] [settings_screen.dart](file:///c:/Users/salman/Documents/flutter_App/Halaqah/lib/screens/settings/settings_screen.dart) & [settings.dart](file:///c:/Users/salman/Documents/flutter_App/Halaqah/lib/models/settings.dart) & [fund_screen.dart](file:///c:/Users/salman/Documents/flutter_App/Halaqah/lib/screens/fund/fund_screen.dart)
+* إضافة خيار "رمز العملة" في الإعدادات الموبيلية وحفظه محليًا، وتحديث شاشة الصندوق المالي لعرض العملة المحددة.
 
 ---
 
-### المرحلة 2: خريطة المصحف المرئية (Mushaf Visualizer) 🟠
+### 2. اتجاه الحفظ لكل طالب (من الناس أو من البقرة) 🧭
 
-ميزة بصرية مميزة: شبكة 60 حزب × 8 أثمان تعرض تقدم الطالب.
+#### [MODIFY] [students/page.tsx](file:///c:/Users/salman/Documents/flutter_App/Halaqah/website/src/app/students/page.tsx) & [useStore.ts](file:///c:/Users/salman/Documents/flutter_App/Halaqah/website/src/store/useStore.ts)
+* إضافة حقل `memorizationDirection` (desc / asc) في نموذج الطالب وواجهة الإضافة/التعديل لتمكين الاختيار بين "من الناس إلى البقرة" (افتراضي) أو "من البقرة إلى الناس".
 
----
-
-#### [NEW] `lib/models/mushaf_progress.dart`
-- نموذج `MushafProgress`:
-  ```dart
-  {id, studentId, hizbNumber: 1-60, thumunNumber: 1-8, 
-   averageGrade: double, lastGradedDate: DateTime?,
-   isPreMemorized: bool}
-  ```
-- `DecayStatus` enum: `fresh` (<14 يوم), `aging` (14-30 يوم), `stale` (>30 يوم), `notStarted`
-
-#### [NEW] `lib/services/mushaf_service.dart`
-- `MushafService`:
-  - بيانات تقسيمات القرآن الـ 480 ثُمن (hardcoded كـ const list)
-  - `getHizbProgress(studentId)` → `List<HizbProgressVM>`
-  - `updateProgressAfterGrading(homeworkGradeId)`
-  - حساب `DecayStatus` من `lastGradedDate`
-
-#### [NEW] `lib/screens/memorization/mushaf_visualizer_screen.dart`
-- شاشة خريطة المصحف:
-  - `GridView` 60 صف × 8 أعمدة (خلايا صغيرة ملونة)
-  - ألوان: أخضر (fresh) / أصفر (aging) / أحمر (stale) / رمادي (notStarted)
-  - BottomSheet عند الضغط على خلية يعرض تفاصيل الحزب/الثُمن
-  - Header يعرض إحصائيات (% محفوظ، عدد الأحزاب، حالة المراجعة)
-
-#### [MODIFY] [student_memorization_view.dart](file:///c:/Users/salman/Documents/flutter_App/Halaqah/lib/screens/memorization/student_memorization_view.dart)
-- إضافة زر "خريطة المصحف" في شاشة عرض محفوظات الطالب
+#### [MODIFY] [student.dart](file:///c:/Users/salman/Documents/flutter_App/Halaqah/lib/models/student.dart) & [student_form_screen.dart](file:///c:/Users/salman/Documents/flutter_App/Halaqah/lib/screens/students/student_form_screen.dart)
+* إضافة الحقل لنموذج الطالب في تطبيق الموبايل وترقية قاعدة بيانات SQLite لإضافة العمود `memorization_direction` على جدول `students` عند ترقية الإصدار إلى 4.
 
 ---
 
-### المرحلة 3: تقارير مشاركة (CSV/Share) 🟠
+### 3. إحصائيات التسميع التفصيلية (الصفحات والآيات المحفوظة) 📊
 
-تقارير خفيفة بصيغة CSV (بدون مكتبات ثقيلة) قابلة للمشاركة.
-
----
-
-#### [NEW] `lib/services/report_export_service.dart`
-- `ReportExportService`:
-  - `exportStudentReport(studentId)` → ملف CSV بسجل كامل
-  - `exportCircleReport()` → ملف CSV لجميع الطلاب
-  - `shareReport(filePath)` → مشاركة عبر `Share` API
-  - دعم RTL: UTF-8 BOM + ترتيب الأعمدة من اليمين
-
-#### [MODIFY] [reports_screen.dart](file:///c:/Users/salman/Documents/flutter_App/Halaqah/lib/screens/reports/reports_screen.dart)
-- إضافة زر "تصدير تقرير Excel" في صفحة التقارير
-- إضافة خيار مشاركة التقرير عبر واتساب
+#### [MODIFY] [students/page.tsx](file:///c:/Users/salman/Documents/flutter_App/Halaqah/website/src/app/students/page.tsx) & [student_detail_screen.dart](file:///c:/Users/salman/Documents/flutter_App/Halaqah/lib/screens/students/student_detail_screen.dart)
+* حساب وعرض إجمالي الصفحات الفريدة التي حفظها الطالب ديناميكيًا من خلال مقارنة آيات التسميع المسجلة مع بيانات صفحات المصحف المخزنة in `quran_data.json` وعرضها كبطاقة إحصائية بجانب عدد الآيات.
 
 ---
 
-### المرحلة 4: قوالب رسائل واتساب 🟡
+### 4. مشاركة صور التقارير بتصميم جميل (Image Cards) 🎨
 
----
+#### [NEW] [website/src/components/ReportImageGenerator.tsx](file:///c:/Users/salman/Documents/flutter_App/Halaqah/website/src/components/ReportImageGenerator.tsx)
+* مكون لرسم بطاقة تقييم ملونة (تقييم ممتاز/جيد، عدد الأخطاء، السورة، الملاحظات) على عنصر `<canvas>` وتنزيلها كملف صورة ومشاركتها عبر الواتس.
 
-#### [NEW] `lib/models/message_template.dart`
-- `MessageTemplate`:
-  ```dart
-  {type: 'assignment'|'grading', content: String}
-  ```
-- متغيرات ديناميكية: `{اسم_الطالب}`, `{السورة}`, `{التقييم}`, `{التاريخ}`
-
-#### [NEW] `lib/screens/settings/message_templates_screen.dart`
-- شاشة تحرير قوالب الرسائل (جزء من الإعدادات)
-- قالب افتراضي للواجب: "السلام عليكم، واجب {اسم_الطالب} اليوم: حفظ من سورة {السورة} آية {من} إلى {إلى}"
-- قالب افتراضي للتقييم: "السلام عليكم، تقييم {اسم_الطالب}: {التقييم}، الأخطاء: {عدد_الأخطاء}"
-
-#### [MODIFY] [recitation_screen.dart](file:///c:/Users/salman/Documents/flutter_App/Halaqah/lib/screens/memorization/recitation_screen.dart)
-- إضافة زر "إرسال لولي الأمر" بعد حفظ التقييم → يفتح واتساب/مشاركة
-
----
-
-### المرحلة 5: تصدير/استيراد بيانات الحلقة JSON 🟡
-
----
-
-#### [NEW] `lib/services/data_exchange_service.dart`
-- `DataExchangeService`:
-  - `exportCircle()` → JSON كامل (طلاب + واجبات + تقييمات)
-  - `importCircle(jsonPath)` → استيراد من ملف JSON
-  - تحقق من صحة البيانات المستوردة
-
-#### [MODIFY] [settings_screen.dart](file:///c:/Users/salman/Documents/flutter_App/Halaqah/lib/screens/settings/settings_screen.dart)
-- إضافة قسم "تصدير واستيراد":
-  - زر "تصدير بيانات الحلقة" (JSON)
-  - زر "استيراد حلقة" (اختيار ملف JSON)
-
----
-
-## ملخص الملفات
-
-| الملف | العملية | المرحلة |
-|---|---|---|
-| `lib/models/homework_grade.dart` | [NEW] | 1 |
-| `lib/models/mushaf_progress.dart` | [NEW] | 2 |
-| `lib/models/message_template.dart` | [NEW] | 4 |
-| `lib/services/database_service.dart` | [MODIFY] | 1 |
-| `lib/services/mushaf_service.dart` | [NEW] | 2 |
-| `lib/services/report_export_service.dart` | [NEW] | 3 |
-| `lib/services/data_exchange_service.dart` | [NEW] | 5 |
-| `lib/screens/memorization/recitation_screen.dart` | [MODIFY] | 1, 4 |
-| `lib/screens/memorization/mushaf_visualizer_screen.dart` | [NEW] | 2 |
-| `lib/screens/memorization/student_memorization_view.dart` | [MODIFY] | 2 |
-| `lib/screens/reports/reports_screen.dart` | [MODIFY] | 3 |
-| `lib/screens/settings/settings_screen.dart` | [MODIFY] | 5 |
-| `lib/screens/settings/message_templates_screen.dart` | [NEW] | 4 |
-| `lib/screens/home/home_screen.dart` | [MODIFY] | 4 |
+#### [MODIFY] [recitation_screen.dart](file:///c:/Users/salman/Documents/flutter_App/Halaqah/lib/screens/memorization/recitation_screen.dart) & [student_detail_screen.dart](file:///c:/Users/salman/Documents/flutter_App/Halaqah/lib/screens/students/student_detail_screen.dart)
+* إضافة زر "مشاركة بطاقة التقرير كصورة" ورسمها باستخدام `RepaintBoundary` وحفظها مؤقتاً لمشاركتها مع ولي الأمر.
 
 ---
 
 ## Verification Plan
 
 ### Automated Tests
-```bash
-cd c:\Users\salman\Documents\flutter_App\Halaqah
-flutter build apk --debug
-```
+* لا توجد اختبارات مؤتمتة، التحقق سيكون يدويًا.
 
 ### Manual Verification
-- تشغيل على الجهاز والتحقق من:
-  1. التسميع: تقييم طالب بكل مستوى والتأكد من حفظه
-  2. خريطة المصحف: ظهور الخلايا الملونة بعد التقييم
-  3. التقارير: تصدير CSV ومشاركته
-  4. الرسائل: إرسال قالب لولي الأمر
-  5. التصدير/الاستيراد: تصدير واستيراد بيانات
+1. التأكد من إمكانية تغيير العملة في إعدادات الموقع وتطبيق الموبايل، والتحقق من ظهور العملة الجديدة في الصندوق المالي.
+2. إضافة طالب واختيار اتجاه حفظه والتحقق من بقائه وتحديثه بشكل سليم.
+3. تجربة إنشاء تقرير كصورة ومشاركته عبر الواتس والتأكد من وضوح التصميم وتطابقه مع البيانات المدخلة.
+4. تجميع المشروع محلياً والتحقق من خلوه من أي مشاكل برمجية.

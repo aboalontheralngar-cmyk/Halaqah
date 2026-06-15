@@ -132,6 +132,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 _settings = _settings.copyWith(teacherPhone: value);
               },
             ),
+            const SizedBox(height: 12),
+            TextFormField(
+              initialValue: _settings.currencySymbol,
+              decoration: const InputDecoration(
+                labelText: 'رمز العملة للصندوق المالي',
+                prefixIcon: Icon(Icons.monetization_on),
+              ),
+              onChanged: (value) {
+                _settings = _settings.copyWith(currencySymbol: value);
+              },
+            ),
             const SizedBox(height: 16),
             SizedBox(
               width: double.infinity,

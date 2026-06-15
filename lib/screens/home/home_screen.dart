@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../services/database_service.dart';
+import '../../services/supabase_service.dart';
+import '../auth/login_screen.dart';
 import '../../models/student.dart';
 import '../../utils/helpers.dart';
 import '../students/students_screen.dart';
@@ -81,6 +83,60 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Future<void> _syncWithCloud() async {
+    final supabase = SupabaseService.instance;
+    if (!supabase.isAuthenticated) {
+      final loggedIn = await Navigator.push<bool>(
+        context,
+        MaterialPageRoute(builder: (_) => const LoginScreen()),
+      );
+      if (loggedIn == true) {
+        _loadData();
+      }
+    } else {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => AlertDialog(
+          content: Row(
+            children: [
+              const CircularProgressIndicator(),
+              const SizedBox(width: 16),
+              Text(
+                'جاري مزامنة البيانات...',
+                style: GoogleFonts.tajawal(fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+        ),
+      );
+
+      try {
+        await supabase.synchronizeData();
+        if (mounted) Navigator.pop(context);
+        _loadData();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('تمت المزامنة مع السحابة بنجاح'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) Navigator.pop(context);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('فشلت المزامنة: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -149,6 +205,18 @@ class _HomeScreenState extends State<HomeScreen> {
           SliverAppBar(
             expandedHeight: 150,
             pinned: true,
+            actions: [
+              IconButton(
+                icon: Icon(
+                  SupabaseService.instance.isAuthenticated
+                      ? Icons.cloud_done
+                      : Icons.cloud_queue,
+                  color: SupabaseService.instance.isAuthenticated ? Colors.green : null,
+                ),
+                onPressed: _syncWithCloud,
+                tooltip: 'المزامنة السحابية',
+              ),
+            ],
             flexibleSpace: FlexibleSpaceBar(
               titlePadding: const EdgeInsets.only(right: 20, bottom: 16),
               title: Text(

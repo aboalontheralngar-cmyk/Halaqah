@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { 
   Settings as SettingsIcon, 
@@ -24,11 +24,16 @@ import { useStore } from "@/store/useStore";
 export default function SettingsPage() {
   const { 
     darkMode, toggleDarkMode, centerType, setCenterType, 
-    profile, currentSupervisor, joinSupervisor 
+    profile, currentSupervisor, joinSupervisor,
+    currencySymbol, updateCurrencySymbol, fetchCenterSettings
   } = useStore();
   const [ramadanMode, setRamadanMode] = useState(false);
   const [activeTab, setActiveTab] = useState<"general" | "points" | "rules">("general");
   const [supervisorCode, setSupervisorCode] = useState("");
+
+  useEffect(() => {
+    fetchCenterSettings();
+  }, [fetchCenterSettings]);
 
   return (
     <div className="max-w-5xl mx-auto space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-700 pb-20">
@@ -184,6 +189,24 @@ export default function SettingsPage() {
                 <button onClick={toggleDarkMode} className={`w-14 h-8 rounded-full p-1 transition-all ${darkMode ? "bg-teal-600" : "bg-gray-200"}`}>
                   <div className={`w-6 h-6 bg-white rounded-full transition-all ${darkMode ? "-translate-x-6" : ""}`} />
                 </button>
+              </div>
+
+              <div className="p-8 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+                <div className="flex items-center gap-6">
+                  <div className="w-12 h-12 bg-gray-50 dark:bg-gray-800 rounded-2xl flex items-center justify-center">
+                    <SettingsIcon className="w-6 h-6 text-gray-400" />
+                  </div>
+                  <div>
+                    <p className="font-black text-gray-800 dark:text-white text-sm">رمز عملة الصندوق</p>
+                    <p className="text-[10px] text-gray-400 font-bold mt-1">تخصيص رمز العملة المستخدم في حسابات صندوق الحلقة (مثل: ر.س، $، د.أ، €)</p>
+                  </div>
+                </div>
+                <input 
+                  type="text" 
+                  value={currencySymbol} 
+                  onChange={(e) => updateCurrencySymbol(e.target.value)}
+                  className="w-24 px-4 py-2 bg-gray-50 dark:bg-gray-850 border border-gray-200 dark:border-gray-800 rounded-xl text-center font-black text-xs text-teal-600 outline-none focus:ring-2 ring-teal-500/20"
+                />
               </div>
 
               <Link 
