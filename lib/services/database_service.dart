@@ -10,6 +10,9 @@ import '../models/settings.dart';
 import '../models/fund_transaction.dart';
 import '../models/plan.dart';
 import '../models/notification_log.dart';
+import '../models/homework_grade.dart';
+import '../models/mushaf_progress.dart';
+import '../models/message_template.dart';
 
 class DatabaseService {
   static final DatabaseService _instance = DatabaseService._internal();
@@ -28,7 +31,7 @@ class DatabaseService {
     String path = join(await getDatabasesPath(), 'halaqah.db');
     return await openDatabase(
       path,
-      version: 2,
+      version: 3,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -152,11 +155,15 @@ class DatabaseService {
     await db.execute('CREATE INDEX idx_memorization_student ON memorization_progress(student_id)');
     await db.execute('CREATE INDEX idx_behavior_student ON behavior_points(student_id)');
     await _createVersion2Tables(db);
+    await _createVersion3Tables(db);
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 2) {
       await _createVersion2Tables(db);
+    }
+    if (oldVersion < 3) {
+      await _createVersion3Tables(db);
     }
   }
 
@@ -519,6 +526,12 @@ class DatabaseService {
       await txn.delete('behavior_points');
       await txn.delete('vacations');
       await txn.delete('exams');
+      await txn.delete('fund_transactions');
+      await txn.delete('plans');
+      await txn.delete('notifications');
+      await txn.delete('homework_grades');
+      await txn.delete('mushaf_progress');
+      await txn.delete('message_templates');
       await txn.delete('students');
       await txn.delete('settings');
 
@@ -541,6 +554,12 @@ class DatabaseService {
       await insertAll('behavior_points', backup['behavior_points']);
       await insertAll('vacations', backup['vacations']);
       await insertAll('exams', backup['exams']);
+      await insertAll('fund_transactions', backup['fund_transactions']);
+      await insertAll('plans', backup['plans']);
+      await insertAll('notifications', backup['notifications']);
+      await insertAll('homework_grades', backup['homework_grades']);
+      await insertAll('mushaf_progress', backup['mushaf_progress']);
+      await insertAll('message_templates', backup['message_templates']);
 
       final settings = backup['settings'];
       if (settings is Map) {
@@ -720,5 +739,127 @@ class DatabaseService {
       SELECT COUNT(*) as count FROM notifications WHERE read = 0
     ''');
     return (result.first['count'] as int?) ?? 0;
+  }
+
+  Future<void> _createVersion3Tables(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS homework_grades (
+        id TEXT PRIMARY KEY,
+        student_id TEXT NOT NULL,
+        surah_id INTEGER NOT NULL,
+        from_ayah INTEGER NOT NULL,
+        to_ayah INTEGER NOT NULL,
+        date TEXT NOT NULL,
+        grade_mark TEXT NOT NULL,
+        mistakes_count INTEGER DEFAULT 0,
+        is_revision INTEGER DEFAULT 0,
+        remark TEXT,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (student_id) REFERENCES students (id) ON DELETE CASCADE
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS mushaf_progress (
+        id TEXT PRIMARY KEY,
+        student_id TEXT NOT NULL,
+        hizb_number INTEGER NOT NULL,
+        thumun_number INTEGER NOT NULL,
+        average_grade REAL DEFAULT 0.0,
+        last_graded_date TEXT,
+        is_pre_memorized INTEGER DEFAULT 0,
+        FOREIGN KEY (student_id) REFERENCES students (id) ON DELETE CASCADE,
+        UNIQUE(student_id, hizb_number, thumun_number)
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS message_templates (
+        type TEXT PRIMARY KEY,
+        content TEXT NOT NULL
+      )
+    ''');
+
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_homework_grades_student ON homework_grades(student_id)');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_mushaf_progress_student ON mushaf_progress(student_id)');
+
+    // Insert default message templates if they don't exist
+    await db.insert('message_templates', {
+      'type': 'assignment',
+      'content': 'السلام عليكم ورحمة الله وبركاته، تم تكليف الطالب {اسم_الطالب} بواجب حفظ جديد: من سورة {السورة} آية {من} إلى آية {إلى}. نسأل الله له التوفيق.'
+    }, conflictAlgorithm: ConflictAlgorithm.ignore);
+
+    await db.insert('message_templates', {
+      'type': 'grading',
+      'content': 'السلام عليكم ورحمة الله وبركاته، تسميع الطالب {اسم_الطالب} اليوم في سورة {السورة} من آية {من} إلى آية {إلى}:\n- التقييم: {التقييم}\n- الأخطاء: {الأخطاء}\n- ملاحظة: {الملاحظة}'
+    }, conflictAlgorithm: ConflictAlgorithm.ignore);
+  }
+
+  // HomeworkGrade CRUD methods
+  Future<void> insertHomeworkGrade(HomeworkGrade grade) async {
+    final db = await database;
+    await db.insert('homework_grades', grade.toMap(), conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<List<HomeworkGrade>> getStudentHomeworkGrades(String studentId) async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.query(
+      'homework_grades',
+      where: 'student_id = ?',
+      whereArgs: [studentId],
+      orderBy: 'date DESC, created_at DESC',
+    );
+    return List.generate(maps.length, (i) => HomeworkGrade.fromMap(maps[i]));
+  }
+
+  Future<void> deleteHomeworkGrade(String id) async {
+    final db = await database;
+    await db.delete('homework_grades', where: 'id = ?', whereArgs: [id]);
+  }
+
+  // MushafProgress CRUD methods
+  Future<void> insertOrUpdateMushafProgress(MushafProgress progress) async {
+    final db = await database;
+    await db.insert(
+      'mushaf_progress',
+      progress.toMap(),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<List<MushafProgress>> getStudentMushafProgress(String studentId) async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.query(
+      'mushaf_progress',
+      where: 'student_id = ?',
+      whereArgs: [studentId],
+    );
+    return List.generate(maps.length, (i) => MushafProgress.fromMap(maps[i]));
+  }
+
+  Future<void> clearStudentMushafProgress(String studentId) async {
+    final db = await database;
+    await db.delete('mushaf_progress', where: 'student_id = ?', whereArgs: [studentId]);
+  }
+
+  // MessageTemplate CRUD methods
+  Future<MessageTemplate?> getMessageTemplate(String type) async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.query(
+      'message_templates',
+      where: 'type = ?',
+      whereArgs: [type],
+    );
+    if (maps.isEmpty) return null;
+    return MessageTemplate.fromMap(maps.first);
+  }
+
+  Future<void> saveMessageTemplate(MessageTemplate template) async {
+    final db = await database;
+    await db.insert(
+      'message_templates',
+      template.toMap(),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
   }
 }

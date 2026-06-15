@@ -2,8 +2,11 @@ import 'package:flutter/material.dart';
 import 'dart:io';
 import '../../services/database_service.dart';
 import '../../services/backup_service.dart';
+import 'package:share_plus/share_plus.dart';
 import '../../models/settings.dart';
 import '../../app/app.dart';
+import 'message_templates_screen.dart';
+import 'whats_new_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -393,6 +396,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 },
               ),
             ),
+            const Divider(height: 24),
+            ListTile(
+              leading: const Icon(Icons.message_outlined, color: Colors.teal),
+              title: const Text('قوالب رسائل أولياء الأمور'),
+              subtitle: const Text('تخصيص نصوص رسائل الواجبات والتقييمات للوالدين'),
+              trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const MessageTemplatesScreen()),
+                );
+              },
+            ),
           ],
         ),
       ),
@@ -451,11 +467,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
               'حلقتي',
               style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
             ),
-            const Text('الإصدار 1.0.0'),
+            const Text('الإصدار 1.1.0'),
             const SizedBox(height: 8),
             Text(
               'تطبيق لإدارة الحلقات القرآنية',
               style: TextStyle(color: Colors.grey[600]),
+            ),
+            const SizedBox(height: 12),
+            ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.teal.withOpacity(0.1),
+                foregroundColor: Colors.teal,
+                elevation: 0,
+              ),
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const WhatsNewScreen()),
+                );
+              },
+              icon: const Icon(Icons.new_releases_outlined),
+              label: const Text('ما الجديد في هذا التحديث؟'),
             ),
           ],
         ),
@@ -493,6 +525,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ],
             ),
             actions: [
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                  Share.shareXFiles([XFile(filePath)], text: 'نسخة احتياطية لقاعدة بيانات حلقتي');
+                },
+                child: const Text('مشاركة الملف'),
+              ),
               TextButton(
                 onPressed: () => Navigator.pop(context),
                 child: const Text('حسناً'),

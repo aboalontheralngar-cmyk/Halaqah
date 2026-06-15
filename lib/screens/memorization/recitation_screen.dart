@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:share_plus/share_plus.dart';
 import '../../services/quran_service.dart';
 import '../../services/database_service.dart';
+import '../../services/mushaf_service.dart';
 import '../../models/student.dart';
 import '../../models/memorization.dart';
 import '../../models/daily_record.dart';
 import '../../models/ayah.dart';
+import '../../models/homework_grade.dart';
 import '../../widgets/surah_picker.dart';
 
 class RecitationScreen extends StatefulWidget {
@@ -29,9 +32,21 @@ class _RecitationScreenState extends State<RecitationScreen> {
   List<Ayah> _ayahs = [];
   Map<int, int> _ayahRatings = {};
 
+  // New Grading State Fields
+  bool _isRevision = false;
+  String _selectedGrade = 'good';
+  int _mistakesCount = 0;
+  final TextEditingController _remarkController = TextEditingController();
+
   Surah? get _selectedSurah => _selectedSurahId != null 
       ? _quran.getSurah(_selectedSurahId!) 
       : null;
+
+  @override
+  void dispose() {
+    _remarkController.dispose();
+    super.dispose();
+  }
 
   void _loadAyahs() {
     if (_selectedSurahId == null) return;
@@ -40,6 +55,9 @@ class _RecitationScreenState extends State<RecitationScreen> {
       _ayahs = ayahs;
       _currentAyahIndex = 0;
       _ayahRatings = {};
+      _mistakesCount = 0;
+      _selectedGrade = 'good';
+      _remarkController.clear();
     });
   }
 
@@ -492,7 +510,7 @@ class _RecitationScreenState extends State<RecitationScreen> {
           Expanded(
             flex: 2,
             child: ElevatedButton(
-              onPressed: isLast ? (_isSaving ? null : _saveRecitation) : _goToNext,
+              onPressed: isLast ? (_isSaving ? null : _showGradingSheet) : _goToNext,
               child: _isSaving
                   ? const SizedBox(
                       width: 20,
@@ -517,19 +535,272 @@ class _RecitationScreenState extends State<RecitationScreen> {
     setState(() => _currentAyahIndex++);
   }
 
-  Future<void> _saveRecitation() async {
+  void _showGradingSheet() {
     if (_ayahRatings[_currentAyahIndex] == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('يرجى تقييم الآية قبل الحفظ')),
+        const SnackBar(content: Text('يرجى تقييم الآية الأخيرة أولاً')),
       );
       return;
     }
 
+    // Pre-calculate grade based on average rating
+    if (_ayahRatings.isNotEmpty) {
+      final avg = _ayahRatings.values.reduce((a, b) => a + b) / _ayahRatings.length;
+      if (avg >= 4.5) {
+        _selectedGrade = 'excellent';
+      } else if (avg >= 3.5) {
+        _selectedGrade = 'very_good';
+      } else if (avg >= 2.5) {
+        _selectedGrade = 'good';
+      } else {
+        _selectedGrade = 'needs_work';
+      }
+    }
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setModalState) {
+          Color getGradeColor(String grade) {
+            switch (grade) {
+              case 'excellent': return Colors.green;
+              case 'very_good': return Colors.lightGreen;
+              case 'good': return Colors.orange;
+              case 'needs_work': return Colors.deepOrange;
+              case 'absent': return Colors.red;
+              default: return Colors.blue;
+            }
+          }
+
+          String getGradeArabic(String grade) {
+            switch (grade) {
+              case 'excellent': return 'ممتاز';
+              case 'very_good': return 'جيد جداً';
+              case 'good': return 'جيد';
+              case 'needs_work': return 'يحتاج تركيز';
+              case 'absent': return 'غائب';
+              default: return '';
+            }
+          }
+
+          return Container(
+            decoration: BoxDecoration(
+              color: Theme.of(context).scaffoldBackgroundColor,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+            ),
+            padding: EdgeInsets.only(
+              top: 20,
+              left: 20,
+              right: 20,
+              bottom: MediaQuery.of(context).viewInsets.bottom + 20,
+            ),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 50,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[300],
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'تسجيل تقييم التسميع',
+                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'الطالب: ${widget.student.name} | سورة ${_selectedSurah?.name} ($_fromAyah - $_toAyah)',
+                    style: TextStyle(color: Colors.grey[600], fontSize: 13),
+                    textAlign: TextAlign.center,
+                  ),
+                  const Divider(height: 24),
+                  
+                  // Revision vs Memorization toggle
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('نوع التسميع:', style: TextStyle(fontWeight: FontWeight.bold)),
+                      Row(
+                        children: [
+                          ChoiceChip(
+                            label: const Text('حفظ جديد'),
+                            selected: !_isRevision,
+                            onSelected: (val) {
+                              setModalState(() => _isRevision = !val);
+                              setState(() => _isRevision = !val);
+                            },
+                          ),
+                          const SizedBox(width: 8),
+                          ChoiceChip(
+                            label: const Text('مراجعة'),
+                            selected: _isRevision,
+                            onSelected: (val) {
+                              setModalState(() => _isRevision = val);
+                              setState(() => _isRevision = val);
+                            },
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Grade Selection
+                  const Text('التقييم العام:', style: TextStyle(fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    alignment: WrapAlignment.spaceEvenly,
+                    spacing: 4,
+                    runSpacing: 8,
+                    children: ['excellent', 'very_good', 'good', 'needs_work', 'absent'].map((grade) {
+                      final isSelected = _selectedGrade == grade;
+                      final color = getGradeColor(grade);
+                      return ChoiceChip(
+                        label: Text(
+                          getGradeArabic(grade),
+                          style: TextStyle(
+                            color: isSelected ? Colors.white : color,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        selected: isSelected,
+                        selectedColor: color,
+                        backgroundColor: color.withOpacity(0.1),
+                        shape: RoundedRectangleBorder(
+                          side: BorderSide(color: color),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        onSelected: (selected) {
+                          if (selected) {
+                            setModalState(() => _selectedGrade = grade);
+                            setState(() => _selectedGrade = grade);
+                          }
+                        },
+                      );
+                    }).toList(),
+                  ),
+                  const SizedBox(height: 20),
+
+                  // Mistakes Counter
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('عدد الأخطاء:', style: TextStyle(fontWeight: FontWeight.bold)),
+                      Row(
+                        children: [
+                          IconButton(
+                            onPressed: _mistakesCount > 0
+                                ? () {
+                                    setModalState(() => _mistakesCount--);
+                                    setState(() => _mistakesCount--);
+                                  }
+                                : null,
+                            icon: const Icon(Icons.remove_circle_outline, color: Colors.red),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                            decoration: BoxDecoration(
+                              border: Border.all(color: Colors.grey[300]!),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              '$_mistakesCount',
+                              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                          IconButton(
+                            onPressed: () {
+                              setModalState(() => _mistakesCount++);
+                              setState(() => _mistakesCount++);
+                            },
+                            icon: const Icon(Icons.add_circle_outline, color: Colors.green),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Remarks
+                  const Text('ملاحظات إضافية:', style: TextStyle(fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: _remarkController,
+                    decoration: InputDecoration(
+                      hintText: 'اكتب أي ملاحظات هنا...',
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    ),
+                    maxLines: 2,
+                  ),
+                  const SizedBox(height: 24),
+
+                  // Save Buttons
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: _isSaving ? null : () => Navigator.pop(context),
+                          child: const Text('إلغاء'),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        flex: 2,
+                        child: ElevatedButton.icon(
+                          onPressed: _isSaving
+                              ? null
+                              : () async {
+                                  Navigator.pop(context); // Close sheet
+                                  await _saveRecitation(sendToParent: false);
+                                },
+                          icon: const Icon(Icons.save),
+                          label: const Text('حفظ التقييم'),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green,
+                      foregroundColor: Colors.white,
+                    ),
+                    onPressed: _isSaving
+                        ? null
+                        : () async {
+                            Navigator.pop(context); // Close sheet
+                            await _saveRecitation(sendToParent: true);
+                          },
+                    icon: const Icon(Icons.share),
+                    label: const Text('حفظ وإرسال لولي الأمر'),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Future<void> _saveRecitation({bool sendToParent = false}) async {
     setState(() => _isSaving = true);
 
     try {
       final avgRating = _ayahRatings.values.reduce((a, b) => a + b) ~/ _ayahRatings.length;
 
+      // 1. Save MemorizationProgress (for backward compatibility)
       final progress = MemorizationProgress(
         studentId: widget.student.id,
         surahId: _selectedSurahId!,
@@ -537,27 +808,68 @@ class _RecitationScreenState extends State<RecitationScreen> {
         toAyah: _toAyah,
         date: DateTime.now(),
         qualityRating: avgRating,
-        isRevision: false,
+        isRevision: _isRevision,
+        notes: _remarkController.text.isNotEmpty ? _remarkController.text : null,
       );
-
       await _db.insertMemorization(progress);
 
-      final existingRecord = await _db.getDailyRecord(widget.student.id, DateTime.now());
+      // 2. Save HomeworkGrade
+      final homeworkGrade = HomeworkGrade(
+        studentId: widget.student.id,
+        surahId: _selectedSurahId!,
+        fromAyah: _fromAyah,
+        toAyah: _toAyah,
+        date: DateTime.now(),
+        gradeMark: _selectedGrade,
+        mistakesCount: _mistakesCount,
+        isRevision: _isRevision,
+        remark: _remarkController.text.isNotEmpty ? _remarkController.text : null,
+      );
+      await _db.insertHomeworkGrade(homeworkGrade);
 
+      // 3. Update MushafProgress using MushafService
+      try {
+        final mushafService = MushafService();
+        await mushafService.updateProgressAfterGrading(homeworkGrade);
+      } catch (mushafError) {
+        debugPrint('Error updating mushaf progress: $mushafError');
+      }
+
+      // 4. Save/Update DailyRecord
+      final existingRecord = await _db.getDailyRecord(widget.student.id, DateTime.now());
       final record = (existingRecord ?? DailyRecord(
         studentId: widget.student.id,
         date: DateTime.now(),
       )).copyWith(
-        memorizationDone: true,
-        memorizationAmount: _ayahs.length,
+        memorizationDone: !_isRevision ? true : (existingRecord?.memorizationDone ?? false),
+        revisionDone: _isRevision ? true : (existingRecord?.revisionDone ?? false),
+        memorizationAmount: !_isRevision ? _ayahs.length : (existingRecord?.memorizationAmount ?? 0),
+        revisionAmount: _isRevision ? _ayahs.length : (existingRecord?.revisionAmount ?? 0),
       );
-
       await _db.saveDailyRecord(record);
+
+      // 5. Send message to parent if selected
+      if (sendToParent) {
+        final template = await _db.getMessageTemplate('grading');
+        String templateText = template?.content ?? 
+            'السلام عليكم ورحمة الله وبركاته، تسميع الطالب {اسم_الطالب} اليوم في سورة {السورة} من آية {من} إلى آية {إلى}:\n- التقييم: {التقييم}\n- الأخطاء: {الأخطاء}\n- ملاحظة: {الملاحظة}';
+
+        String message = templateText
+            .replaceAll('{اسم_الطالب}', widget.student.name)
+            .replaceAll('{السورة}', _selectedSurah?.name ?? '')
+            .replaceAll('{من}', '$_fromAyah')
+            .replaceAll('{إلى}', '$_toAyah')
+            .replaceAll('{التقييم}', homeworkGrade.gradeMarkArabic)
+            .replaceAll('{الأخطاء}', '$_mistakesCount')
+            .replaceAll('{الملاحظة}', _remarkController.text.isNotEmpty ? _remarkController.text : 'لا يوجد');
+
+        await Share.share(message);
+      }
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('تم حفظ التسميع - التقييم: $avgRating/5'),
+          const SnackBar(
+            content: Text('تم حفظ التقييم بنجاح'),
             backgroundColor: Colors.green,
           ),
         );
