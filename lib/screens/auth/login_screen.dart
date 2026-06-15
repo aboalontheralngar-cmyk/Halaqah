@@ -101,6 +101,11 @@ class _LoginScreenState extends State<LoginScreen> {
         throw Exception('هذا الكود تم تفعيله مسبقاً للبريد: ${member['email']}. يرجى تسجيل الدخول بالبريد.');
       }
 
+      // Check if email already exists in auth.users
+      if (member['is_registered'] == true) {
+        throw Exception('البريد (${member['email']}) مسجل مسبقاً في النظام. يرجى تسجيل الدخول مباشرة بتبويب البريد الإلكتروني لتفعيل حسابك.');
+      }
+
       setState(() {
         _verifiedMemberInfo = member;
         _codeVerified = true;

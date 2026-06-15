@@ -91,14 +91,23 @@ class SupabaseService {
   Future<Map<String, dynamic>?> getTeacherInfo() async {
     if (!isAuthenticated) return null;
     final email = currentUserEmail;
-    if (email == null) return null;
+    final currentUser = client.auth.currentUser;
+    if (email == null || currentUser == null) return null;
 
     try {
       final response = await client
           .from('center_members')
-          .select('center_id, halaqah_id, role')
+          .select('center_id, halaqah_id, role, user_id')
           .eq('email', email)
           .maybeSingle();
+          
+      if (response != null && response['user_id'] == null) {
+        await client
+            .from('center_members')
+            .update({'user_id': currentUser.id})
+            .eq('email', email);
+      }
+      
       return response;
     } catch (e) {
       print('Error getting teacher info: $e');

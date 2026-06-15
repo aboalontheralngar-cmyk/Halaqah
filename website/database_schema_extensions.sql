@@ -388,11 +388,19 @@ RETURNS TABLE (
     email TEXT,
     role TEXT,
     halaqah_id UUID,
-    user_id UUID
+    user_id UUID,
+    is_registered BOOLEAN
 ) SECURITY DEFINER AS $$
 BEGIN
     RETURN QUERY
-    SELECT cm.id, cm.center_id, cm.email, cm.role, cm.halaqah_id, cm.user_id
+    SELECT 
+        cm.id, 
+        cm.center_id, 
+        cm.email, 
+        cm.role, 
+        cm.halaqah_id, 
+        cm.user_id,
+        EXISTS (SELECT 1 FROM auth.users u WHERE LOWER(u.email) = LOWER(cm.email)) AS is_registered
     FROM center_members cm
     WHERE cm.invitation_code = code_to_check
     LIMIT 1;
