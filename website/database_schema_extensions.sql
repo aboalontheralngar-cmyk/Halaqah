@@ -41,6 +41,10 @@ ALTER TABLE points
 ALTER TABLE attendance
   ADD COLUMN IF NOT EXISTS late_minutes INTEGER DEFAULT 0;
 
+-- أعضاء المركز: كود دعوة المعلم
+ALTER TABLE center_members
+  ADD COLUMN IF NOT EXISTS invitation_code TEXT;
+
 -- الحفظ: نوع الجلسة (حفظ جديد / مراجعة) وعدد الأسطر
 ALTER TABLE memorization
   ADD COLUMN IF NOT EXISTS session_type TEXT
@@ -363,3 +367,55 @@ CREATE POLICY "Access competition_entries via competition" ON competition_entrie
       center_id IN (SELECT center_id FROM center_members WHERE user_id = auth.uid())
   )
 );
+
+-- =====================================================================
+-- 14) سياسة إضافية لـ center_members لتمكين المعلمين من قراءة صفوفهم
+-- =====================================================================
+DROP POLICY IF EXISTS "Allow select center_members by user or email" ON center_members;
+CREATE POLICY "Allow select center_members by user or email" ON center_members
+  FOR SELECT USING (
+    user_id = auth.uid() OR
+    email = auth.jwt()->>'email'
+  );
+
+-- =====================================================================
+-- 15) وظيفة آمنة للتحقق من كود دعوة المعلم دون الحاجة لتسجيل دخول مسبق
+-- =====================================================================
+CREATE OR REPLACE FUNCTION get_member_by_code(code_to_check TEXT)
+RETURNS TABLE (
+    id UUID,
+    center_id UUID,
+    email TEXT,
+    role TEXT,
+    halaqah_id UUID,
+    user_id UUID
+) SECURITY DEFINER AS $$
+BEGIN
+    RETURN QUERY
+    SELECT cm.id, cm.center_id, cm.email, cm.role, cm.halaqah_id, cm.user_id
+    FROM center_members cm
+    WHERE cm.invitation_code = code_to_check
+    LIMIT 1;
+END;
+$$ LANGUAGE plpgsql;
+
+-- =====================================================================
+-- 16) وظيفة لربط حساب مستخدم بكود دعوة المعلم عند تعيين كلمة المرور
+-- =====================================================================
+CREATE OR REPLACE FUNCTION activate_member_by_code(code_to_check TEXT, new_user_id UUID)
+RETURNS BOOLEAN SECURITY DEFINER AS $$
+DECLARE
+    updated BOOLEAN := FALSE;
+BEGIN
+    UPDATE center_members
+    SET user_id = new_user_id
+    WHERE invitation_code = code_to_check AND user_id IS NULL;
+    
+    IF FOUND THEN
+        updated := TRUE;
+    END IF;
+    
+    RETURN updated;
+END;
+$$ LANGUAGE plpgsql;
+

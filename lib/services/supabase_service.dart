@@ -29,6 +29,57 @@ class SupabaseService {
     return await client.auth.signInWithPassword(email: email, password: password);
   }
 
+  // Verify invitation code
+  Future<Map<String, dynamic>?> verifyInvitationCode(String code) async {
+    try {
+      final response = await client.rpc(
+        'get_member_by_code',
+        params: {'code_to_check': code},
+      ) as List<dynamic>;
+      if (response.isNotEmpty) {
+        return response.first as Map<String, dynamic>;
+      }
+      return null;
+    } catch (e) {
+      print('Error verifying invitation code: $e');
+      throw Exception('فشل التحقق من الكود: $e');
+    }
+  }
+
+  // Register and link code
+  Future<void> signUpAndLinkCode({
+    required String email,
+    required String password,
+    required String code,
+  }) async {
+    try {
+      final AuthResponse response = await client.auth.signUp(
+        email: email,
+        password: password,
+      );
+      
+      final String? newUserId = response.user?.id;
+      if (newUserId == null) {
+        throw Exception('فشل إنشاء حساب المستخدم');
+      }
+
+      final bool linked = await client.rpc(
+        'activate_member_by_code',
+        params: {
+          'code_to_check': code,
+          'new_user_id': newUserId,
+        },
+      );
+
+      if (!linked) {
+        throw Exception('فشل ربط كود المعلم بالحساب الجديد');
+      }
+    } catch (e) {
+      print('Error in sign up & link: $e');
+      throw Exception(e.toString().replaceAll('Exception: ', ''));
+    }
+  }
+
   Future<void> signOut() async {
     await client.auth.signOut();
   }
