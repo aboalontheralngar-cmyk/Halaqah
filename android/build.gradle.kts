@@ -23,6 +23,7 @@ subprojects {
             force("androidx.core:core:1.15.0")
             force("androidx.core:core-ktx:1.15.0")
             force("androidx.navigationevent:navigationevent-android:1.0.0")
+            force("androidx.browser:browser:1.8.0")
         }
     }
 }
