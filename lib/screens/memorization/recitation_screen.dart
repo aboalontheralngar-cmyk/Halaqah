@@ -11,6 +11,7 @@ import '../../models/student.dart';
 import '../../models/memorization.dart';
 import '../../models/daily_record.dart';
 import '../../models/ayah.dart';
+import '../../models/homework_grade.dart';
 import '../../widgets/surah_picker.dart';
 import '../../utils/helpers.dart';
 
