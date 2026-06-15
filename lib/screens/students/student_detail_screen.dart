@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import '../../services/database_service.dart';
 import '../../services/qr_service.dart';
-import '../../services/quran_service.dart';
 import '../../models/student.dart';
 import '../../models/daily_record.dart';
 import '../../models/behavior_point.dart';
@@ -29,8 +28,6 @@ class _StudentDetailScreenState extends State<StudentDetailScreen>
   List<BehaviorPoint> _behaviorPoints = [];
   int _totalPoints = 0;
   Map<String, dynamic> _stats = {};
-  int _uniquePagesCount = 0;
-  int _uniqueAyahsCount = 0;
   bool _isLoading = true;
 
   @override
@@ -54,21 +51,6 @@ class _StudentDetailScreenState extends State<StudentDetailScreen>
       final points = await _db.getStudentBehaviorPoints(_student.id);
       final totalPoints = await _db.getStudentTotalPoints(_student.id);
       final stats = await _db.getStudentStatistics(_student.id);
-      final grades = await _db.getStudentHomeworkGrades(_student.id);
-      
-      await QuranService.instance.initialize();
-      
-      final uniquePages = <int>{};
-      final uniqueAyahs = <String>{};
-      
-      for (final grade in grades) {
-        if (grade.gradeMark == 'absent') continue;
-        final range = QuranService.instance.getAyahRange(grade.surahId, grade.fromAyah, grade.toAyah);
-        for (final ayah in range) {
-          uniquePages.add(ayah.page);
-          uniqueAyahs.add('${grade.surahId}_${ayah.number}');
-        }
-      }
       
       final updatedStudent = await _db.getStudent(_student.id);
       
@@ -78,8 +60,6 @@ class _StudentDetailScreenState extends State<StudentDetailScreen>
         _behaviorPoints = points;
         _totalPoints = totalPoints;
         _stats = stats;
-        _uniquePagesCount = uniquePages.length;
-        _uniqueAyahsCount = uniqueAyahs.length;
         _isLoading = false;
       });
     } catch (e) {
@@ -451,54 +431,6 @@ class _StudentDetailScreenState extends State<StudentDetailScreen>
                   ],
                 ),
               ),
-            ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        children: [
-                          const Icon(Icons.menu_book, color: Colors.teal),
-                          const SizedBox(height: 8),
-                          Text(
-                            '$_uniquePagesCount',
-                            style: const TextStyle(
-                              fontSize: 24,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          const Text('صفحات فريدة', style: TextStyle(fontSize: 12)),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        children: [
-                          const Icon(Icons.format_list_numbered, color: Colors.blue),
-                          const SizedBox(height: 8),
-                          Text(
-                            '$_uniqueAyahsCount',
-                            style: const TextStyle(
-                              fontSize: 24,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          const Text('آيات منجزة', style: TextStyle(fontSize: 12)),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ],
             ),
             const SizedBox(height: 16),
             const Text(

@@ -1,18 +1,11 @@
-import 'dart:ui' as ui;
-import 'dart:typed_data';
-import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:share_plus/share_plus.dart';
 import '../../services/quran_service.dart';
 import '../../services/database_service.dart';
-import '../../services/mushaf_service.dart';
 import '../../models/student.dart';
 import '../../models/memorization.dart';
 import '../../models/daily_record.dart';
 import '../../models/ayah.dart';
 import '../../widgets/surah_picker.dart';
-import '../../utils/helpers.dart';
 
 class RecitationScreen extends StatefulWidget {
   final Student student;
@@ -36,21 +29,9 @@ class _RecitationScreenState extends State<RecitationScreen> {
   List<Ayah> _ayahs = [];
   Map<int, int> _ayahRatings = {};
 
-  // New Grading State Fields
-  bool _isRevision = false;
-  String _selectedGrade = 'good';
-  int _mistakesCount = 0;
-  final TextEditingController _remarkController = TextEditingController();
-
   Surah? get _selectedSurah => _selectedSurahId != null 
       ? _quran.getSurah(_selectedSurahId!) 
       : null;
-
-  @override
-  void dispose() {
-    _remarkController.dispose();
-    super.dispose();
-  }
 
   void _loadAyahs() {
     if (_selectedSurahId == null) return;
@@ -59,9 +40,6 @@ class _RecitationScreenState extends State<RecitationScreen> {
       _ayahs = ayahs;
       _currentAyahIndex = 0;
       _ayahRatings = {};
-      _mistakesCount = 0;
-      _selectedGrade = 'good';
-      _remarkController.clear();
     });
   }
 
@@ -514,7 +492,7 @@ class _RecitationScreenState extends State<RecitationScreen> {
           Expanded(
             flex: 2,
             child: ElevatedButton(
-              onPressed: isLast ? (_isSaving ? null : _showGradingSheet) : _goToNext,
+              onPressed: isLast ? (_isSaving ? null : _saveRecitation) : _goToNext,
               child: _isSaving
                   ? const SizedBox(
                       width: 20,
@@ -539,287 +517,19 @@ class _RecitationScreenState extends State<RecitationScreen> {
     setState(() => _currentAyahIndex++);
   }
 
-  void _showGradingSheet() {
+  Future<void> _saveRecitation() async {
     if (_ayahRatings[_currentAyahIndex] == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('يرجى تقييم الآية الأخيرة أولاً')),
+        const SnackBar(content: Text('يرجى تقييم الآية قبل الحفظ')),
       );
       return;
     }
 
-    // Pre-calculate grade based on average rating
-    if (_ayahRatings.isNotEmpty) {
-      final avg = _ayahRatings.values.reduce((a, b) => a + b) / _ayahRatings.length;
-      if (avg >= 4.5) {
-        _selectedGrade = 'excellent';
-      } else if (avg >= 3.5) {
-        _selectedGrade = 'very_good';
-      } else if (avg >= 2.5) {
-        _selectedGrade = 'good';
-      } else {
-        _selectedGrade = 'needs_work';
-      }
-    }
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setModalState) {
-          Color getGradeColor(String grade) {
-            switch (grade) {
-              case 'excellent': return Colors.green;
-              case 'very_good': return Colors.lightGreen;
-              case 'good': return Colors.orange;
-              case 'needs_work': return Colors.deepOrange;
-              case 'absent': return Colors.red;
-              default: return Colors.blue;
-            }
-          }
-
-          String getGradeArabic(String grade) {
-            switch (grade) {
-              case 'excellent': return 'ممتاز';
-              case 'very_good': return 'جيد جداً';
-              case 'good': return 'جيد';
-              case 'needs_work': return 'يحتاج تركيز';
-              case 'absent': return 'غائب';
-              default: return '';
-            }
-          }
-
-          return Container(
-            decoration: BoxDecoration(
-              color: Theme.of(context).scaffoldBackgroundColor,
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-            ),
-            padding: EdgeInsets.only(
-              top: 20,
-              left: 20,
-              right: 20,
-              bottom: MediaQuery.of(context).viewInsets.bottom + 20,
-            ),
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Center(
-                    child: Container(
-                      width: 50,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: Colors.grey[300],
-                        borderRadius: BorderRadius.circular(2),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    'تسجيل تقييم التسميع',
-                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'الطالب: ${widget.student.name} | سورة ${_selectedSurah?.name} ($_fromAyah - $_toAyah)',
-                    style: TextStyle(color: Colors.grey[600], fontSize: 13),
-                    textAlign: TextAlign.center,
-                  ),
-                  const Divider(height: 24),
-                  
-                  // Revision vs Memorization toggle
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text('نوع التسميع:', style: TextStyle(fontWeight: FontWeight.bold)),
-                      Row(
-                        children: [
-                          ChoiceChip(
-                            label: const Text('حفظ جديد'),
-                            selected: !_isRevision,
-                            onSelected: (val) {
-                              setModalState(() => _isRevision = !val);
-                              setState(() => _isRevision = !val);
-                            },
-                          ),
-                          const SizedBox(width: 8),
-                          ChoiceChip(
-                            label: const Text('مراجعة'),
-                            selected: _isRevision,
-                            onSelected: (val) {
-                              setModalState(() => _isRevision = val);
-                              setState(() => _isRevision = val);
-                            },
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-
-                  // Grade Selection
-                  const Text('التقييم العام:', style: TextStyle(fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 8),
-                  Wrap(
-                    alignment: WrapAlignment.spaceEvenly,
-                    spacing: 4,
-                    runSpacing: 8,
-                    children: ['excellent', 'very_good', 'good', 'needs_work', 'absent'].map((grade) {
-                      final isSelected = _selectedGrade == grade;
-                      final color = getGradeColor(grade);
-                      return ChoiceChip(
-                        label: Text(
-                          getGradeArabic(grade),
-                          style: TextStyle(
-                            color: isSelected ? Colors.white : color,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        selected: isSelected,
-                        selectedColor: color,
-                        backgroundColor: color.withOpacity(0.1),
-                        shape: RoundedRectangleBorder(
-                          side: BorderSide(color: color),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        onSelected: (selected) {
-                          if (selected) {
-                            setModalState(() => _selectedGrade = grade);
-                            setState(() => _selectedGrade = grade);
-                          }
-                        },
-                      );
-                    }).toList(),
-                  ),
-                  const SizedBox(height: 20),
-
-                  // Mistakes Counter
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text('عدد الأخطاء:', style: TextStyle(fontWeight: FontWeight.bold)),
-                      Row(
-                        children: [
-                          IconButton(
-                            onPressed: _mistakesCount > 0
-                                ? () {
-                                    setModalState(() => _mistakesCount--);
-                                    setState(() => _mistakesCount--);
-                                  }
-                                : null,
-                            icon: const Icon(Icons.remove_circle_outline, color: Colors.red),
-                          ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                            decoration: BoxDecoration(
-                              border: Border.all(color: Colors.grey[300]!),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Text(
-                              '$_mistakesCount',
-                              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                            ),
-                          ),
-                          IconButton(
-                            onPressed: () {
-                              setModalState(() => _mistakesCount++);
-                              setState(() => _mistakesCount++);
-                            },
-                            icon: const Icon(Icons.add_circle_outline, color: Colors.green),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-
-                  // Remarks
-                  const Text('ملاحظات إضافية:', style: TextStyle(fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 8),
-                  TextField(
-                    controller: _remarkController,
-                    decoration: InputDecoration(
-                      hintText: 'اكتب أي ملاحظات هنا...',
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    ),
-                    maxLines: 2,
-                  ),
-                  const SizedBox(height: 24),
-
-                  // Save Buttons
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton(
-                          onPressed: _isSaving ? null : () => Navigator.pop(context),
-                          child: const Text('إلغاء'),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        flex: 2,
-                        child: ElevatedButton.icon(
-                          onPressed: _isSaving
-                              ? null
-                              : () async {
-                                  Navigator.pop(context); // Close sheet
-                                  await _saveRecitation(sendToParent: false);
-                                },
-                          icon: const Icon(Icons.save),
-                          label: const Text('حفظ التقييم'),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  ElevatedButton.icon(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.green,
-                      foregroundColor: Colors.white,
-                    ),
-                    onPressed: _isSaving
-                        ? null
-                        : () async {
-                            Navigator.pop(context); // Close sheet
-                            await _saveRecitation(sendToParent: true);
-                          },
-                    icon: const Icon(Icons.share),
-                    label: const Text('حفظ وإرسال لولي الأمر (نص)'),
-                  ),
-                  const SizedBox(height: 8),
-                  ElevatedButton.icon(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.amber[800],
-                      foregroundColor: Colors.white,
-                    ),
-                    onPressed: _isSaving
-                        ? null
-                        : () async {
-                            Navigator.pop(context); // Close sheet
-                            await _saveRecitation(sendToParent: true, sendAsImage: true);
-                          },
-                    icon: const Icon(Icons.image),
-                    label: const Text('حفظ وإرسال كصورة'),
-                  ),
-                ],
-              ),
-            ),
-          );
-        },
-      ),
-    );
-  }
-
-  Future<void> _saveRecitation({bool sendToParent = false, bool sendAsImage = false}) async {
     setState(() => _isSaving = true);
 
     try {
       final avgRating = _ayahRatings.values.reduce((a, b) => a + b) ~/ _ayahRatings.length;
 
-      // 1. Save MemorizationProgress (for backward compatibility)
       final progress = MemorizationProgress(
         studentId: widget.student.id,
         surahId: _selectedSurahId!,
@@ -827,90 +537,27 @@ class _RecitationScreenState extends State<RecitationScreen> {
         toAyah: _toAyah,
         date: DateTime.now(),
         qualityRating: avgRating,
-        isRevision: _isRevision,
-        notes: _remarkController.text.isNotEmpty ? _remarkController.text : null,
+        isRevision: false,
       );
+
       await _db.insertMemorization(progress);
 
-      // 2. Save HomeworkGrade
-      final homeworkGrade = HomeworkGrade(
-        studentId: widget.student.id,
-        surahId: _selectedSurahId!,
-        fromAyah: _fromAyah,
-        toAyah: _toAyah,
-        date: DateTime.now(),
-        gradeMark: _selectedGrade,
-        mistakesCount: _mistakesCount,
-        isRevision: _isRevision,
-        remark: _remarkController.text.isNotEmpty ? _remarkController.text : null,
-      );
-      await _db.insertHomeworkGrade(homeworkGrade);
-
-      // 3. Update MushafProgress using MushafService
-      try {
-        final mushafService = MushafService();
-        await mushafService.updateProgressAfterGrading(homeworkGrade);
-      } catch (mushafError) {
-        debugPrint('Error updating mushaf progress: $mushafError');
-      }
-
-      // 4. Save/Update DailyRecord
       final existingRecord = await _db.getDailyRecord(widget.student.id, DateTime.now());
+
       final record = (existingRecord ?? DailyRecord(
         studentId: widget.student.id,
         date: DateTime.now(),
       )).copyWith(
-        memorizationDone: !_isRevision ? true : (existingRecord?.memorizationDone ?? false),
-        revisionDone: _isRevision ? true : (existingRecord?.revisionDone ?? false),
-        memorizationAmount: !_isRevision ? _ayahs.length : (existingRecord?.memorizationAmount ?? 0),
-        revisionAmount: _isRevision ? _ayahs.length : (existingRecord?.revisionAmount ?? 0),
+        memorizationDone: true,
+        memorizationAmount: _ayahs.length,
       );
+
       await _db.saveDailyRecord(record);
-
-      // 5. Send message to parent if selected
-      if (sendToParent) {
-        if (sendAsImage) {
-          final bytes = await _drawReportCardImage(
-            studentName: widget.student.name,
-            surahName: _selectedSurah?.name ?? '',
-            fromAyah: _fromAyah,
-            toAyah: _toAyah,
-            grade: _selectedGrade,
-            mistakes: _mistakesCount,
-            isRevision: _isRevision,
-            remark: _remarkController.text,
-          );
-
-          final tempDir = await getTemporaryDirectory();
-          final file = await File('${tempDir.path}/report_${widget.student.name}.png').create();
-          await file.writeAsBytes(bytes);
-
-          await Share.shareXFiles(
-            [XFile(file.path)],
-            text: 'تقرير تسميع الطالب ${widget.student.name} لليوم',
-          );
-        } else {
-          final template = await _db.getMessageTemplate('grading');
-          String templateText = template?.content ?? 
-              'السلام عليكم ورحمة الله وبركاته، تسميع الطالب {اسم_الطالب} اليوم في سورة {السورة} من آية {من} إلى آية {إلى}:\n- التقييم: {التقييم}\n- الأخطاء: {الأخطاء}\n- ملاحظة: {الملاحظة}';
-
-          String message = templateText
-              .replaceAll('{اسم_الطالب}', widget.student.name)
-              .replaceAll('{السورة}', _selectedSurah?.name ?? '')
-              .replaceAll('{من}', '$_fromAyah')
-              .replaceAll('{إلى}', '$_toAyah')
-              .replaceAll('{التقييم}', homeworkGrade.gradeMarkArabic)
-              .replaceAll('{الأخطاء}', '$_mistakesCount')
-              .replaceAll('{الملاحظة}', _remarkController.text.isNotEmpty ? _remarkController.text : 'لا يوجد');
-
-          await Share.share(message);
-        }
-      }
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('تم حفظ التقييم بنجاح'),
+          SnackBar(
+            content: Text('تم حفظ التسميع - التقييم: $avgRating/5'),
             backgroundColor: Colors.green,
           ),
         );
@@ -920,246 +567,9 @@ class _RecitationScreenState extends State<RecitationScreen> {
       setState(() => _isSaving = false);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('حدث خطأ أثناء حفظ التقييم: $e')),
+          SnackBar(content: Text('حدث خطأ: $e'), backgroundColor: Colors.red),
         );
       }
     }
-  }
-
-  Future<Uint8List> _drawReportCardImage({
-    required String studentName,
-    required String surahName,
-    required int fromAyah,
-    required int toAyah,
-    required String grade,
-    required int mistakes,
-    required bool isRevision,
-    required String remark,
-  }) async {
-    final recorder = ui.PictureRecorder();
-    final canvas = Canvas(recorder, const Rect.fromLTWH(0, 0, 800, 500));
-
-    // Paint background gradient
-    final paintBg = Paint()
-      ..shader = ui.Gradient.linear(
-        const Offset(0, 0),
-        const Offset(800, 500),
-        [
-          const Color(0xFF0F766E),
-          const Color(0xFF115E59),
-        ],
-      );
-    canvas.drawRect(const Rect.fromLTWH(0, 0, 800, 500), paintBg);
-
-    final paintCircle = Paint()..color = Colors.white.withOpacity(0.03);
-    canvas.drawCircle(const Offset(80, 80), 150, paintCircle);
-    canvas.drawCircle(const Offset(720, 420), 200, paintCircle);
-
-    final paintCard = Paint()..color = Colors.white;
-    final rrectCard = RRect.fromRectAndRadius(
-      const Rect.fromLTWH(40, 40, 720, 420),
-      const Radius.circular(30),
-    );
-    canvas.drawRRect(rrectCard, paintCard);
-
-    final paintBorder = Paint()
-      ..color = const Color(0xFF14B8A6).withOpacity(0.2)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 4;
-    canvas.drawRRect(rrectCard, paintBorder);
-
-    final paintBanner = Paint()..color = const Color(0xFF14B8A6);
-    final rrectBanner = RRect.fromRectAndRadius(
-      const Rect.fromLTWH(250, 20, 300, 50),
-      const Radius.circular(15),
-    );
-    canvas.drawRRect(rrectBanner, paintBanner);
-
-    _drawText(
-      canvas: canvas,
-      text: 'بطاقة تقييم التسميع اليومي 📖',
-      offset: const Offset(400, 45),
-      fontSize: 20,
-      color: Colors.white,
-      fontWeight: FontWeight.bold,
-      textAlign: TextAlign.center,
-    );
-
-    const rightAlignX = 700.0;
-    
-    _drawText(
-      canvas: canvas,
-      text: 'اسم الطالب: $studentName',
-      offset: const Offset(rightAlignX, 110),
-      fontSize: 26,
-      color: const Color(0xFF0F172A),
-      fontWeight: FontWeight.bold,
-      textAlign: TextAlign.right,
-    );
-
-    _drawText(
-      canvas: canvas,
-      text: 'الواجب المنجز: سورة $surahName (الآيات $fromAyah إلى $toAyah)',
-      offset: const Offset(rightAlignX, 175),
-      fontSize: 21,
-      color: const Color(0xFF334155),
-      fontWeight: FontWeight.bold,
-      textAlign: TextAlign.right,
-    );
-
-    final typeText = isRevision ? 'مراجعة' : 'حفظ جديد';
-    _drawText(
-      canvas: canvas,
-      text: 'نوع التسميع: $typeText',
-      offset: const Offset(rightAlignX, 225),
-      fontSize: 21,
-      color: const Color(0xFF334155),
-      fontWeight: FontWeight.bold,
-      textAlign: TextAlign.right,
-    );
-
-    if (grade != 'absent') {
-      _drawText(
-        canvas: canvas,
-        text: 'عدد الأخطاء: $mistakes',
-        offset: const Offset(rightAlignX, 275),
-        fontSize: 21,
-        color: mistakes > 0 ? Colors.red : const Color(0xFF0F766E),
-        fontWeight: FontWeight.bold,
-        textAlign: TextAlign.right,
-      );
-    }
-
-    if (remark.isNotEmpty) {
-      _drawText(
-        canvas: canvas,
-        text: 'ملاحظات المعلم: $remark',
-        offset: const Offset(rightAlignX, 325),
-        fontSize: 18,
-        color: const Color(0xFF475569),
-        fontWeight: FontWeight.w500,
-        textAlign: TextAlign.right,
-      );
-    }
-
-    final dateText = Helpers.formatGregorianDate(DateTime.now());
-    _drawText(
-      canvas: canvas,
-      text: 'التاريخ: $dateText',
-      offset: const Offset(rightAlignX, 375),
-      fontSize: 16,
-      color: const Color(0xFF94A3B8),
-      fontWeight: FontWeight.bold,
-      textAlign: TextAlign.right,
-    );
-
-    Color badgeBg;
-    Color badgeText;
-    String badgeLabel;
-
-    switch (grade) {
-      case 'excellent':
-        badgeBg = const Color(0xFFDCFCE7);
-        badgeText = const Color(0xFF15803D);
-        badgeLabel = 'ممتاز';
-        break;
-      case 'very_good':
-        badgeBg = const Color(0xFFDCFCE7);
-        badgeText = const Color(0xFF166534);
-        badgeLabel = 'جيد جداً';
-        break;
-      case 'good':
-        badgeBg = const Color(0xFFFEF3C7);
-        badgeText = const Color(0xFFB45309);
-        badgeLabel = 'جيد';
-        break;
-      case 'needs_work':
-        badgeBg = const Color(0xFFFFEDD5);
-        badgeText = const Color(0xFFC2410C);
-        badgeLabel = 'مقبول';
-        break;
-      case 'absent':
-      default:
-        badgeBg = const Color(0xFFFEE2E2);
-        badgeText = const Color(0xFFB91C1C);
-        badgeLabel = 'غائب';
-        break;
-    }
-
-    final paintBadge = Paint()..color = badgeBg;
-    final rrectBadge = RRect.fromRectAndRadius(
-      const Rect.fromLTWH(80, 160, 200, 160),
-      const Radius.circular(20),
-    );
-    canvas.drawRRect(rrectBadge, paintBadge);
-
-    _drawText(
-      canvas: canvas,
-      text: badgeLabel,
-      offset: const Offset(180, 225),
-      fontSize: 34,
-      color: badgeText,
-      fontWeight: FontWeight.bold,
-      textAlign: TextAlign.center,
-    );
-
-    _drawText(
-      canvas: canvas,
-      text: 'التقييم العام',
-      offset: const Offset(180, 280),
-      fontSize: 16,
-      color: badgeText,
-      fontWeight: FontWeight.bold,
-      textAlign: TextAlign.center,
-    );
-
-    _drawText(
-      canvas: canvas,
-      text: 'مقرأة حلقة القرآن الكريم الإلكترونية',
-      offset: const Offset(400, 435),
-      fontSize: 18,
-      color: const Color(0xFF0F766E),
-      fontWeight: FontWeight.bold,
-      textAlign: TextAlign.center,
-    );
-
-    final picture = recorder.endRecording();
-    final img = await picture.toImage(800, 500);
-    final byteData = await img.toByteData(format: ui.ImageByteFormat.png);
-    return byteData!.buffer.asUint8List();
-  }
-
-  void _drawText({
-    required Canvas canvas,
-    required String text,
-    required Offset offset,
-    required double fontSize,
-    required Color color,
-    required FontWeight fontWeight,
-    required TextAlign textAlign,
-  }) {
-    final textSpan = TextSpan(
-      text: text,
-      style: TextStyle(
-        fontSize: fontSize,
-        color: color,
-        fontWeight: fontWeight,
-      ),
-    );
-    final textPainter = TextPainter(
-      text: textSpan,
-      textDirection: TextDirection.rtl,
-      textAlign: textAlign,
-    );
-    textPainter.layout(minWidth: 0, maxWidth: 650);
-
-    double x = offset.dx;
-    if (textAlign == TextAlign.right) {
-      x = offset.dx - textPainter.width;
-    } else if (textAlign == TextAlign.center) {
-      x = offset.dx - (textPainter.width / 2);
-    }
-    final y = offset.dy - (textPainter.height / 2);
-    textPainter.paint(canvas, Offset(x, y));
   }
 }

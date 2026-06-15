@@ -11,23 +11,20 @@ import {
   Loader2,
   CheckCircle2,
   User,
-  MapPin,
-  Sparkles,
-  Key
+  MapPin
 } from "lucide-react";
 import { useStore } from "@/store/useStore";
 import { supabase } from "@/lib/supabase";
 
 export default function OnboardingPage() {
   const router = useRouter();
-  const { user, profile, fetchProfile, joinWithCode } = useStore();
+  const { user, setUser } = useStore();
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
-  const [joinCode, setJoinCode] = useState("");
   
   const [data, setData] = useState({
     fullName: "",
-    role: "center_admin" as "center_admin" | "supervisor" | "teacher",
+    role: "center_admin" as "center_admin" | "supervisor",
     centerName: "",
     centerType: "men" as "men" | "women",
     centerAddress: "",
@@ -35,30 +32,10 @@ export default function OnboardingPage() {
   });
 
   useEffect(() => {
-    const checkStatus = async () => {
-      if (!user) {
-        router.push("/login");
-        return;
-      }
-
-      await fetchProfile();
-      const currentProfile = useStore.getState().profile;
-      
-      if (currentProfile) {
-        router.push("/select-center");
-      }
-    };
-    checkStatus();
-  }, [user, router, fetchProfile]);
-
-  const handleTeacherJoin = async () => {
-    setLoading(true);
-    const success = await joinWithCode(joinCode);
-    if (success) {
-      router.push("/select-center");
+    if (!user) {
+      router.push("/login");
     }
-    setLoading(false);
-  };
+  }, [user]);
 
   const handleComplete = async () => {
     if (!supabase || !user) return;
@@ -160,43 +137,30 @@ export default function OnboardingPage() {
               <p className="text-gray-500 dark:text-gray-400 font-medium">اختر نوع الحساب الذي ترغب في إدارته.</p>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <button 
                 onClick={() => setData({...data, role: 'center_admin'})}
-                className={`p-8 rounded-[2.5rem] border-4 transition-all flex flex-col items-center gap-6 group ${data.role === 'center_admin' ? "border-teal-600 bg-teal-50 dark:bg-teal-900/20" : "border-gray-50 dark:border-gray-800 hover:border-teal-200"}`}
+                className={`p-10 rounded-3xl border-4 transition-all flex flex-col items-center gap-6 group ${data.role === 'center_admin' ? "border-teal-600 bg-teal-50 dark:bg-teal-900/20" : "border-gray-50 dark:border-gray-800 hover:border-teal-200"}`}
               >
-                <div className={`w-16 h-16 rounded-2xl flex items-center justify-center transition-all ${data.role === 'center_admin' ? "bg-teal-600 text-white scale-110" : "bg-gray-100 dark:bg-gray-800 text-gray-400"}`}>
-                  <Building2 className="w-8 h-8" />
+                <div className={`w-20 h-20 rounded-2xl flex items-center justify-center transition-all ${data.role === 'center_admin' ? "bg-teal-600 text-white scale-110 rotate-3" : "bg-gray-100 dark:bg-gray-800 text-gray-400"}`}>
+                  <Building2 className="w-10 h-10" />
                 </div>
                 <div className="text-center">
-                  <h3 className={`text-lg font-black mb-1 ${data.role === 'center_admin' ? "text-teal-900 dark:text-white" : "text-gray-600 dark:text-gray-400"}`}>مدير مركز</h3>
-                  <p className="text-[10px] text-gray-400 font-bold leading-relaxed line-clamp-2">إدارة الطلاب، الحلقات، والتقارير.</p>
+                  <h3 className={`text-xl font-black mb-2 ${data.role === 'center_admin' ? "text-teal-900 dark:text-white" : "text-gray-600 dark:text-gray-400"}`}>مدير مركز</h3>
+                  <p className="text-xs text-gray-400 font-bold leading-relaxed">إدارة الطلاب، الحلقات، المعلمين، والتقارير اليومية.</p>
                 </div>
               </button>
 
               <button 
                 onClick={() => setData({...data, role: 'supervisor'})}
-                className={`p-8 rounded-[2.5rem] border-4 transition-all flex flex-col items-center gap-6 group ${data.role === 'supervisor' ? "border-teal-600 bg-teal-50 dark:bg-teal-900/20" : "border-gray-50 dark:border-gray-800 hover:border-teal-200"}`}
+                className={`p-10 rounded-3xl border-4 transition-all flex flex-col items-center gap-6 group ${data.role === 'supervisor' ? "border-teal-600 bg-teal-50 dark:bg-teal-900/20" : "border-gray-50 dark:border-gray-800 hover:border-teal-200"}`}
               >
-                <div className={`w-16 h-16 rounded-2xl flex items-center justify-center transition-all ${data.role === 'supervisor' ? "bg-teal-600 text-white scale-110" : "bg-gray-100 dark:bg-gray-800 text-gray-400"}`}>
-                  <ShieldCheck className="w-8 h-8" />
+                <div className={`w-20 h-20 rounded-2xl flex items-center justify-center transition-all ${data.role === 'supervisor' ? "bg-teal-600 text-white scale-110 -rotate-3" : "bg-gray-100 dark:bg-gray-800 text-gray-400"}`}>
+                  <ShieldCheck className="w-10 h-10" />
                 </div>
                 <div className="text-center">
-                  <h3 className={`text-lg font-black mb-1 ${data.role === 'supervisor' ? "text-teal-900 dark:text-white" : "text-gray-600 dark:text-gray-400"}`}>جهة إشرافية</h3>
-                  <p className="text-[10px] text-gray-400 font-bold leading-relaxed line-clamp-2">الإشراف على عدة مراكز ومتابعة الأداء.</p>
-                </div>
-              </button>
-
-              <button 
-                onClick={() => setData({...data, role: 'teacher' as any})}
-                className={`p-8 rounded-[2.5rem] border-4 transition-all flex flex-col items-center gap-6 group ${data.role === 'teacher' ? "border-amber-500 bg-amber-50 dark:bg-amber-900/20" : "border-gray-50 dark:border-gray-800 hover:border-amber-200"}`}
-              >
-                <div className={`w-16 h-16 rounded-2xl flex items-center justify-center transition-all ${data.role === 'teacher' ? "bg-amber-500 text-white scale-110" : "bg-gray-100 dark:bg-gray-800 text-gray-400"}`}>
-                  <Sparkles className="w-8 h-8" />
-                </div>
-                <div className="text-center">
-                  <h3 className={`text-lg font-black mb-1 ${data.role === 'teacher' ? "text-amber-900 dark:text-white" : "text-gray-600 dark:text-gray-400"}`}>معلم حلقة</h3>
-                  <p className="text-[10px] text-gray-400 font-bold leading-relaxed line-clamp-2">الانضمام لمركز موجود عبر كود المشرف.</p>
+                  <h3 className={`text-xl font-black mb-2 ${data.role === 'supervisor' ? "text-teal-900 dark:text-white" : "text-gray-600 dark:text-gray-400"}`}>جهة إشرافية</h3>
+                  <p className="text-xs text-gray-400 font-bold leading-relaxed">الإشراف على عدة مراكز، متابعة الإحصاءات العامة، والأداء.</p>
                 </div>
               </button>
             </div>
@@ -204,7 +168,7 @@ export default function OnboardingPage() {
             <div className="flex gap-4">
               <button onClick={() => setStep(1)} className="flex-1 py-6 rounded-2xl font-black text-gray-400 hover:bg-gray-50 transition-all">رجوع</button>
               <button 
-                onClick={() => setStep(data.role === 'teacher' ? 4 : 3)}
+                onClick={() => setStep(3)}
                 className="flex-[2] bg-teal-600 text-white py-6 rounded-2xl font-black text-lg hover:bg-teal-700 shadow-xl shadow-teal-500/20 transition-all flex items-center justify-center gap-4 group"
               >
                 التالي
@@ -287,50 +251,6 @@ export default function OnboardingPage() {
                   </>
                 )}
               </button>
-            </div>
-          </div>
-        )}
-        {step === 4 && (
-          <div className="space-y-10 animate-in fade-in slide-in-from-left-4 duration-500 relative z-10 text-center">
-            <div className="space-y-4">
-              <h1 className="text-4xl font-black text-gray-900 dark:text-white">كود الانضمام 🔐</h1>
-              <p className="text-gray-500 dark:text-gray-400 font-medium text-lg">يرجى إدخال الكود المشفر الذي وصلك من مدير المركز</p>
-            </div>
-
-            <div className="max-w-md mx-auto space-y-6">
-              <div className="relative group">
-                <Key className="absolute right-6 top-1/2 -translate-y-1/2 w-6 h-6 text-gray-400 group-focus-within:text-amber-500 transition-colors" />
-                <input 
-                  type="text" 
-                  placeholder="HAL-XXXXXXX"
-                  value={joinCode}
-                  onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
-                  className="w-full pr-16 pl-6 py-6 bg-gray-50 dark:bg-gray-800/50 border-none rounded-2xl text-xl font-black outline-none focus:ring-4 ring-amber-500/10 dark:text-white transition-all text-center tracking-widest font-mono"
-                />
-              </div>
-
-              <div className="bg-amber-50 dark:bg-amber-900/10 p-4 rounded-2xl border border-amber-100 dark:border-amber-900/30 flex items-start gap-3 text-right">
-                <ShieldCheck className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
-                <p className="text-[10px] text-amber-800 dark:text-amber-200 font-bold leading-relaxed">
-                  ملاحظة أمنية: سيتم التحقق من تطابق بريدك الإلكتروني الحالي مع البريد المرتبط بهذا الكود لضمان صحة البيانات.
-                </p>
-              </div>
-
-              <div className="flex gap-4">
-                <button onClick={() => setStep(2)} className="flex-1 py-6 rounded-2xl font-black text-gray-400 hover:bg-gray-50 transition-all">رجوع</button>
-                <button 
-                  onClick={handleTeacherJoin}
-                  disabled={loading || !joinCode}
-                  className="flex-[2] bg-amber-500 text-white py-6 rounded-2xl font-black text-lg hover:bg-amber-600 shadow-xl shadow-amber-500/20 disabled:opacity-50 transition-all flex items-center justify-center gap-4 group"
-                >
-                  {loading ? <Loader2 className="w-6 h-6 animate-spin" /> : (
-                    <>
-                      تحقق وانضم الآن
-                      <ArrowRight className="w-6 h-6 group-hover:-translate-x-2 transition-transform" />
-                    </>
-                  )}
-                </button>
-              </div>
             </div>
           </div>
         )}

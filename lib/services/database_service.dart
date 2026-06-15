@@ -7,12 +7,6 @@ import '../models/behavior_point.dart';
 import '../models/vacation.dart';
 import '../models/exam.dart';
 import '../models/settings.dart';
-import '../models/fund_transaction.dart';
-import '../models/plan.dart';
-import '../models/notification_log.dart';
-import '../models/homework_grade.dart';
-import '../models/mushaf_progress.dart';
-import '../models/message_template.dart';
 
 class DatabaseService {
   static final DatabaseService _instance = DatabaseService._internal();
@@ -31,9 +25,8 @@ class DatabaseService {
     String path = join(await getDatabasesPath(), 'halaqah.db');
     return await openDatabase(
       path,
-      version: 4,
+      version: 1,
       onCreate: _onCreate,
-      onUpgrade: _onUpgrade,
     );
   }
 
@@ -52,7 +45,6 @@ class DatabaseService {
         status TEXT DEFAULT 'active',
         photo_path TEXT,
         notes TEXT,
-        memorization_direction TEXT DEFAULT 'desc',
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       )
@@ -155,69 +147,6 @@ class DatabaseService {
     await db.execute('CREATE INDEX idx_daily_records_student ON daily_records(student_id)');
     await db.execute('CREATE INDEX idx_memorization_student ON memorization_progress(student_id)');
     await db.execute('CREATE INDEX idx_behavior_student ON behavior_points(student_id)');
-    await _createVersion2Tables(db);
-    await _createVersion3Tables(db);
-  }
-
-  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
-    if (oldVersion < 2) {
-      await _createVersion2Tables(db);
-    }
-    if (oldVersion < 3) {
-      await _createVersion3Tables(db);
-    }
-    if (oldVersion < 4) {
-      await _upgradeToVersion4(db);
-    }
-  }
-
-  Future<void> _createVersion2Tables(Database db) async {
-    await db.execute('''
-      CREATE TABLE IF NOT EXISTS fund_transactions (
-        id TEXT PRIMARY KEY,
-        student_id TEXT,
-        type TEXT NOT NULL,
-        amount REAL NOT NULL,
-        note TEXT,
-        date TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        FOREIGN KEY (student_id) REFERENCES students (id) ON DELETE SET NULL
-      )
-    ''');
-
-    await db.execute('''
-      CREATE TABLE IF NOT EXISTS plans (
-        id TEXT PRIMARY KEY,
-        student_id TEXT NOT NULL,
-        period TEXT NOT NULL,
-        start_date TEXT NOT NULL,
-        end_date TEXT NOT NULL,
-        unit TEXT NOT NULL DEFAULT 'ayahs',
-        new_amount INTEGER NOT NULL DEFAULT 5,
-        review_amount INTEGER NOT NULL DEFAULT 10,
-        status TEXT NOT NULL DEFAULT 'active',
-        notes TEXT,
-        created_at TEXT NOT NULL,
-        FOREIGN KEY (student_id) REFERENCES students (id) ON DELETE CASCADE
-      )
-    ''');
-
-    await db.execute('''
-      CREATE TABLE IF NOT EXISTS notifications (
-        id TEXT PRIMARY KEY,
-        student_id TEXT NOT NULL,
-        type TEXT NOT NULL,
-        title TEXT NOT NULL,
-        body TEXT NOT NULL,
-        read INTEGER NOT NULL DEFAULT 0,
-        created_at TEXT NOT NULL,
-        FOREIGN KEY (student_id) REFERENCES students (id) ON DELETE CASCADE
-      )
-    ''');
-
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_fund_transactions_student ON fund_transactions(student_id)');
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_plans_student ON plans(student_id)');
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_notifications_student ON notifications(student_id)');
   }
 
   Future<List<Student>> getStudents({String? status}) async {
@@ -443,22 +372,6 @@ class DatabaseService {
     await db.delete('vacations', where: 'id = ?', whereArgs: [id]);
   }
 
-  Future<List<Vacation>> getAllVacations() async {
-    final db = await database;
-    final List<Map<String, dynamic>> maps = await db.query('vacations', orderBy: 'start_date DESC');
-    return List.generate(maps.length, (i) => Vacation.fromMap(maps[i]));
-  }
-
-  Future<void> updateVacationApproval(String id, bool approved) async {
-    final db = await database;
-    await db.update(
-      'vacations',
-      {'approved': approved ? 1 : 0},
-      where: 'id = ?',
-      whereArgs: [id],
-    );
-  }
-
   Future<void> insertExam(Exam exam) async {
     final db = await database;
     await db.insert('exams', exam.toMap());
@@ -530,12 +443,6 @@ class DatabaseService {
       await txn.delete('behavior_points');
       await txn.delete('vacations');
       await txn.delete('exams');
-      await txn.delete('fund_transactions');
-      await txn.delete('plans');
-      await txn.delete('notifications');
-      await txn.delete('homework_grades');
-      await txn.delete('mushaf_progress');
-      await txn.delete('message_templates');
       await txn.delete('students');
       await txn.delete('settings');
 
@@ -558,12 +465,6 @@ class DatabaseService {
       await insertAll('behavior_points', backup['behavior_points']);
       await insertAll('vacations', backup['vacations']);
       await insertAll('exams', backup['exams']);
-      await insertAll('fund_transactions', backup['fund_transactions']);
-      await insertAll('plans', backup['plans']);
-      await insertAll('notifications', backup['notifications']);
-      await insertAll('homework_grades', backup['homework_grades']);
-      await insertAll('mushaf_progress', backup['mushaf_progress']);
-      await insertAll('message_templates', backup['message_templates']);
 
       final settings = backup['settings'];
       if (settings is Map) {
@@ -613,283 +514,5 @@ class DatabaseService {
       'points': pointsResult.first['total'] ?? 0,
       'exams': examResult.first,
     };
-  }
-
-  // Fund Transactions CRUD
-  Future<void> insertFundTransaction(FundTransaction transaction) async {
-    final db = await database;
-    await db.insert('fund_transactions', transaction.toMap());
-  }
-
-  Future<List<FundTransaction>> getFundTransactions() async {
-    final db = await database;
-    final List<Map<String, dynamic>> maps = await db.query('fund_transactions', orderBy: 'date DESC');
-    return List.generate(maps.length, (i) => FundTransaction.fromMap(maps[i]));
-  }
-
-  Future<List<FundTransaction>> getStudentFundTransactions(String studentId) async {
-    final db = await database;
-    final List<Map<String, dynamic>> maps = await db.query(
-      'fund_transactions',
-      where: 'student_id = ?',
-      whereArgs: [studentId],
-      orderBy: 'date DESC',
-    );
-    return List.generate(maps.length, (i) => FundTransaction.fromMap(maps[i]));
-  }
-
-  Future<double> getFundBalance() async {
-    final db = await database;
-    final List<Map<String, dynamic>> result = await db.rawQuery('''
-      SELECT 
-        SUM(CASE WHEN type IN ('subscription', 'penalty', 'donation') THEN amount ELSE -amount END) as balance
-      FROM fund_transactions
-    ''');
-    return (result.first['balance'] as num?)?.toDouble() ?? 0.0;
-  }
-
-  // Plans CRUD
-  Future<void> insertSmartPlan(SmartPlan plan) async {
-    final db = await database;
-    await db.insert('plans', plan.toMap());
-  }
-
-  Future<void> updateSmartPlan(SmartPlan plan) async {
-    final db = await database;
-    await db.update(
-      'plans',
-      plan.toMap(),
-      where: 'id = ?',
-      whereArgs: [plan.id],
-    );
-  }
-
-  Future<List<SmartPlan>> getSmartPlans() async {
-    final db = await database;
-    final List<Map<String, dynamic>> maps = await db.query('plans', orderBy: 'created_at DESC');
-    return List.generate(maps.length, (i) => SmartPlan.fromMap(maps[i]));
-  }
-
-  Future<List<SmartPlan>> getStudentSmartPlans(String studentId) async {
-    final db = await database;
-    final List<Map<String, dynamic>> maps = await db.query(
-      'plans',
-      where: 'student_id = ?',
-      whereArgs: [studentId],
-      orderBy: 'created_at DESC',
-    );
-    return List.generate(maps.length, (i) => SmartPlan.fromMap(maps[i]));
-  }
-
-  Future<SmartPlan?> getActiveStudentPlan(String studentId) async {
-    final db = await database;
-    final List<Map<String, dynamic>> maps = await db.query(
-      'plans',
-      where: 'student_id = ? AND status = ?',
-      whereArgs: [studentId, 'active'],
-      orderBy: 'created_at DESC',
-      limit: 1,
-    );
-    if (maps.isEmpty) return null;
-    return SmartPlan.fromMap(maps.first);
-  }
-
-  // Notifications CRUD
-  Future<void> insertNotification(NotificationLog notification) async {
-    final db = await database;
-    await db.insert('notifications', notification.toMap());
-  }
-
-  Future<List<NotificationLog>> getNotifications() async {
-    final db = await database;
-    final List<Map<String, dynamic>> maps = await db.query('notifications', orderBy: 'created_at DESC');
-    return List.generate(maps.length, (i) => NotificationLog.fromMap(maps[i]));
-  }
-
-  Future<List<NotificationLog>> getStudentNotifications(String studentId) async {
-    final db = await database;
-    final List<Map<String, dynamic>> maps = await db.query(
-      'notifications',
-      where: 'student_id = ?',
-      whereArgs: [studentId],
-      orderBy: 'created_at DESC',
-    );
-    return List.generate(maps.length, (i) => NotificationLog.fromMap(maps[i]));
-  }
-
-  Future<void> markNotificationAsRead(String id) async {
-    final db = await database;
-    await db.update(
-      'notifications',
-      {'read': 1},
-      where: 'id = ?',
-      whereArgs: [id],
-    );
-  }
-
-  Future<void> markAllNotificationsAsRead() async {
-    final db = await database;
-    await db.update(
-      'notifications',
-      {'read': 1},
-      where: 'read = ?',
-      whereArgs: [0],
-    );
-  }
-
-  Future<int> getUnreadNotificationsCount() async {
-    final db = await database;
-    final List<Map<String, dynamic>> result = await db.rawQuery('''
-      SELECT COUNT(*) as count FROM notifications WHERE read = 0
-    ''');
-    return (result.first['count'] as int?) ?? 0;
-  }
-
-  Future<void> _createVersion3Tables(Database db) async {
-    await db.execute('''
-      CREATE TABLE IF NOT EXISTS homework_grades (
-        id TEXT PRIMARY KEY,
-        student_id TEXT NOT NULL,
-        surah_id INTEGER NOT NULL,
-        from_ayah INTEGER NOT NULL,
-        to_ayah INTEGER NOT NULL,
-        date TEXT NOT NULL,
-        grade_mark TEXT NOT NULL,
-        mistakes_count INTEGER DEFAULT 0,
-        is_revision INTEGER DEFAULT 0,
-        remark TEXT,
-        created_at TEXT NOT NULL,
-        FOREIGN KEY (student_id) REFERENCES students (id) ON DELETE CASCADE
-      )
-    ''');
-
-    await db.execute('''
-      CREATE TABLE IF NOT EXISTS mushaf_progress (
-        id TEXT PRIMARY KEY,
-        student_id TEXT NOT NULL,
-        hizb_number INTEGER NOT NULL,
-        thumun_number INTEGER NOT NULL,
-        average_grade REAL DEFAULT 0.0,
-        last_graded_date TEXT,
-        is_pre_memorized INTEGER DEFAULT 0,
-        FOREIGN KEY (student_id) REFERENCES students (id) ON DELETE CASCADE,
-        UNIQUE(student_id, hizb_number, thumun_number)
-      )
-    ''');
-
-    await db.execute('''
-      CREATE TABLE IF NOT EXISTS message_templates (
-        type TEXT PRIMARY KEY,
-        content TEXT NOT NULL
-      )
-    ''');
-
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_homework_grades_student ON homework_grades(student_id)');
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_mushaf_progress_student ON mushaf_progress(student_id)');
-
-    // Insert default message templates if they don't exist
-    await db.insert('message_templates', {
-      'type': 'assignment',
-      'content': 'السلام عليكم ورحمة الله وبركاته، تم تكليف الطالب {اسم_الطالب} بواجب حفظ جديد: من سورة {السورة} آية {من} إلى آية {إلى}. نسأل الله له التوفيق.'
-    }, conflictAlgorithm: ConflictAlgorithm.ignore);
-
-    await db.insert('message_templates', {
-      'type': 'grading',
-      'content': 'السلام عليكم ورحمة الله وبركاته، تسميع الطالب {اسم_الطالب} اليوم في سورة {السورة} من آية {من} إلى آية {إلى}:\n- التقييم: {التقييم}\n- الأخطاء: {الأخطاء}\n- ملاحظة: {الملاحظة}'
-    }, conflictAlgorithm: ConflictAlgorithm.ignore);
-  }
-
-  Future<void> _upgradeToVersion4(Database db) async {
-    try {
-      await db.execute("ALTER TABLE students ADD COLUMN memorization_direction TEXT DEFAULT 'desc'");
-    } catch (e) {
-      print("Error upgrading database to version 4: $e");
-    }
-  }
-
-  // HomeworkGrade CRUD methods
-  Future<void> insertHomeworkGrade(HomeworkGrade grade) async {
-    final db = await database;
-    await db.insert('homework_grades', grade.toMap(), conflictAlgorithm: ConflictAlgorithm.replace);
-  }
-
-  Future<List<HomeworkGrade>> getStudentHomeworkGrades(String studentId) async {
-    final db = await database;
-    final List<Map<String, dynamic>> maps = await db.query(
-      'homework_grades',
-      where: 'student_id = ?',
-      whereArgs: [studentId],
-      orderBy: 'date DESC, created_at DESC',
-    );
-    return List.generate(maps.length, (i) => HomeworkGrade.fromMap(maps[i]));
-  }
-
-  Future<void> deleteHomeworkGrade(String id) async {
-    final db = await database;
-    await db.delete('homework_grades', where: 'id = ?', whereArgs: [id]);
-  }
-
-  // MushafProgress CRUD methods
-  Future<void> insertOrUpdateMushafProgress(MushafProgress progress) async {
-    final db = await database;
-    await db.insert(
-      'mushaf_progress',
-      progress.toMap(),
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
-  }
-
-  Future<List<MushafProgress>> getStudentMushafProgress(String studentId) async {
-    final db = await database;
-    final List<Map<String, dynamic>> maps = await db.query(
-      'mushaf_progress',
-      where: 'student_id = ?',
-      whereArgs: [studentId],
-    );
-    return List.generate(maps.length, (i) => MushafProgress.fromMap(maps[i]));
-  }
-
-  Future<void> clearStudentMushafProgress(String studentId) async {
-    final db = await database;
-    await db.delete('mushaf_progress', where: 'student_id = ?', whereArgs: [studentId]);
-  }
-
-  // MessageTemplate CRUD methods
-  Future<MessageTemplate?> getMessageTemplate(String type) async {
-    final db = await database;
-    final List<Map<String, dynamic>> maps = await db.query(
-      'message_templates',
-      where: 'type = ?',
-      whereArgs: [type],
-    );
-    if (maps.isEmpty) return null;
-    return MessageTemplate.fromMap(maps.first);
-  }
-
-  Future<void> saveMessageTemplate(MessageTemplate template) async {
-    final db = await database;
-    await db.insert(
-      'message_templates',
-      template.toMap(),
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
-  }
-
-  Future<List<HomeworkGrade>> getAllHomeworkGrades() async {
-    final db = await database;
-    final List<Map<String, dynamic>> maps = await db.query('homework_grades');
-    return List.generate(maps.length, (i) => HomeworkGrade.fromMap(maps[i]));
-  }
-
-  Future<List<DailyRecord>> getAllDailyRecords() async {
-    final db = await database;
-    final List<Map<String, dynamic>> maps = await db.query('daily_records');
-    return List.generate(maps.length, (i) => DailyRecord.fromMap(maps[i]));
-  }
-
-  Future<List<MushafProgress>> getAllMushafProgress() async {
-    final db = await database;
-    final List<Map<String, dynamic>> maps = await db.query('mushaf_progress');
-    return List.generate(maps.length, (i) => MushafProgress.fromMap(maps[i]));
   }
 }

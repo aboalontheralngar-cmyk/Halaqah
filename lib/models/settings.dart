@@ -20,7 +20,6 @@ class HalaqahSettings {
   int fontSize;
   
   String revisionOrder;
-  String currencySymbol;
   
   Map<String, int> pointsConfig;
 
@@ -41,7 +40,6 @@ class HalaqahSettings {
     this.theme = 'light',
     this.fontSize = 16,
     this.revisionOrder = 'ascending',
-    this.currencySymbol = 'ر.س',
     Map<String, int>? pointsConfig,
   }) : pointsConfig = pointsConfig ?? defaultPointsConfig;
 
@@ -75,7 +73,6 @@ class HalaqahSettings {
         'theme': theme,
         'font_size': fontSize,
         'revision_order': revisionOrder,
-        'currency_symbol': currencySymbol,
         'points_config': pointsConfig.entries
             .map((e) => '${e.key}:${e.value}')
             .join(','),
@@ -110,7 +107,6 @@ class HalaqahSettings {
       theme: map['theme'] ?? 'light',
       fontSize: map['font_size'] ?? 16,
       revisionOrder: map['revision_order'] ?? 'ascending',
-      currencySymbol: map['currency_symbol'] ?? 'ر.س',
       pointsConfig: points.isEmpty ? null : points,
     );
   }
@@ -132,7 +128,6 @@ class HalaqahSettings {
     String? theme,
     int? fontSize,
     String? revisionOrder,
-    String? currencySymbol,
     Map<String, int>? pointsConfig,
   }) {
     return HalaqahSettings(
@@ -154,7 +149,6 @@ class HalaqahSettings {
       theme: theme ?? this.theme,
       fontSize: fontSize ?? this.fontSize,
       revisionOrder: revisionOrder ?? this.revisionOrder,
-      currencySymbol: currencySymbol ?? this.currencySymbol,
       pointsConfig: pointsConfig ?? this.pointsConfig,
     );
   }

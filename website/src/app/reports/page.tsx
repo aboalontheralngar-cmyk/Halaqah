@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useEffect } from "react";
+import { useMemo } from "react";
 import { 
   BarChart3, 
   Download, 
@@ -20,29 +20,14 @@ import {
 import { useStore } from "@/store/useStore";
 
 export default function ReportsPage() {
-  const { students, homeworkGrades, fetchStudents, fetchHomeworkGrades, points, centerType } = useStore();
+  const { students, attendance, memorization, points, exams, centerType } = useStore();
   const isMen = centerType === 'men';
-
-  useEffect(() => {
-    fetchStudents();
-    fetchHomeworkGrades();
-  }, [fetchStudents, fetchHomeworkGrades]);
 
   const stats = useMemo(() => {
     const totalStudents = students.length;
     const avgAttendance = totalStudents > 0 ? 85 : 0; // Mock or calculate
     const totalPoints = points.reduce((s, p) => s + p.amount, 0);
-
-    const gradedRecords = homeworkGrades.filter(g => g.gradeMark !== "absent");
-    const scoreMap: Record<string, number> = {
-      excellent: 5,
-      very_good: 4,
-      good: 3,
-      needs_work: 2,
-    };
-    const avgMemorization = gradedRecords.length > 0
-      ? (gradedRecords.reduce((sum, g) => sum + (scoreMap[g.gradeMark] || 3), 0) / gradedRecords.length).toFixed(1)
-      : "0.0";
+    const avgMemorization = 4.2; // Mock
     const avgExams = 92; // Mock
 
     return {
@@ -51,7 +36,7 @@ export default function ReportsPage() {
       memorization: avgMemorization,
       exams: avgExams
     };
-  }, [students, homeworkGrades, points]);
+  }, [students, attendance, points]);
 
   const topStudents = useMemo(() => {
     return students
@@ -65,73 +50,6 @@ export default function ReportsPage() {
       .slice(0, 3);
   }, [students, points]);
 
-  const exportToCSV = () => {
-    const headers = [
-      "اسم الطالب",
-      "رقم الهاتف",
-      "رقم ولي الأمر",
-      "المستوى",
-      "العمر",
-      "عدد التسميعات",
-      "تسميعات ممتاز",
-      "تسميعات جيد جداً",
-      "تسميعات جيد",
-      "تسميعات مقبول",
-      "تسميعات غائب",
-      "متوسط الأخطاء",
-      "تاريخ الانضمام",
-      "الحالة"
-    ];
-
-    const rows = students.map(student => {
-      const studentGrades = homeworkGrades.filter(g => g.studentId === student.id);
-      const gradedCount = studentGrades.length;
-      
-      const excellentCount = studentGrades.filter(g => g.gradeMark === "excellent").length;
-      const veryGoodCount = studentGrades.filter(g => g.gradeMark === "very_good").length;
-      const goodCount = studentGrades.filter(g => g.gradeMark === "good").length;
-      const needsWorkCount = studentGrades.filter(g => g.gradeMark === "needs_work").length;
-      const absentCount = studentGrades.filter(g => g.gradeMark === "absent").length;
-
-      const activeGrades = studentGrades.filter(g => g.gradeMark !== "absent");
-      const avgMistakes = activeGrades.length > 0
-        ? (activeGrades.reduce((sum, g) => sum + g.mistakesCount, 0) / activeGrades.length).toFixed(1)
-        : "0";
-
-      return [
-        student.name,
-        student.phone,
-        student.parentPhone,
-        student.level,
-        student.age,
-        gradedCount,
-        excellentCount,
-        veryGoodCount,
-        goodCount,
-        needsWorkCount,
-        absentCount,
-        avgMistakes,
-        student.joinDate,
-        student.status === "active" ? "نشط" : "غير نشط"
-      ];
-    });
-
-    const csvContent = [
-      headers.join(","),
-      ...rows.map(row => row.map(val => `"${String(val).replace(/"/g, '""')}"`).join(","))
-    ].join("\n");
-
-    const BOM = "\uFEFF";
-    const blob = new Blob([BOM + csvContent], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.setAttribute("href", url);
-    link.setAttribute("download", `تقرير_طلاب_الحلقة_${new Date().toISOString().split("T")[0]}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
   return (
     <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-700">
       {/* Header */}
@@ -144,16 +62,10 @@ export default function ReportsPage() {
           </div>
         </div>
         <div className="flex items-center gap-4">
-          <button 
-            onClick={exportToCSV}
-            className="flex items-center gap-2 bg-teal-600 text-white px-8 py-4 rounded-2xl font-black text-sm shadow-xl hover:bg-teal-700 transition-all"
-          >
-            <Download className="w-5 h-5" /> تصدير تقرير الطلاب (CSV)
+          <button className="flex items-center gap-2 bg-teal-600 text-white px-8 py-4 rounded-2xl font-black text-sm shadow-xl hover:bg-teal-700 transition-all">
+            <Download className="w-5 h-5" /> استخراج التقرير الشهري
           </button>
-          <button 
-            onClick={exportToCSV}
-            className="p-4 bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-2xl text-gray-400 hover:text-teal-600 transition-all shadow-sm"
-          >
+          <button className="p-4 bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-2xl text-gray-400 hover:text-teal-600 transition-all shadow-sm">
             <Share2 className="w-5 h-5" />
           </button>
         </div>

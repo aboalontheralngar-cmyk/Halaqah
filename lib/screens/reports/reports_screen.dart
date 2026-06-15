@@ -5,7 +5,6 @@ import '../../services/pdf_service.dart';
 import '../../models/student.dart';
 import '../../models/daily_record.dart';
 import '../../utils/helpers.dart';
-import '../../services/report_export_service.dart';
 
 class ReportsScreen extends StatefulWidget {
   const ReportsScreen({super.key});
@@ -17,7 +16,6 @@ class ReportsScreen extends StatefulWidget {
 class _ReportsScreenState extends State<ReportsScreen> {
   final DatabaseService _db = DatabaseService();
   final PdfService _pdf = PdfService();
-  final ReportExportService _exportService = ReportExportService();
   List<Student> _students = [];
   bool _isLoading = true;
 
@@ -45,27 +43,6 @@ class _ReportsScreenState extends State<ReportsScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('التقارير'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.share),
-            tooltip: 'تصدير تقرير الحلقة كـ Excel (CSV)',
-            onPressed: () async {
-              if (_students.isEmpty) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('لا يوجد طلاب لتصدير تقريرهم')),
-                );
-                return;
-              }
-              try {
-                await _exportService.exportCircleReport(_students);
-              } catch (e) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('خطأ في تصدير التقرير: $e')),
-                );
-              }
-            },
-          ),
-        ],
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
@@ -203,10 +180,6 @@ class _ReportsScreenState extends State<ReportsScreen> {
                         value: 'attendance',
                         child: Text('تقرير الحضور'),
                       ),
-                      const PopupMenuItem(
-                        value: 'csv',
-                        child: Text('تصدير Excel (CSV)'),
-                      ),
                     ],
                   ),
                 ),
@@ -284,9 +257,6 @@ class _ReportsScreenState extends State<ReportsScreen> {
         break;
       case 'attendance':
         _showStudentAttendanceReport(student);
-        break;
-      case 'csv':
-        _exportService.exportStudentReport(student);
         break;
     }
   }

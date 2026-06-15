@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo } from "react";
 import { 
   Search, 
   Plus, 
@@ -20,13 +20,10 @@ import {
   Target,
   Camera,
   CircleCheck,
-  CircleDashed,
-  Map
+  CircleDashed
 } from "lucide-react";
 import { useStore, Student } from "@/store/useStore";
 import { QRCodeSVG } from "qrcode.react";
-import MushafVisualizer from "@/components/MushafVisualizer";
-import { quranService } from "@/services/quranService";
 
 const levels = [
   { id: "الكل", label: "الكل" },
@@ -36,44 +33,13 @@ const levels = [
 ];
 
 export default function StudentsPage() {
-  const { students, addStudent, updateStudent, deleteStudent, loading, homeworkGrades, fetchHomeworkGrades } = useStore();
+  const { students, addStudent, updateStudent, deleteStudent, loading } = useStore();
   const [search, setSearch] = useState("");
   const [selectedLevel, setSelectedLevel] = useState("الكل");
   const [showForm, setShowForm] = useState(false);
   const [showQR, setShowQR] = useState<Student | null>(null);
-  const [visualizingStudent, setVisualizingStudent] = useState<Student | null>(null);
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
-
-  useEffect(() => {
-    fetchHomeworkGrades();
-    quranService.initialize();
-  }, [fetchHomeworkGrades]);
-
-  const getStudentStats = (studentId: string) => {
-    const studentGrades = homeworkGrades.filter(g => g.studentId === studentId && g.gradeMark !== 'absent');
-    const uniquePages = new Set<number>();
-    const uniqueAyahs = new Set<string>();
-
-    const surahs = quranService.getSurahs();
-    if (surahs.length === 0) return { pages: 0, ayahs: 0 };
-
-    studentGrades.forEach(grade => {
-      const surah = surahs.find(s => s.name === grade.surah);
-      if (surah) {
-        const ayahsInRange = surah.ayahs.filter(a => a.number >= grade.fromAyah && a.number <= grade.toAyah);
-        ayahsInRange.forEach(a => {
-          uniquePages.add(a.page);
-          uniqueAyahs.add(`${surah.number}_${a.number}`);
-        });
-      }
-    });
-
-    return {
-      pages: uniquePages.size,
-      ayahs: uniqueAyahs.size
-    };
-  };
   const [formData, setFormData] = useState<Omit<Student, 'id'>>({ 
     name: "", 
     phone: "", 
@@ -83,8 +49,7 @@ export default function StudentsPage() {
     joinDate: new Date().toISOString().split("T")[0],
     planType: 'ayahs',
     planAmount: 5,
-    status: 'active',
-    memorizationDirection: 'desc'
+    status: 'active'
   });
 
   const filteredStudents = useMemo(() => {
@@ -118,8 +83,7 @@ export default function StudentsPage() {
     setFormData({ 
       name: "", phone: "", parentPhone: "", age: 10, level: "مبتدئ", 
       joinDate: new Date().toISOString().split("T")[0],
-      planType: 'ayahs', planAmount: 5, status: 'active',
-      memorizationDirection: 'desc'
+      planType: 'ayahs', planAmount: 5, status: 'active' 
     });
   };
 
@@ -229,27 +193,10 @@ export default function StudentsPage() {
                     <Target className="w-3 h-3" /> الخطة: {student.planAmount} {student.planType === 'ayahs' ? 'آيات' : 'صفحات'}
                   </span>
                 </div>
-                {(() => {
-                  const stats = getStudentStats(student.id);
-                  return (
-                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2 justify-center md:justify-start text-[10px] font-black text-teal-600 bg-teal-50/50 dark:bg-teal-950/20 px-3 py-1.5 rounded-xl border border-teal-100/30">
-                      <span>📖 صفحات فريدة: {stats.pages}</span>
-                      <span className="text-teal-300">•</span>
-                      <span>🔢 الآيات المنجزة: {stats.ayahs}</span>
-                    </div>
-                  );
-                })()}
               </div>
             </div>
 
             <div className={`flex gap-3 ${viewMode === "grid" ? "mt-8 justify-center border-t border-gray-50 dark:border-gray-800 pt-8" : "mt-4 md:mt-0"}`}>
-              <button 
-                onClick={() => setVisualizingStudent(student)} 
-                className="w-12 h-12 bg-teal-50 dark:bg-teal-900/20 text-teal-600 rounded-2xl flex items-center justify-center hover:bg-teal-600 hover:text-white transition-all"
-                title="خريطة المصحف"
-              >
-                <Map className="w-5 h-5" />
-              </button>
               <button onClick={() => setShowQR(student)} className="w-12 h-12 bg-amber-50 dark:bg-amber-900/20 text-amber-600 rounded-2xl flex items-center justify-center hover:bg-amber-600 hover:text-white transition-all"><QrCode className="w-5 h-5" /></button>
               <button onClick={() => handleEdit(student)} className="w-12 h-12 bg-blue-50 dark:bg-blue-900/20 text-blue-600 rounded-2xl flex items-center justify-center hover:bg-blue-600 hover:text-white transition-all"><Edit2 className="w-5 h-5" /></button>
               <button onClick={() => handleDelete(student.id)} className="w-12 h-12 bg-rose-50 dark:bg-rose-900/20 text-rose-600 rounded-2xl flex items-center justify-center hover:bg-rose-600 hover:text-white transition-all"><Trash2 className="w-5 h-5" /></button>
@@ -309,17 +256,6 @@ export default function StudentsPage() {
                   {levels.slice(1).map(l => <option key={l.id} value={l.id}>{l.label}</option>)}
                 </select>
               </div>
-              <div className="md:col-span-2">
-                <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-3">اتجاه الحفظ</label>
-                <select 
-                  value={formData.memorizationDirection || 'desc'} 
-                  onChange={e => setFormData({...formData, memorizationDirection: e.target.value as 'asc' | 'desc'})} 
-                  className="w-full bg-gray-50 dark:bg-gray-800 border-none rounded-2xl px-6 py-4 text-sm font-bold outline-none"
-                >
-                  <option value="desc">من الناس إلى البقرة (القصار أولاً - صعودي)</option>
-                  <option value="asc">من البقرة إلى الناس (الطوال أولاً - نزولي)</option>
-                </select>
-              </div>
               
               <div className="md:col-span-2 p-6 bg-teal-50 dark:bg-teal-900/10 rounded-3xl border border-teal-100 dark:border-teal-800 grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="md:col-span-2 flex items-center gap-2 mb-2">
@@ -361,14 +297,6 @@ export default function StudentsPage() {
             <p className="text-xs font-bold text-gray-400 mt-2">كود الحضور الذكي</p>
           </div>
         </div>
-      )}
-
-      {/* Mushaf Map Modal */}
-      {visualizingStudent && (
-        <MushafVisualizer 
-          student={visualizingStudent} 
-          onClose={() => setVisualizingStudent(null)} 
-        />
       )}
     </div>
   );
