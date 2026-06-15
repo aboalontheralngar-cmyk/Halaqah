@@ -419,3 +419,52 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- =====================================================================
+-- 17) تحديد عدد المراكز لـ 4 كحد أقصى لكل مستخدم (حساب مالك)
+-- =====================================================================
+CREATE OR REPLACE FUNCTION limit_centers_per_user()
+RETURNS TRIGGER AS $$
+DECLARE
+    center_count INTEGER;
+BEGIN
+    SELECT COUNT(*) INTO center_count
+    FROM centers
+    WHERE owner_id = NEW.owner_id;
+    
+    IF center_count >= 4 THEN
+        RAISE EXCEPTION 'لا يمكنك إنشاء أكثر من 4 مراكز كحد أقصى للحساب الواحد. يرجى حذف أحد المراكز الحالية أولاً.';
+    END IF;
+    
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trigger_limit_centers ON centers;
+CREATE TRIGGER trigger_limit_centers
+BEFORE INSERT ON centers
+FOR EACH ROW
+EXECUTE FUNCTION limit_centers_per_user();
+
+-- =====================================================================
+-- 18) تنظيف المراكز الفارغة المهملة (أكبر من 10 أيام وبدون أي حلقة)
+-- =====================================================================
+CREATE OR REPLACE FUNCTION cleanup_empty_centers()
+RETURNS void SECURITY DEFINER AS $$
+BEGIN
+    DELETE FROM centers
+    WHERE created_at < NOW() - INTERVAL '10 days'
+      AND NOT EXISTS (
+        SELECT 1 FROM halaqat WHERE halaqat.center_id = centers.id
+      );
+END;
+$$ LANGUAGE plpgsql;
+
+-- تفعيل امتداد pg_cron وجدولة الدالة يومياً الساعة 12:00 بعد منتصف الليل
+CREATE EXTENSION IF NOT EXISTS pg_cron;
+SELECT cron.schedule(
+  'cleanup-empty-centers-daily',
+  '0 0 * * *',
+  'SELECT cleanup_empty_centers()'
+);
+
+

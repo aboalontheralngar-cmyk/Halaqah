@@ -1,84 +1,87 @@
-# خطة تطوير ميزات الصندوق المالي، تقرير التسميع، واتجاه الحفظ، والربط السحابي
+# خطة عمل: ضوابط حماية ونظافة قاعدة البيانات (أقصى حد للمراكز وتنظيف المهمل)
 
-تهدف هذه الخطة إلى تفصيل تصميم وتطبيق التحديثات المطلوبة على الصندوق المالي (العملة المخصصة)، ومشاركة تقارير واتس كبطاقة مرئية، وتصميم منطق غياب المعلم، والتقرير الإحصائي لتقدم الحفظ، والتحكم باتجاه الحفظ (من الناس أو من البقرة)، بالإضافة إلى توضيح المعمارية المقترحة لربط تطبيق الأندرويد بالسحابة.
+تهدف هذه الخطة إلى تفصيل وتصميم ضوابط برمجية لحماية قاعدة البيانات من Bloat (التضخم غير المبرر) وضمان نظافتها من خلال وضع حد أقصى لإنشاء المراكز لكل مستخدم، والتنظيف التلقائي للمراكز المهملة.
 
 ---
 
 ## User Review Required
 
 > [!IMPORTANT]
-> **1. ربط تطبيق الأندرويد بالسحابة (Supabase Cloud Link):**
-> نقترح تفعيل معمارية سحابية هجينة (Offline-First Hybrid Sync):
-> * سنستخدم مكتبة `supabase_flutter` في التطبيق.
-> * سنحافظ على سرعة التطبيق ووضعه غير المتصل بالإنترنت باستخدام قاعدة بيانات SQLite المحلية كـ Cache، مع مزامنة دورية (Background Sync) في الخلفية عند توفر الإنترنت.
-> * بديل مبسط: إضافة خيار "مزامنة سحابية يدوية" (Manual Backup & Restore) بضغطة زر داخل لوحة التحكم لرفع/تحميل البيانات السحابية لـ Supabase دون تعديل كامل معمارية التطبيق الحالية.
-> **يرجى اختيار البديل المفضل للمتابعة.**
-
-> [!TIP]
-> **2. ميزة مشاركة صورة للواتس بتصميم جميل (Image Sharing):**
-> * **في الويب:** سنقوم برسم بطاقة التقرير ديناميكيًا على عنصر `<canvas>` من HTML5 وتصديرها كصورة PNG قابلة للمشاركة أو التنزيل الفوري، لتفادي مشاكل المكتبات الخارجية الكبيرة.
-> * **في الموبايل:** سنستخدم ودجت `RepaintBoundary` المدمجة في Flutter لالتقاط بطاقة التقرير كصورة وحفظها في مجلد مؤقت ثم مشاركتها عبر `share_plus`.
-
-> [!WARNING]
-> **3. غياب المعلم دون بديل (Teacher Absence Log):**
-> نقترح تصميم الميزة بالشكل التالي:
-> * يستطيع **مدير المركز** تحديد "حالة غياب" للحلقة وتعيين معلم بديل (Substitute) مؤقتًا بضغطة زر لرؤية وإدخال تحضير الطلاب.
-> * في حال عدم الحضور بعد بدء الحلقة بـ 15 دقيقة، تظهر لوحة إشعار لمدير المركز تخبره بأن "الحلقة X بدون معلم حاليًا" وتتيح له استلام التحضير وتسميع الطلاب بنفسه كبديل تلقائي.
+> **1. الحد الأقصى للمراكز (4 مراكز لكل مستخدم):**
+> * سنقوم بتطبيق هذا القيد على مستوى قاعدة البيانات مباشرة (Database Level) باستخدام **Trigger** في PostgreSQL. 
+> * هذا يضمن حظر الإنشاء بأي وسيلة (سواء من موقع الويب أو من تطبيق الجوال) بمجرد وصول حساب المستخدم إلى 4 مراكز.
+> * عند محاولة إنشاء المركز الخامس، سيرفع النظام خطأ واضحاً باللغة العربية يمنع العملية.
+>
+> **2. التنظيف التلقائي للمراكز المهملة (أكبر من 10 أيام وبدون أي حلقة):**
+> * سنقوم بإنشاء دالة سحابية متخصصة في قاعدة البيانات: `cleanup_empty_centers()`.
+> * ستبحث الدالة عن أي مركز تم إنشاؤه منذ أكثر من 10 أيام ولم يتم ربط أو إنشاء أي حلقة بداخله، ثم تقوم بحذفه تلقائياً مع كافة البيانات التابعة له (إن وجدت).
+> * سنقوم بتفعيل امتداد `pg_cron` في PostgreSQL وجدولته لتشغيل هذه الدالة تلقائياً مرة واحدة كل يوم في منتصف الليل.
 
 ---
 
 ## Proposed Changes
 
-### 1. الصندوق المالي بعملة عالمية مخصصة 🪙
+### [Component] Database Schema & Functions (قاعدة البيانات والوظائف)
 
 #### [MODIFY] [database_schema_extensions.sql](file:///c:/Users/salman/Documents/flutter_App/Halaqah/website/database_schema_extensions.sql)
-* إضافة عمود `currency_symbol TEXT DEFAULT 'ر.س'` إلى جدول `center_settings`.
 
-#### [MODIFY] [useStore.ts](file:///c:/Users/salman/Documents/flutter_App/Halaqah/website/src/store/useStore.ts)
-* تحديث إعدادات المركز لتشمل `currencySymbol` ومزامنتها مع Supabase.
+*   **إضافة وظيفة تحديد عدد المراكز لـ 4 كحد أقصى وترجر الحظر**:
+    ```sql
+    CREATE OR REPLACE FUNCTION limit_centers_per_user()
+    RETURNS TRIGGER AS $$
+    DECLARE
+        center_count INTEGER;
+    BEGIN
+        SELECT COUNT(*) INTO center_count
+        FROM centers
+        WHERE owner_id = NEW.owner_id;
+        
+        IF center_count >= 4 THEN
+            RAISE EXCEPTION 'لا يمكنك إنشاء أكثر من 4 مراكز كحد أقصى للساب الواحد. يرجى حذف أحد المراكز الحالية أولاً.';
+        END IF;
+        
+        RETURN NEW;
+    END;
+    $$ LANGUAGE plpgsql;
 
-#### [MODIFY] [page.tsx (fund)](file:///c:/Users/salman/Documents/flutter_App/Halaqah/website/src/app/fund/page.tsx)
-* استبدال رمز العملة الثابت `ر.س` بمتغير العملة الديناميكي المأخوذ من إعدادات المركز.
+    DROP TRIGGER IF EXISTS trigger_limit_centers ON centers;
+    CREATE TRIGGER trigger_limit_centers
+    BEFORE INSERT ON centers
+    FOR EACH ROW
+    EXECUTE FUNCTION limit_centers_per_user();
+    ```
 
-#### [MODIFY] [settings_screen.dart](file:///c:/Users/salman/Documents/flutter_App/Halaqah/lib/screens/settings/settings_screen.dart) & [settings.dart](file:///c:/Users/salman/Documents/flutter_App/Halaqah/lib/models/settings.dart) & [fund_screen.dart](file:///c:/Users/salman/Documents/flutter_App/Halaqah/lib/screens/fund/fund_screen.dart)
-* إضافة خيار "رمز العملة" في الإعدادات الموبيلية وحفظه محليًا، وتحديث شاشة الصندوق المالي لعرض العملة المحددة.
+*   **إضافة وظيفة تنظيف المراكز المهملة وجدولتها**:
+    ```sql
+    CREATE OR REPLACE FUNCTION cleanup_empty_centers()
+    RETURNS void SECURITY DEFINER AS $$
+    BEGIN
+        DELETE FROM centers
+        WHERE created_at < NOW() - INTERVAL '10 days'
+          AND NOT EXISTS (
+            SELECT 1 FROM halaqat WHERE halaqat.center_id = centers.id
+          );
+    END;
+    $$ LANGUAGE plpgsql;
 
----
-
-### 2. اتجاه الحفظ لكل طالب (من الناس أو من البقرة) 🧭
-
-#### [MODIFY] [students/page.tsx](file:///c:/Users/salman/Documents/flutter_App/Halaqah/website/src/app/students/page.tsx) & [useStore.ts](file:///c:/Users/salman/Documents/flutter_App/Halaqah/website/src/store/useStore.ts)
-* إضافة حقل `memorizationDirection` (desc / asc) في نموذج الطالب وواجهة الإضافة/التعديل لتمكين الاختيار بين "من الناس إلى البقرة" (افتراضي) أو "من البقرة إلى الناس".
-
-#### [MODIFY] [student.dart](file:///c:/Users/salman/Documents/flutter_App/Halaqah/lib/models/student.dart) & [student_form_screen.dart](file:///c:/Users/salman/Documents/flutter_App/Halaqah/lib/screens/students/student_form_screen.dart)
-* إضافة الحقل لنموذج الطالب في تطبيق الموبايل وترقية قاعدة بيانات SQLite لإضافة العمود `memorization_direction` على جدول `students` عند ترقية الإصدار إلى 4.
-
----
-
-### 3. إحصائيات التسميع التفصيلية (الصفحات والآيات المحفوظة) 📊
-
-#### [MODIFY] [students/page.tsx](file:///c:/Users/salman/Documents/flutter_App/Halaqah/website/src/app/students/page.tsx) & [student_detail_screen.dart](file:///c:/Users/salman/Documents/flutter_App/Halaqah/lib/screens/students/student_detail_screen.dart)
-* حساب وعرض إجمالي الصفحات الفريدة التي حفظها الطالب ديناميكيًا من خلال مقارنة آيات التسميع المسجلة مع بيانات صفحات المصحف المخزنة in `quran_data.json` وعرضها كبطاقة إحصائية بجانب عدد الآيات.
-
----
-
-### 4. مشاركة صور التقارير بتصميم جميل (Image Cards) 🎨
-
-#### [NEW] [website/src/components/ReportImageGenerator.tsx](file:///c:/Users/salman/Documents/flutter_App/Halaqah/website/src/components/ReportImageGenerator.tsx)
-* مكون لرسم بطاقة تقييم ملونة (تقييم ممتاز/جيد، عدد الأخطاء، السورة، الملاحظات) على عنصر `<canvas>` وتنزيلها كملف صورة ومشاركتها عبر الواتس.
-
-#### [MODIFY] [recitation_screen.dart](file:///c:/Users/salman/Documents/flutter_App/Halaqah/lib/screens/memorization/recitation_screen.dart) & [student_detail_screen.dart](file:///c:/Users/salman/Documents/flutter_App/Halaqah/lib/screens/students/student_detail_screen.dart)
-* إضافة زر "مشاركة بطاقة التقرير كصورة" ورسمها باستخدام `RepaintBoundary` وحفظها مؤقتاً لمشاركتها مع ولي الأمر.
+    -- تفعيل امتداد pg_cron للجدولة التلقائية
+    CREATE EXTENSION IF NOT EXISTS pg_cron;
+    
+    -- جدولة دالة التنظيف يومياً الساعة 12:00 بعد منتصف الليل
+    SELECT cron.schedule(
+      'cleanup-empty-centers-daily',
+      '0 0 * * *',
+      'SELECT cleanup_empty_centers()'
+    );
+    ```
 
 ---
 
 ## Verification Plan
 
 ### Automated Tests
-* لا توجد اختبارات مؤتمتة، التحقق سيكون يدويًا.
+* لا توجد اختبارات مؤتمتة، التحقق سيكون يدويًا أو عبر تشغيل جمل الفحص في قاعدة البيانات.
 
 ### Manual Verification
-1. التأكد من إمكانية تغيير العملة في إعدادات الموقع وتطبيق الموبايل، والتحقق من ظهور العملة الجديدة في الصندوق المالي.
-2. إضافة طالب واختيار اتجاه حفظه والتحقق من بقائه وتحديثه بشكل سليم.
-3. تجربة إنشاء تقرير كصورة ومشاركته عبر الواتس والتأكد من وضوح التصميم وتطابقه مع البيانات المدخلة.
-4. تجميع المشروع محلياً والتحقق من خلوه من أي مشاكل برمجية.
+1. محاولة إنشاء أكثر من 4 مراكز من خلال واجهة مستخدم الويب والتأكد من إرجاع رسالة الخطأ العربية وحظر العملية.
+2. استدعاء الدالة `SELECT cleanup_empty_centers();` يدوياً بعد إنشاء مركز وهمي وتغيير تاريخ إنشائه إلى ما قبل 11 يوماً دون ربطه بحلقات، والتأكد من حذفه تلقائياً.
