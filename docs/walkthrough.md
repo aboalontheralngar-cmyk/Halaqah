@@ -51,6 +51,16 @@ This walkthrough details the design, technical details, and implementation of al
 
 ---
 
-## 7. Verification Results
+---
+
+## 8. Database Cleanliness & Abuse Prevention Rules (ضوابط حماية ونظافة قاعدة البيانات)
+*   **حد المراكز الأقصى (Limit Centers Trigger)**: تم بناء Trigger سحابي آمن يمنع إنشاء أكثر من 4 مراكز كحد أقصى لكل مالك حساب.
+*   **وظيفة تنظيف المراكز المهملة (Cleanup Empty Centers)**: تم بناء دالة `cleanup_empty_centers` تبحث عن المراكز التي مر عليها 10 أيام دون ربطها بحلقات وتقوم بحذفها.
+*   **الجدولة اليومية للتنظيف**: تم جدولة تشغيل دالة التنظيف يومياً الساعة 12:00 بعد منتصف الليل باستخدام الامتداد القياسي `pg_cron`.
+
+---
+
+## 9. Verification Results
 *   **Web App**: Compiled successfully via `npm run build` with zero errors. All routes pre-rendered smoothly.
 *   **Mobile App**: `flutter analyze` completed successfully with **zero errors**.
+
