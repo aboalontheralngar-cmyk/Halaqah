@@ -257,6 +257,37 @@ CREATE TABLE IF NOT EXISTS center_settings (
 );
 
 -- ---------------------------------------------------------------------
+-- 11-b) التقييمات المتقدمة وتقدم المصحف للطلاب
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS homework_grades (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    student_id UUID NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+    center_id UUID REFERENCES centers(id) ON DELETE CASCADE,
+    halaqa_id UUID REFERENCES halaqat(id) ON DELETE CASCADE,
+    surah TEXT NOT NULL,
+    from_ayah INTEGER NOT NULL,
+    to_ayah INTEGER NOT NULL,
+    date DATE NOT NULL DEFAULT CURRENT_DATE,
+    grade_mark TEXT NOT NULL CHECK (grade_mark IN ('excellent', 'very_good', 'good', 'needs_work', 'absent')),
+    mistakes_count INTEGER DEFAULT 0,
+    is_revision BOOLEAN DEFAULT FALSE,
+    remark TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS mushaf_progress (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    student_id UUID NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+    center_id UUID REFERENCES centers(id) ON DELETE CASCADE,
+    hizb_number INTEGER NOT NULL CHECK (hizb_number BETWEEN 1 AND 60),
+    thumun_number INTEGER NOT NULL CHECK (thumun_number BETWEEN 1 AND 8),
+    average_grade NUMERIC(3,2) DEFAULT 0.0,
+    last_graded_date DATE,
+    is_pre_memorized BOOLEAN DEFAULT FALSE,
+    UNIQUE(student_id, hizb_number, thumun_number)
+);
+
+-- ---------------------------------------------------------------------
 -- 12) فهارس للأداء
 -- ---------------------------------------------------------------------
 CREATE INDEX IF NOT EXISTS idx_fund_tx_center_date ON fund_transactions(center_id, date);
