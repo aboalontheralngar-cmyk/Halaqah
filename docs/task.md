@@ -1,5 +1,5 @@
 - [x] إضافة دالة limit_centers_per_user وترجر الحظر في `database_schema_extensions.sql`
 - [x] إضافة دالة cleanup_empty_centers وجدولة pg_cron في `database_schema_extensions.sql`
-- [/] نسخ تحديثات التوثيق والملفات إلى مجلد docs الخاص بالمشروع
-- [ ] التحقق من البناء والتحليل للمشروع
-- [ ] عمل Commit للمشروع ورفعه على GitHub
+- [x] نسخ تحديثات التوثيق والملفات إلى مجلد docs الخاص بالمشروع
+- [x] التحقق من البناء والتحليل للمشروع
+- [x] عمل Commit للمشروع ورفعه على GitHub
