@@ -806,6 +806,78 @@ class DatabaseService {
     await db.insert('notifications', notification.toMap());
   }
 
+  Future<void> generateNotifications() async {
+    final db = await database;
+    final now = DateTime.now();
+    final todayStr = now.toIso8601String().split('T')[0];
+    
+    // Fetch all active students
+    final students = await getStudents(status: 'active');
+    
+    for (final student in students) {
+      // 1. Check if student is absent today
+      final todayRecord = await getDailyRecord(student.id, now);
+      if (todayRecord != null) {
+        if (todayRecord.attendance == 'absent') {
+          // Check if notification already exists for today
+          final exist = await db.rawQuery('''
+            SELECT * FROM notifications 
+            WHERE student_id = ? AND type = 'repeated_absence' 
+            AND date(created_at) = date(?)
+          ''', [student.id, todayStr]);
+          
+          if (exist.isEmpty) {
+            await insertNotification(NotificationLog(
+              studentId: student.id,
+              type: 'repeated_absence',
+              title: 'غياب اليوم ⚠️',
+              body: 'الطالب ${student.name} غائب اليوم عن الحلقة.',
+            ));
+          }
+        } else if ((todayRecord.attendance == 'present' || todayRecord.attendance == 'late') &&
+                   !todayRecord.memorizationDone && !todayRecord.revisionDone) {
+          // 2. Check if student didn't recite today
+          // Check if notification already exists for today
+          final exist = await db.rawQuery('''
+            SELECT * FROM notifications 
+            WHERE student_id = ? AND type = 'low_performance' 
+            AND date(created_at) = date(?)
+          ''', [student.id, todayStr]);
+          
+          if (exist.isEmpty) {
+            await insertNotification(NotificationLog(
+              studentId: student.id,
+              type: 'low_performance',
+              title: 'لم يسمّع اليوم ⚠️',
+              body: 'حضر الطالب ${student.name} اليوم ولكنه لم يكمل أي تسميع للحفظ أو المراجعة.',
+            ));
+          }
+        }
+      }
+      
+      // 3. Check for consecutive absences
+      final consecutiveAbsences = await getConsecutiveAbsenceDays(student.id);
+      if (consecutiveAbsences >= 3) {
+        // Check if warning was already generated in the last 3 days to avoid spamming
+        final threeDaysAgo = now.subtract(const Duration(days: 3)).toIso8601String().split('T')[0];
+        final exist = await db.rawQuery('''
+          SELECT * FROM notifications 
+          WHERE student_id = ? AND type = 'dismissal_warning' 
+          AND date(created_at) >= date(?)
+        ''', [student.id, threeDaysAgo]);
+        
+        if (exist.isEmpty) {
+          await insertNotification(NotificationLog(
+            studentId: student.id,
+            type: 'dismissal_warning',
+            title: 'تحذير غياب متكرر ⚠️',
+            body: 'الطالب ${student.name} غائب لـ $consecutiveAbsences أيام متتالية.',
+          ));
+        }
+      }
+    }
+  }
+
   Future<List<NotificationLog>> getNotifications() async {
     final db = await database;
     final List<Map<String, dynamic>> maps = await db.query('notifications', orderBy: 'created_at DESC');

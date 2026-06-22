@@ -28,52 +28,133 @@ interface Notification {
 }
 
 export default function NotificationsPage() {
-  const { students } = useStore();
+  const { students, attendance, homeworkGrades, memorization } = useStore();
 
-  // محاكاة إشعارات
-  const [notifications, setNotifications] = useState<Notification[]>([
-    {
-      id: "1",
-      type: "warning",
-      title: "غياب متكرر",
-      message: "أحمد محمد غاب 3 مرات في الأسبوع الماضي",
-      date: new Date(Date.now() - 1000 * 60 * 30).toISOString(),
-      read: false,
-      relatedTo: "attendance",
-      relatedId: "1",
-    },
-    {
-      id: "2",
-      type: "success",
-      title: "نتيجة ممتازة",
-      message: "عمر علي حقق 95/100 في اختبار التسميع",
-      date: new Date(Date.now() - 1000 * 60 * 60 * 2).toISOString(),
-      read: false,
-      relatedTo: "exam",
-      relatedId: "2",
-    },
-    {
-      id: "3",
-      type: "info",
-      title: "تنبيه نظامي",
-      message: "تم تحديث نسخة التطبيق إلى v2.1.0",
-      date: new Date(Date.now() - 1000 * 60 * 60 * 5).toISOString(),
-      read: true,
-    },
-    {
-      id: "4",
-      type: "alert",
-      title: "سلوك سلبي",
-      message: "خالد يوسف حصل على 2 نقاط سلبية في السلوك",
-      date: new Date(Date.now() - 1000 * 60 * 60 * 24).toISOString(),
-      read: true,
-      relatedTo: "behavior",
-      relatedId: "3",
-    },
-  ]);
+  const [readIds, setReadIds] = useState<string[]>(() => {
+    if (typeof window !== "undefined") {
+      return JSON.parse(localStorage.getItem("readNotificationIds") || "[]");
+    }
+    return [];
+  });
+
+  const [deletedIds, setDeletedIds] = useState<string[]>(() => {
+    if (typeof window !== "undefined") {
+      return JSON.parse(localStorage.getItem("deletedNotificationIds") || "[]");
+    }
+    return [];
+  });
 
   const [filterType, setFilterType] = useState<"all" | Notification["type"]>("all");
   const [showArchived, setShowArchived] = useState(false);
+
+  const notifications = useMemo(() => {
+    const list: Notification[] = [];
+    const today = new Date().toISOString().split("T")[0];
+
+    students.forEach((student) => {
+      // 1. Check if student is absent today
+      const todayRecord = attendance.find(
+        (a) => a.studentId === student.id && a.date === today
+      );
+      
+      if (todayRecord) {
+        if (todayRecord.status === "absent") {
+          const id = `absent_${student.id}_${today}`;
+          if (!deletedIds.includes(id)) {
+            list.push({
+              id,
+              type: "alert",
+              title: "غياب اليوم ⚠️",
+              message: `الطالب ${student.name} غائب اليوم عن الحلقة.`,
+              date: new Date().toISOString(),
+              read: readIds.includes(id),
+              relatedTo: "attendance",
+              relatedId: student.id,
+            });
+          }
+        } else if (
+          (todayRecord.status === "present" || todayRecord.status === "late")
+        ) {
+          // Check if they has any recitation/homework grade today
+          const hasGradeToday = homeworkGrades.some(
+            (g) => g.studentId === student.id && g.date === today && g.gradeMark !== "absent"
+          );
+          const hasMemoToday = memorization.some(
+            (m) => m.studentId === student.id && m.date === today
+          );
+
+          if (!hasGradeToday && !hasMemoToday) {
+            const id = `leftout_${student.id}_${today}`;
+            if (!deletedIds.includes(id)) {
+              list.push({
+                id,
+                type: "warning",
+                title: "لم يسمّع اليوم ⚠️",
+                message: `حضر الطالب ${student.name} اليوم ولكنه لم يكمل أي تسميع للحفظ أو المراجعة.`,
+                date: new Date().toISOString(),
+                read: readIds.includes(id),
+                relatedTo: "student",
+                relatedId: student.id,
+              });
+            }
+          }
+        }
+      }
+
+      // 2. Check for consecutive absences
+      const studentRecords = [...attendance]
+        .filter((a) => a.studentId === student.id)
+        .sort((a, b) => b.date.localeCompare(a.date));
+
+      let consecutiveCount = 0;
+      let latestAbsentDate = "";
+      for (const record of studentRecords) {
+        if (record.status === "absent") {
+          consecutiveCount++;
+          if (!latestAbsentDate) latestAbsentDate = record.date;
+        } else if (record.status === "present" || record.status === "late") {
+          break; // Break on any presence
+        }
+      }
+
+      if (consecutiveCount >= 3 && latestAbsentDate) {
+        const id = `consecutive_${student.id}_${latestAbsentDate}`;
+        if (!deletedIds.includes(id)) {
+          list.push({
+            id,
+            type: "warning",
+            title: "تحذير غياب متكرر ⚠️",
+            message: `الطالب ${student.name} غائب لـ ${consecutiveCount} أيام متتالية.`,
+            date: new Date(latestAbsentDate).toISOString(),
+            read: readIds.includes(id),
+            relatedTo: "attendance",
+            relatedId: student.id,
+          });
+        }
+      }
+    });
+
+    return list;
+  }, [students, attendance, homeworkGrades, memorization, readIds, deletedIds]);
+
+  const handleMarkAsRead = (id: string) => {
+    const updated = [...readIds, id];
+    setReadIds(updated);
+    localStorage.setItem("readNotificationIds", JSON.stringify(updated));
+  };
+
+  const handleDelete = (id: string) => {
+    const updated = [...deletedIds, id];
+    setDeletedIds(updated);
+    localStorage.setItem("deletedNotificationIds", JSON.stringify(updated));
+  };
+
+  const handleMarkAllAsRead = () => {
+    const allIds = notifications.map((n) => n.id);
+    const updated = Array.from(new Set([...readIds, ...allIds]));
+    setReadIds(updated);
+    localStorage.setItem("readNotificationIds", JSON.stringify(updated));
+  };
 
   const filteredNotifications = useMemo(() => {
     let filtered = notifications.filter((n) => n.read === showArchived);
@@ -248,13 +329,7 @@ export default function NotificationsPage() {
                 <div className="flex gap-2 flex-shrink-0 ml-4">
                   {!notification.read && (
                     <button
-                      onClick={() =>
-                        setNotifications(
-                          notifications.map((n) =>
-                            n.id === notification.id ? { ...n, read: true } : n
-                          )
-                        )
-                      }
+                      onClick={() => handleMarkAsRead(notification.id)}
                       className="p-2 hover:bg-black/10 dark:hover:bg-white/10 rounded-lg transition-colors"
                       title="علّم كمقروء"
                     >
@@ -262,9 +337,7 @@ export default function NotificationsPage() {
                     </button>
                   )}
                   <button
-                    onClick={() =>
-                      setNotifications(notifications.filter((n) => n.id !== notification.id))
-                    }
+                    onClick={() => handleDelete(notification.id)}
                     className="p-2 hover:bg-black/10 dark:hover:bg-white/10 rounded-lg transition-colors"
                     title="حذف"
                   >
@@ -281,11 +354,7 @@ export default function NotificationsPage() {
       {stats.unread > 0 && !showArchived && (
         <div className="flex gap-3 justify-center">
           <button
-            onClick={() =>
-              setNotifications(
-                notifications.map((n) => ({ ...n, read: true }))
-              )
-            }
+            onClick={handleMarkAllAsRead}
             className="px-8 py-3 bg-teal-600 text-white font-bold rounded-full hover:bg-teal-700 transition-all"
           >
             علّم الكل كمقروء

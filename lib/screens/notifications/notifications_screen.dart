@@ -27,6 +27,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
     try {
+      await _db.generateNotifications();
       final notifications = await _db.getNotifications();
       final students = await _db.getStudents();
       setState(() {
