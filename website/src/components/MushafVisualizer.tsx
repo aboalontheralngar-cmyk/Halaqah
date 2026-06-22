@@ -60,7 +60,7 @@ export default function MushafVisualizer({ student, onClose }: MushafVisualizerP
     
     for (const surah of surahs) {
       for (const ayah of surah.ayahs) {
-        if (ayah.hizb === hizb && ((ayah.quarter - 1) % 4) + 1 === quarterInHizb) {
+        if (ayah.hizb === hizb && ayah.quarter != null && ((ayah.quarter - 1) % 4) + 1 === quarterInHizb) {
           matchingAyahs.push({
             ...ayah,
             surahNumber: surah.number,

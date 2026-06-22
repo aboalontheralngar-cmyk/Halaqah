@@ -1195,8 +1195,8 @@ export const useStore = create<HalaqahStore>((set, get) => ({
               // Keep track of unique (hizb, thumun) covered by this grade
               const coveredKeys = new Set<string>();
               for (const ayah of ayahs) {
-                const hizb = ayah.hizb;
-                const quarter = ayah.quarter;
+                const hizb = ayah.hizb ?? 0;
+                const quarter = ayah.quarter ?? 0;
                 if (hizb < 1 || hizb > 60 || quarter < 1 || quarter > 240) continue;
 
                 const quarterInHizb = ((quarter - 1) % 4) + 1;
