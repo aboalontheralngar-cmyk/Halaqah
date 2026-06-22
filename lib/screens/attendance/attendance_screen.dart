@@ -54,8 +54,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
         recordsMap[record.studentId] = record;
       }
       
-      // Auto-mark students on approved vacation as 'excused' if they have no record yet
-      bool recordAdded = false;
+      // Auto-mark students on approved vacation as 'excused' if they have no record yet or are marked as 'absent'
       for (final student in students) {
         Vacation? activeVac;
         for (final v in vacations) {
@@ -67,17 +66,20 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
         
         if (activeVac != null) {
           final existing = recordsMap[student.id];
-          if (existing == null || existing.attendance == null || existing.attendance!.isEmpty) {
+          if (existing == null || 
+              existing.attendance == null || 
+              existing.attendance!.isEmpty || 
+              existing.attendance == 'absent') {
             final reasonLabel = VacationReason.getLabel(activeVac.reason);
-            final newRecord = DailyRecord(
+            final newRecord = (existing ?? DailyRecord(
               studentId: student.id,
               date: _selectedDate,
+            )).copyWith(
               attendance: 'excused',
               notes: 'إجازة تلقائية: $reasonLabel',
             );
             await _db.saveDailyRecord(newRecord);
             recordsMap[student.id] = newRecord;
-            recordAdded = true;
           }
         }
       }

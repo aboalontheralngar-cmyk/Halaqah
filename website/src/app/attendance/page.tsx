@@ -33,10 +33,6 @@ export default function AttendancePage() {
   const [showDetailModal, setShowDetailModal] = useState<{studentId: string, status: AttendanceRecord['status']} | null>(null);
   const [extraData, setExtraData] = useState({ arrivalTime: "", absenceReason: "", notes: "" });
 
-  useEffect(() => {
-    fetchSuspendedDates();
-  }, [fetchSuspendedDates]);
-
   const isSuspended = suspendedDates.includes(selectedDate);
 
   const getAttendanceStatus = (studentId: string, date: string) => {
@@ -47,6 +43,43 @@ export default function AttendancePage() {
   const isStudentOnVacation = (studentId: string, date: string) => {
     return vacations.find(v => v.studentId === studentId && date >= v.startDate && date <= v.endDate);
   };
+
+  useEffect(() => {
+    fetchSuspendedDates();
+  }, [fetchSuspendedDates]);
+
+  useEffect(() => {
+    if (isSuspended) return;
+
+    const autoCorrectVacations = async () => {
+      for (const student of students) {
+        const vacation = isStudentOnVacation(student.id, selectedDate);
+        if (vacation && vacation.approved) {
+          const status = getAttendanceStatus(student.id, selectedDate);
+          if (!status || status === "absent") {
+            const existingRecord = attendance.find(
+              a => a.studentId === student.id && a.date === selectedDate
+            );
+            const notes = `إجازة تلقائية: ${vacation.reason || 'ظرف شخصي'}`;
+            if (existingRecord) {
+              if (existingRecord.status !== "excused") {
+                await updateAttendance(existingRecord.id, "excused", { notes });
+              }
+            } else {
+              await addAttendance({ 
+                studentId: student.id, 
+                date: selectedDate, 
+                status: "excused", 
+                notes 
+              });
+            }
+          }
+        }
+      }
+    };
+
+    autoCorrectVacations();
+  }, [selectedDate, students, vacations, attendance, isSuspended, addAttendance, updateAttendance]);
 
   const handleQuickStatus = async (studentId: string, status: AttendanceRecord['status']) => {
     if (status === "late" || status === "absent") {

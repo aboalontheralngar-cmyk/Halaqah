@@ -425,6 +425,21 @@ class DatabaseService {
   Future<void> insertVacation(Vacation vacation) async {
     final db = await database;
     await db.insert('vacations', vacation.toMap());
+
+    // Auto-update attendance records
+    if (vacation.approved) {
+      final startStr = vacation.startDate.toIso8601String().split('T')[0];
+      final endStr = vacation.endDate.toIso8601String().split('T')[0];
+      await db.update(
+        'daily_records',
+        {
+          'attendance': 'excused',
+          'notes': 'تحولت لإجازة تلقائيًا: ${VacationReason.getLabel(vacation.reason)}',
+        },
+        where: 'student_id = ? AND date BETWEEN ? AND ? AND attendance = ?',
+        whereArgs: [vacation.studentId, startStr, endStr, 'absent'],
+      );
+    }
   }
 
   Future<void> updateVacation(Vacation vacation) async {
@@ -435,6 +450,30 @@ class DatabaseService {
       where: 'id = ?',
       whereArgs: [vacation.id],
     );
+
+    // Update daily records
+    final startStr = vacation.startDate.toIso8601String().split('T')[0];
+    final endStr = vacation.endDate.toIso8601String().split('T')[0];
+    if (vacation.approved) {
+      await db.update(
+        'daily_records',
+        {
+          'attendance': 'excused',
+          'notes': 'تحولت لإجازة تلقائيًا: ${VacationReason.getLabel(vacation.reason)}',
+        },
+        where: 'student_id = ? AND date BETWEEN ? AND ? AND attendance = ?',
+        whereArgs: [vacation.studentId, startStr, endStr, 'absent'],
+      );
+    } else {
+      await db.update(
+        'daily_records',
+        {
+          'attendance': 'absent',
+        },
+        where: "student_id = ? AND date BETWEEN ? AND ? AND attendance = 'excused' AND (notes LIKE '%إجازة%' OR notes LIKE '%vacation%')",
+        whereArgs: [vacation.studentId, startStr, endStr],
+      );
+    }
   }
 
 
@@ -462,7 +501,24 @@ class DatabaseService {
 
   Future<void> deleteVacation(String id) async {
     final db = await database;
-    await db.delete('vacations', where: 'id = ?', whereArgs: [id]);
+    // Get the vacation details first
+    final maps = await db.query('vacations', where: 'id = ?', whereArgs: [id]);
+    if (maps.isNotEmpty) {
+      final vacation = Vacation.fromMap(maps.first);
+      // Delete vacation
+      await db.delete('vacations', where: 'id = ?', whereArgs: [id]);
+      // Revert attendance
+      final startStr = vacation.startDate.toIso8601String().split('T')[0];
+      final endStr = vacation.endDate.toIso8601String().split('T')[0];
+      await db.update(
+        'daily_records',
+        {
+          'attendance': 'absent',
+        },
+        where: "student_id = ? AND date BETWEEN ? AND ? AND attendance = 'excused' AND (notes LIKE '%إجازة%' OR notes LIKE '%vacation%')",
+        whereArgs: [vacation.studentId, startStr, endStr],
+      );
+    }
   }
 
   Future<List<Vacation>> getAllVacations() async {
@@ -479,6 +535,34 @@ class DatabaseService {
       where: 'id = ?',
       whereArgs: [id],
     );
+
+    // Update daily records
+    final maps = await db.query('vacations', where: 'id = ?', whereArgs: [id]);
+    if (maps.isNotEmpty) {
+      final vacation = Vacation.fromMap(maps.first);
+      final startStr = vacation.startDate.toIso8601String().split('T')[0];
+      final endStr = vacation.endDate.toIso8601String().split('T')[0];
+      if (approved) {
+        await db.update(
+          'daily_records',
+          {
+            'attendance': 'excused',
+            'notes': 'تحولت لإجازة تلقائيًا: ${VacationReason.getLabel(vacation.reason)}',
+          },
+          where: 'student_id = ? AND date BETWEEN ? AND ? AND attendance = ?',
+          whereArgs: [vacation.studentId, startStr, endStr, 'absent'],
+        );
+      } else {
+        await db.update(
+          'daily_records',
+          {
+            'attendance': 'absent',
+          },
+          where: "student_id = ? AND date BETWEEN ? AND ? AND attendance = 'excused' AND (notes LIKE '%إجازة%' OR notes LIKE '%vacation%')",
+          whereArgs: [vacation.studentId, startStr, endStr],
+        );
+      }
+    }
   }
 
   Future<void> insertExam(Exam exam) async {
@@ -960,7 +1044,6 @@ class DatabaseService {
       // Since Uuid() is imported or package is available, we can construct Uuid().v4()
       for (final hizb in preMemorizedHizbs) {
         for (int thumun = 1; thumun <= 8; thumun++) {
-          final id = DateTime.now().microsecondsSinceEpoch.toString() + '_${hizb}_${thumun}'; // Using microsecond timestamp as fallback to avoid needing Uuid import if not there, or we can use uuid v4. Let's just import uuid at the top. Let's use Uuid.
           batch.insert(
             'mushaf_progress',
             {

@@ -983,7 +983,39 @@ export const useStore = create<HalaqahStore>((set, get) => ({
 
   deleteVacation: async (id) => {
     if (supabase) {
+      // Fetch details before deleting
+      const { data: vac } = await supabase
+        .from("vacations")
+        .select("student_id, start_date, end_date")
+        .eq("id", id)
+        .single();
+        
       await supabase.from('vacations').delete().eq('id', id);
+      
+      if (vac) {
+        // Revert excused to absent
+        const { data: excusedRecords } = await supabase
+          .from("attendance")
+          .select("id, notes")
+          .eq("student_id", vac.student_id)
+          .gte("date", vac.start_date)
+          .lte("date", vac.end_date)
+          .eq("status", "excused");
+
+        if (excusedRecords && excusedRecords.length > 0) {
+          const idsToRevert = excusedRecords
+            .filter(r => r.notes?.includes("إجازة") || r.notes?.includes("vacation") || r.notes?.includes("تلقائي"))
+            .map(r => r.id);
+          
+          if (idsToRevert.length > 0) {
+            await supabase
+              .from("attendance")
+              .update({ status: "absent", notes: "تم حذف الإجازة" })
+              .in("id", idsToRevert);
+            await get().fetchAttendance();
+          }
+        }
+      }
     }
     set((state) => ({ vacations: state.vacations.filter(v => v.id !== id) }));
   },

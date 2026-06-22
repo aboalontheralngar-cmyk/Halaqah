@@ -89,7 +89,59 @@ export default function VacationsPage() {
 
   const toggleApproval = async (id: string, approved: boolean) => {
     if (supabase) {
-      await supabase.from("vacations").update({ approved: !approved }).eq("id", id);
+      const nextApprovedState = !approved;
+      await supabase.from("vacations").update({ approved: nextApprovedState }).eq("id", id);
+      
+      // Update daily records accordingly
+      const { data: vac } = await supabase
+        .from("vacations")
+        .select("student_id, start_date, end_date, reason")
+        .eq("id", id)
+        .single();
+        
+      if (vac) {
+        if (nextApprovedState) {
+          // Approved: change absent to excused
+          const { data: absentRecords } = await supabase
+            .from("attendance")
+            .select("id")
+            .eq("student_id", vac.student_id)
+            .gte("date", vac.start_date)
+            .lte("date", vac.end_date)
+            .eq("status", "absent");
+
+          if (absentRecords && absentRecords.length > 0) {
+            const ids = absentRecords.map(r => r.id);
+            await supabase
+              .from("attendance")
+              .update({ status: "excused", notes: `تحول تلقائيًا بعد اعتماد الإجازة: ${vac.reason || 'ظرف شخصي'}` })
+              .in("id", ids);
+          }
+        } else {
+          // Unapproved: change excused back to absent
+          const { data: excusedRecords } = await supabase
+            .from("attendance")
+            .select("id, notes")
+            .eq("student_id", vac.student_id)
+            .gte("date", vac.start_date)
+            .lte("date", vac.end_date)
+            .eq("status", "excused");
+
+          if (excusedRecords && excusedRecords.length > 0) {
+            const idsToRevert = excusedRecords
+              .filter(r => r.notes?.includes("إجازة") || r.notes?.includes("vacation") || r.notes?.includes("تلقائي"))
+              .map(r => r.id);
+            
+            if (idsToRevert.length > 0) {
+              await supabase
+                .from("attendance")
+                .update({ status: "absent", notes: "تم إلغاء اعتماد الإجازة" })
+                .in("id", idsToRevert);
+            }
+          }
+        }
+        await fetchAttendance();
+      }
     }
     await fetchVacations();
   };
