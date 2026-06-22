@@ -24,17 +24,20 @@ class _AyahRangePickerState extends State<AyahRangePicker> {
   @override
   void initState() {
     super.initState();
-    _currentRange = RangeValues(
-      widget.initialFrom.toDouble(),
-      widget.initialTo.toDouble(),
-    );
+    final double from = widget.initialFrom.toDouble().clamp(1.0, widget.maxAyahs.toDouble());
+    final double to = widget.initialTo.toDouble().clamp(from, widget.maxAyahs.toDouble());
+    _currentRange = RangeValues(from, to);
   }
 
   @override
   void didUpdateWidget(AyahRangePicker oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.maxAyahs != widget.maxAyahs) {
-      _currentRange = RangeValues(1, widget.maxAyahs.toDouble());
+    if (oldWidget.maxAyahs != widget.maxAyahs ||
+        oldWidget.initialFrom != widget.initialFrom ||
+        oldWidget.initialTo != widget.initialTo) {
+      final double from = widget.initialFrom.toDouble().clamp(1.0, widget.maxAyahs.toDouble());
+      final double to = widget.initialTo.toDouble().clamp(from, widget.maxAyahs.toDouble());
+      _currentRange = RangeValues(from, to);
     }
   }
 
@@ -85,17 +88,19 @@ class _AyahRangePickerState extends State<AyahRangePicker> {
               }
             }),
             Expanded(
-              child: RangeSlider(
-                values: _currentRange,
-                min: 1,
-                max: widget.maxAyahs.toDouble(),
-                divisions: widget.maxAyahs - 1,
-                labels: RangeLabels('$from', '$to'),
-                onChanged: (values) {
-                  setState(() => _currentRange = values);
-                  widget.onRangeChanged(values.start.round(), values.end.round());
-                },
-              ),
+              child: widget.maxAyahs > 1
+                  ? RangeSlider(
+                      values: _currentRange,
+                      min: 1,
+                      max: widget.maxAyahs.toDouble(),
+                      divisions: widget.maxAyahs - 1,
+                      labels: RangeLabels('$from', '$to'),
+                      onChanged: (values) {
+                        setState(() => _currentRange = values);
+                        widget.onRangeChanged(values.start.round(), values.end.round());
+                      },
+                    )
+                  : const SizedBox(height: 48),
             ),
             _buildAyahInput('إلى', to, (value) {
               if (value >= from && value <= widget.maxAyahs) {
