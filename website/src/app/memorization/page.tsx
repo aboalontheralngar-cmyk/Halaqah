@@ -30,7 +30,10 @@ export default function MemorizationPage() {
     fetchStudents, 
     messageTemplates, 
     fetchMessageTemplates,
-    loading 
+    loading,
+    addPoints,
+    pointsConfig,
+    fetchPointsConfig
   } = useStore();
 
   const [surahs, setSurahs] = useState<Surah[]>([]);
@@ -56,7 +59,8 @@ export default function MemorizationPage() {
     fetchStudents();
     fetchHomeworkGrades();
     fetchMessageTemplates();
-  }, [fetchStudents, fetchHomeworkGrades, fetchMessageTemplates]);
+    fetchPointsConfig();
+  }, [fetchStudents, fetchHomeworkGrades, fetchMessageTemplates, fetchPointsConfig]);
 
   const showToast = (message: string) => {
     setToastMessage(message);
@@ -98,6 +102,69 @@ export default function MemorizationPage() {
       .replace(/{الملاحظة}/g, grade.remark || "لا يوجد");
   };
 
+  const getNextAyahForStudent = (student: any, lastGrade?: HomeworkGrade) => {
+    const dir = student.memorizationDirection || 'desc';
+    let defSurah = dir === 'desc' ? 114 : 1;
+    let defAyah = 1;
+    
+    if (lastGrade) {
+      const lastSurahObj = surahs.find(s => s.name === lastGrade.surah);
+      if (lastSurahObj) {
+        const currentSurah = lastSurahObj.number;
+        const currentAyah = lastGrade.toAyah;
+        
+        if (currentAyah < lastSurahObj.totalAyahs) {
+          return { surahNum: currentSurah, ayahNum: currentAyah + 1 };
+        } else {
+          if (dir === 'desc') {
+            const nextSurah = currentSurah - 1;
+            return { surahNum: nextSurah >= 1 ? nextSurah : 1, ayahNum: 1 };
+          } else {
+            const nextSurah = currentSurah + 1;
+            return { surahNum: nextSurah <= 114 ? nextSurah : 114, ayahNum: 1 };
+          }
+        }
+      }
+    }
+    
+    if (student.preMemorizedEndSurah) {
+      const preEndSurahObj = surahs.find(s => s.number === student.preMemorizedEndSurah);
+      if (preEndSurahObj) {
+        const currentSurah = student.preMemorizedEndSurah;
+        const currentAyah = student.preMemorizedEndAyah || 1;
+        
+        if (currentAyah < preEndSurahObj.totalAyahs) {
+          return { surahNum: currentSurah, ayahNum: currentAyah + 1 };
+        } else {
+          if (dir === 'desc') {
+            const nextSurah = currentSurah - 1;
+            return { surahNum: nextSurah >= 1 ? nextSurah : 1, ayahNum: 1 };
+          } else {
+            const nextSurah = currentSurah + 1;
+            return { surahNum: nextSurah <= 114 ? nextSurah : 114, ayahNum: 1 };
+          }
+        }
+      }
+    }
+    
+    return {
+      surahNum: defSurah,
+      ayahNum: defAyah
+    };
+  };
+
+  const getGradeAmount = (surahNum: number, fromAyah: number, toAyah: number, planType: 'ayahs' | 'pages') => {
+    const surah = surahs.find(s => s.number === surahNum);
+    if (!surah) return 0;
+    if (planType === 'ayahs') {
+      return toAyah - fromAyah + 1;
+    } else {
+      const ayahsInRange = surah.ayahs.filter(a => a.number >= fromAyah && a.number <= toAyah);
+      const uniquePages = new Set(ayahsInRange.map(a => a.page));
+      return uniquePages.size;
+    }
+  };
+
   const handleSave = async (e: React.FormEvent, shouldShare = false) => {
     e.preventDefault();
     if (!formData.studentId || !formData.surahNum) return;
@@ -117,9 +184,29 @@ export default function MemorizationPage() {
 
     await addHomeworkGrade(newGrade);
 
+    // Auto-points reward logic for exceeding target
+    const student = students.find(s => s.id === formData.studentId);
+    let addedExtraPoints = false;
+    let extraPoints = 0;
+    if (student && !formData.isRevision && formData.gradeMark !== 'absent') {
+      const completedAmount = getGradeAmount(Number(formData.surahNum), formData.fromAyah, formData.toAyah, student.planType);
+      if (completedAmount > student.planAmount) {
+        extraPoints = pointsConfig['extra_memorization'] ?? 2;
+        if (extraPoints > 0) {
+          await addPoints({
+            studentId: formData.studentId,
+            type: 'positive',
+            amount: extraPoints,
+            reason: 'زيادة عن المقرر اليومي',
+            date: new Date().toISOString().split("T")[0]
+          });
+          addedExtraPoints = true;
+        }
+      }
+    }
+
     if (shouldShare) {
       const msg = generateReportMessage(newGrade);
-      const student = students.find(s => s.id === formData.studentId);
       const parentPhone = student?.parentPhone || "";
 
       if (navigator.share) {
@@ -128,24 +215,31 @@ export default function MemorizationPage() {
             title: `تقرير تسميع ${student?.name}`,
             text: msg,
           });
-          showToast("تمت المشاركة بنجاح");
+          showToast(addedExtraPoints 
+            ? `تمت المشاركة وإضافة ${extraPoints} نقاط للزيادة 🎉` 
+            : "تمت المشاركة بنجاح");
         } catch (err) {
-          // Fallback to clipboard if sharing is cancelled or fails
           navigator.clipboard.writeText(msg);
-          showToast("تم نسخ التقرير للحافظة");
+          showToast(addedExtraPoints 
+            ? `تم نسخ التقرير وإضافة ${extraPoints} نقاط للزيادة 🎉` 
+            : "تم نسخ التقرير للحافظة");
           if (parentPhone) {
             window.open(`https://wa.me/${parentPhone}?text=${encodeURIComponent(msg)}`, "_blank");
           }
         }
       } else {
         navigator.clipboard.writeText(msg);
-        showToast("تم نسخ التقرير للحافظة");
+        showToast(addedExtraPoints 
+          ? `تم نسخ التقرير وإضافة ${extraPoints} نقاط للزيادة 🎉` 
+          : "تم نسخ التقرير للحافظة");
         if (parentPhone) {
           window.open(`https://wa.me/${parentPhone}?text=${encodeURIComponent(msg)}`, "_blank");
         }
       }
     } else {
-      showToast("تم حفظ التقييم بنجاح");
+      showToast(addedExtraPoints 
+        ? `تم حفظ التقييم بنجاح، وإضافة ${extraPoints} نقاط مكافأة للزيادة 🎉` 
+        : "تم حفظ التقييم بنجاح");
     }
 
     setShowForm(false);
@@ -529,7 +623,31 @@ export default function MemorizationPage() {
                 <label className="block text-xs font-black text-gray-400 mb-2 mr-1 uppercase tracking-widest">الطالب</label>
                 <select 
                   value={formData.studentId} 
-                  onChange={e => setFormData({...formData, studentId: e.target.value})} 
+                  onChange={e => {
+                    const studentId = e.target.value;
+                    if (!studentId) {
+                      setFormData({
+                        ...formData,
+                        studentId: "",
+                        surahNum: "",
+                        fromAyah: 1,
+                        toAyah: 1
+                      });
+                      return;
+                    }
+                    const student = students.find(s => s.id === studentId);
+                    if (!student) return;
+                    const studentGrades = homeworkGrades.filter(g => g.studentId === studentId && g.gradeMark !== 'absent');
+                    const lastGrade = studentGrades.length > 0 ? studentGrades[studentGrades.length - 1] : undefined;
+                    const next = getNextAyahForStudent(student, lastGrade);
+                    setFormData({
+                      ...formData,
+                      studentId,
+                      surahNum: next.surahNum,
+                      fromAyah: next.ayahNum,
+                      toAyah: next.ayahNum
+                    });
+                  }} 
                   required 
                   className="w-full bg-gray-50 dark:bg-gray-800 border-none rounded-2xl px-6 py-4 text-sm font-bold outline-none"
                 >

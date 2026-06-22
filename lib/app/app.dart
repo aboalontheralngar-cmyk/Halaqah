@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'theme.dart';
 import '../screens/home/home_screen.dart';
+import '../screens/settings/setup_wizard_screen.dart';
+import '../services/database_service.dart';
 
 final ValueNotifier<ThemeMode> themeNotifier = ValueNotifier(ThemeMode.light);
 
@@ -25,7 +27,21 @@ class HalaqahApp extends StatelessWidget {
               child: child!,
             );
           },
-          home: const HomeScreen(),
+          home: FutureBuilder<bool>(
+            future: DatabaseService().getSetting('setup_completed').then((val) => val == 'true'),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Scaffold(
+                  body: Center(child: CircularProgressIndicator()),
+                );
+              }
+              if (snapshot.data == true) {
+                return const HomeScreen();
+              } else {
+                return const SetupWizardScreen();
+              }
+            },
+          ),
         );
       },
     );

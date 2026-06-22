@@ -15,25 +15,44 @@ import {
   Calendar,
   Sparkles,
   Zap,
-  Target
+  Target,
+  AlertCircle
 } from "lucide-react";
 import { useStore } from "@/store/useStore";
 
 export default function ReportsPage() {
-  const { students, homeworkGrades, fetchStudents, fetchHomeworkGrades, points, centerType } = useStore();
+  const { 
+    students, 
+    homeworkGrades, 
+    fetchStudents, 
+    fetchHomeworkGrades, 
+    points, 
+    centerType,
+    attendance,
+    fetchCenterData,
+    suspendedDates = [],
+    fetchSuspendedDates
+  } = useStore();
   const isMen = centerType === 'men';
 
   useEffect(() => {
-    fetchStudents();
-    fetchHomeworkGrades();
-  }, [fetchStudents, fetchHomeworkGrades]);
+    fetchCenterData();
+    fetchSuspendedDates();
+  }, [fetchCenterData, fetchSuspendedDates]);
 
   const stats = useMemo(() => {
     const totalStudents = students.length;
-    const avgAttendance = totalStudents > 0 ? 85 : 0; // Mock or calculate
+    
+    // Filter out attendance records on suspended dates
+    const validAttendance = attendance.filter(a => !suspendedDates.includes(a.date));
+    const attendedCount = validAttendance.filter(a => a.status === 'present' || a.status === 'late' || a.status === 'excused').length;
+    const totalRecords = validAttendance.length;
+    const avgAttendance = totalRecords > 0 ? Math.round((attendedCount / totalRecords) * 100) : 85;
+
     const totalPoints = points.reduce((s, p) => s + p.amount, 0);
 
-    const gradedRecords = homeworkGrades.filter(g => g.gradeMark !== "absent");
+    // Filter out grades on suspended dates
+    const gradedRecords = homeworkGrades.filter(g => g.gradeMark !== "absent" && !suspendedDates.includes(g.date));
     const scoreMap: Record<string, number> = {
       excellent: 5,
       very_good: 4,
@@ -51,7 +70,7 @@ export default function ReportsPage() {
       memorization: avgMemorization,
       exams: avgExams
     };
-  }, [students, homeworkGrades, points]);
+  }, [students, homeworkGrades, points, attendance, suspendedDates]);
 
   const topStudents = useMemo(() => {
     return students
@@ -84,7 +103,8 @@ export default function ReportsPage() {
     ];
 
     const rows = students.map(student => {
-      const studentGrades = homeworkGrades.filter(g => g.studentId === student.id);
+      // Exclude grades on suspended dates
+      const studentGrades = homeworkGrades.filter(g => g.studentId === student.id && !suspendedDates.includes(g.date));
       const gradedCount = studentGrades.length;
       
       const excellentCount = studentGrades.filter(g => g.gradeMark === "excellent").length;
@@ -134,6 +154,16 @@ export default function ReportsPage() {
 
   return (
     <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-700">
+      {suspendedDates.length > 0 && (
+        <div className="bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-400 p-6 rounded-[2rem] flex items-center gap-4 animate-in slide-in-from-top-4">
+          <AlertCircle className="w-8 h-8 text-amber-600 animate-pulse" />
+          <div>
+            <h4 className="font-black text-base text-amber-900 dark:text-white">تنبيه تعليق الحلقة ⚠️</h4>
+            <p className="text-xs font-bold text-amber-600 dark:text-amber-405 mt-1">توجد أيام معلقة في هذه الحلقة ({suspendedDates.length} أيام). تم استبعاد هذه الأيام بالكامل من حسابات نسب الحضور والتقارير لضمان دقة الإحصائيات.</p>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
         <div className="flex items-center gap-4">

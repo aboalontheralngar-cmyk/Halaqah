@@ -25,15 +25,23 @@ export default function SettingsPage() {
   const { 
     darkMode, toggleDarkMode, centerType, setCenterType, 
     profile, currentSupervisor, joinSupervisor,
-    currencySymbol, updateCurrencySymbol, fetchCenterSettings
+    currencySymbol, updateCurrencySymbol, fetchCenterSettings,
+    pointsConfig, fetchPointsConfig, savePointsConfig
   } = useStore();
   const [ramadanMode, setRamadanMode] = useState(false);
   const [activeTab, setActiveTab] = useState<"general" | "points" | "rules">("general");
   const [supervisorCode, setSupervisorCode] = useState("");
+  
+  // State for new points rule
+  const [newRuleName, setNewRuleName] = useState("");
+  const [newRulePoints, setNewRulePoints] = useState(1);
+  const [newRuleType, setNewRuleType] = useState<"positive" | "negative">("positive");
+  const [showAddRuleModal, setShowAddRuleModal] = useState(false);
 
   useEffect(() => {
     fetchCenterSettings();
-  }, [fetchCenterSettings]);
+    fetchPointsConfig();
+  }, [fetchCenterSettings, fetchPointsConfig]);
 
   return (
     <div className="max-w-5xl mx-auto space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-700 pb-20">
@@ -229,30 +237,208 @@ export default function SettingsPage() {
         )}
 
         {activeTab === "points" && (
-          <div className="bg-white dark:bg-gray-900 rounded-[3rem] border border-gray-100 dark:border-gray-800 p-10 shadow-sm animate-in fade-in duration-500">
-            <h3 className="text-xl font-black text-gray-900 dark:text-white mb-8 flex items-center gap-3">
-              <Star className="w-6 h-6 text-amber-500 fill-amber-500" /> تخصيص توزيع النقاط
-            </h3>
-            <div className="grid md:grid-cols-2 gap-8">
-              {[
-                { label: "حفظ يومي (متقن)", points: 5, icon: Zap, color: "text-green-600" },
-                { label: "حفظ زائد", points: 2, icon: Star, color: "text-amber-500" },
-                { label: "حضور مبكر", points: 2, icon: Clock, color: "text-blue-600" },
-                { label: "تجاوز اختبار", points: 10, icon: ShieldCheck, color: "text-purple-600" },
-                { label: "مخالفة سلوكية", points: -3, icon: AlertTriangle, color: "text-rose-600" },
-                { label: "غياب بدون عذر", points: -5, icon: LogOut, color: "text-rose-600" },
-              ].map((item, i) => (
-                <div key={i} className="flex items-center justify-between p-6 bg-gray-50 dark:bg-gray-800 rounded-3xl group hover:scale-[1.02] transition-all">
-                  <div className="flex items-center gap-4">
-                    <div className="w-10 h-10 bg-white dark:bg-gray-900 rounded-xl flex items-center justify-center shadow-sm">
-                      <item.icon className={`w-5 h-5 ${item.color}`} />
-                    </div>
-                    <span className="text-sm font-bold text-gray-700 dark:text-gray-200">{item.label}</span>
+          <div className="space-y-6 animate-in fade-in duration-500">
+            <div className="bg-white dark:bg-gray-900 rounded-[3rem] border border-gray-100 dark:border-gray-800 p-10 shadow-sm">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+                <h3 className="text-xl font-black text-gray-900 dark:text-white flex items-center gap-3">
+                  <Star className="w-6 h-6 text-amber-500 fill-amber-500" /> تخصيص قواعد توزيع النقاط
+                </h3>
+                <button
+                  onClick={() => setShowAddRuleModal(true)}
+                  className="bg-teal-600 text-white px-6 py-3 rounded-2xl font-black text-xs hover:bg-teal-700 transition-all flex items-center gap-2"
+                >
+                  إضافة بند مخصص ➕
+                </button>
+              </div>
+
+              <div className="space-y-8">
+                {/* Standard Rules Section */}
+                <div>
+                  <h4 className="text-xs font-black text-gray-400 uppercase tracking-widest mb-4">القواعد الأساسية للنظام</h4>
+                  <div className="grid md:grid-cols-2 gap-6">
+                    {[
+                      { key: "daily_memorization", label: "حفظ يومي (متقن)", icon: Zap, color: "text-green-600" },
+                      { key: "extra_memorization", label: "حفظ زائد عن المقرر", icon: Star, color: "text-amber-500" },
+                      { key: "early_attendance", label: "حضور مبكر", icon: Clock, color: "text-blue-600" },
+                      { key: "revision_complete", label: "إتمام المراجعة", icon: ShieldCheck, color: "text-purple-600" },
+                      { key: "monthly_exam_pass", label: "تجاوز اختبار شهري", icon: ShieldCheck, color: "text-indigo-600" },
+                      { key: "good_appearance", label: "المظهر الحسن والترتيب", icon: Star, color: "text-emerald-500" },
+                      { key: "late_penalty", label: "التأخير عن الحلقة", icon: AlertTriangle, color: "text-rose-600" },
+                      { key: "incomplete_penalty", label: "عدم إتمام المقرر اليومي", icon: AlertTriangle, color: "text-rose-600" },
+                      { key: "unexcused_absence", label: "الغياب بدون عذر مقبول", icon: LogOut, color: "text-rose-600" },
+                      { key: "appearance_violation", label: "مخالفة المظهر أو الحلاقة", icon: AlertTriangle, color: "text-rose-600" },
+                    ].map((item) => {
+                      const currentVal = pointsConfig[item.key] !== undefined ? pointsConfig[item.key] : (item.key.includes("penalty") || item.key.includes("absence") || item.key.includes("violation") ? -3 : 2);
+                      return (
+                        <div key={item.key} className="flex items-center justify-between p-6 bg-gray-50 dark:bg-gray-800 rounded-3xl group hover:scale-[1.01] transition-all">
+                          <div className="flex items-center gap-4">
+                            <div className="w-10 h-10 bg-white dark:bg-gray-900 rounded-xl flex items-center justify-center shadow-sm">
+                              <item.icon className={`w-5 h-5 ${item.color}`} />
+                            </div>
+                            <span className="text-sm font-bold text-gray-700 dark:text-gray-200">{item.label}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <input 
+                              type="number" 
+                              value={currentVal} 
+                              onChange={(e) => {
+                                const val = parseInt(e.target.value) || 0;
+                                const updated = { ...pointsConfig, [item.key]: val };
+                                savePointsConfig(updated);
+                              }}
+                              className="w-16 bg-white dark:bg-gray-900 border-none rounded-xl px-2 py-2 text-center font-black text-teal-600 outline-none" 
+                            />
+                            <span className="text-xs font-bold text-gray-400">نقطة</span>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
-                  <input type="number" defaultValue={item.points} className="w-16 bg-white dark:bg-gray-900 border-none rounded-xl px-2 py-2 text-center font-black text-teal-600 outline-none" />
                 </div>
-              ))}
+
+                {/* Custom Rules Section */}
+                <div>
+                  <h4 className="text-xs font-black text-gray-400 uppercase tracking-widest mb-4">بنود سلوكية مخصصة (المعلم)</h4>
+                  {Object.entries(pointsConfig).filter(([key]) => key.startsWith("c_")).length === 0 ? (
+                    <div className="p-8 text-center bg-gray-50 dark:bg-gray-800 rounded-3xl border border-dashed border-gray-200 dark:border-gray-700">
+                      <p className="text-xs text-gray-400 font-bold">لا يوجد بنود سلوكية مخصصة حالياً. أضف بنداً مخصصاً لظهور خياراتك المخصصة في قائمة السلوك.</p>
+                    </div>
+                  ) : (
+                    <div className="grid md:grid-cols-2 gap-6">
+                      {Object.entries(pointsConfig).filter(([key]) => key.startsWith("c_")).map(([key, val]) => {
+                        const label = key.substring(2);
+                        const isPositive = val >= 0;
+                        return (
+                          <div key={key} className="flex items-center justify-between p-6 bg-gray-50 dark:bg-gray-800 rounded-3xl group hover:scale-[1.01] transition-all border border-teal-500/10">
+                            <div className="flex items-center gap-4">
+                              <div className="w-10 h-10 bg-white dark:bg-gray-900 rounded-xl flex items-center justify-center shadow-sm">
+                                {isPositive ? <Star className="w-5 h-5 text-amber-500 fill-amber-500" /> : <AlertTriangle className="w-5 h-5 text-rose-600" />}
+                              </div>
+                              <span className="text-sm font-bold text-gray-700 dark:text-gray-200">{label}</span>
+                            </div>
+                            <div className="flex items-center gap-4">
+                              <div className="flex items-center gap-2">
+                                <input 
+                                  type="number" 
+                                  value={val} 
+                                  onChange={(e) => {
+                                    const v = parseInt(e.target.value) || 0;
+                                    const updated = { ...pointsConfig, [key]: v };
+                                    savePointsConfig(updated);
+                                  }}
+                                  className="w-16 bg-white dark:bg-gray-900 border-none rounded-xl px-2 py-2 text-center font-black text-teal-600 outline-none" 
+                                />
+                                <span className="text-xs font-bold text-gray-400">نقطة</span>
+                              </div>
+                              <button 
+                                onClick={() => {
+                                  if (confirm(`هل أنت متأكد من حذف البند "${label}"؟`)) {
+                                    const updated = { ...pointsConfig };
+                                    delete updated[key];
+                                    savePointsConfig(updated);
+                                  }
+                                }}
+                                className="text-rose-500 hover:text-rose-700 p-1 transition-colors font-bold text-xs"
+                              >
+                                حذف
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
+
+            {/* Add Custom Rule Modal */}
+            {showAddRuleModal && (
+              <div className="fixed inset-0 bg-gray-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+                <div className="bg-white dark:bg-gray-900 rounded-[3rem] p-10 w-full max-w-md shadow-2xl relative border border-gray-100 dark:border-gray-800">
+                  <h3 className="text-xl font-black text-gray-900 dark:text-white mb-6 text-center">إضافة بند سلوك مخصص</h3>
+                  <form 
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      if (!newRuleName.trim()) return;
+                      const key = `c_${newRuleName.trim()}`;
+                      const value = newRuleType === "positive" ? Math.abs(newRulePoints) : -Math.abs(newRulePoints);
+                      const updated = { ...pointsConfig, [key]: value };
+                      savePointsConfig(updated);
+                      setNewRuleName("");
+                      setNewRulePoints(1);
+                      setShowAddRuleModal(false);
+                    }}
+                    className="space-y-6"
+                  >
+                    <div>
+                      <label className="block text-xs font-black text-gray-400 mb-2 mr-1 uppercase">اسم البند</label>
+                      <input 
+                        type="text" 
+                        required 
+                        placeholder="مثال: التميز في التسميع، صلاة الجماعة..."
+                        value={newRuleName}
+                        onChange={(e) => setNewRuleName(e.target.value)}
+                        className="w-full bg-gray-50 dark:bg-gray-800 border-none rounded-2xl px-6 py-4 text-sm font-bold outline-none dark:text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-black text-gray-400 mb-2 mr-1 uppercase">النقاط</label>
+                      <input 
+                        type="number" 
+                        required 
+                        min="1"
+                        value={newRulePoints}
+                        onChange={(e) => setNewRulePoints(parseInt(e.target.value) || 1)}
+                        className="w-full bg-gray-50 dark:bg-gray-800 border-none rounded-2xl px-6 py-4 text-sm font-bold outline-none dark:text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-black text-gray-400 mb-2 mr-1 uppercase">نوع البند</label>
+                      <div className="grid grid-cols-2 gap-4">
+                        <button
+                          type="button"
+                          onClick={() => setNewRuleType("positive")}
+                          className={`py-3 rounded-xl font-bold text-xs border transition-all ${
+                            newRuleType === "positive" 
+                              ? "bg-emerald-50 border-emerald-500 text-emerald-800 dark:bg-emerald-900/30 dark:border-emerald-400 dark:text-emerald-400"
+                              : "border-gray-200 dark:border-gray-800 text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800"
+                          }`}
+                        >
+                          مكافأة إيجابية (+)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setNewRuleType("negative")}
+                          className={`py-3 rounded-xl font-bold text-xs border transition-all ${
+                            newRuleType === "negative" 
+                              ? "bg-rose-50 border-rose-500 text-rose-800 dark:bg-rose-900/30 dark:border-rose-500 dark:text-rose-450"
+                              : "border-gray-200 dark:border-gray-800 text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800"
+                          }`}
+                        >
+                          عقوبة سالبة (-)
+                        </button>
+                      </div>
+                    </div>
+                    <div className="flex gap-4 pt-4 border-t border-gray-50 dark:border-gray-800">
+                      <button 
+                        type="button" 
+                        onClick={() => setShowAddRuleModal(false)}
+                        className="flex-1 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 py-4 rounded-2xl text-xs font-black"
+                      >
+                        إلغاء
+                      </button>
+                      <button 
+                        type="submit" 
+                        className="flex-1 bg-teal-600 text-white py-4 rounded-2xl text-xs font-black hover:bg-teal-700 shadow-md"
+                      >
+                        حفظ البند
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            )}
           </div>
         )}
 

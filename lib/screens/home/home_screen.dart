@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../services/database_service.dart';
 import '../../services/supabase_service.dart';
 import '../auth/login_screen.dart';
 import '../../models/student.dart';
+import '../../models/settings.dart';
 import '../../utils/helpers.dart';
 import '../students/students_screen.dart';
+import '../students/student_raffle_screen.dart';
 import '../attendance/attendance_screen.dart';
 import '../reports/reports_screen.dart';
 import '../settings/settings_screen.dart';
@@ -39,6 +42,7 @@ class _HomeScreenState extends State<HomeScreen> {
   String _halaqahName = 'حلقتي';
   String _mosqueName = 'المسجد';
   Map<String, String> _todayAttendance = {};
+  HalaqahSettings _settings = HalaqahSettings();
 
   @override
   void initState() {
@@ -76,6 +80,7 @@ class _HomeScreenState extends State<HomeScreen> {
         _halaqahName = settings.halaqahName;
         _mosqueName = settings.mosqueName.isNotEmpty ? settings.mosqueName : 'المسجد الرئيسي';
         _todayAttendance = attMap;
+        _settings = settings;
         _isLoading = false;
       });
     } catch (e) {
@@ -137,43 +142,122 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Future<bool?> _showExitConfirmationDialog(BuildContext context) {
+    return showDialog<bool>(
+      context: context,
+      builder: (context) => Dialog(
+        backgroundColor: const Color(0xFF1E2124), // Dark charcoal
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'تأكيد!',
+                style: GoogleFonts.cairo(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'هل تريد الخروج من تطبيق حلقتي؟',
+                textAlign: TextAlign.center,
+                style: GoogleFonts.cairo(
+                  fontSize: 15,
+                  color: const Color(0xFF9EA3AC), // Slate grey
+                  height: 1.5,
+                ),
+              ),
+              const SizedBox(height: 32),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  Expanded(
+                    child: TextButton(
+                      onPressed: () => Navigator.pop(context, true),
+                      child: Text(
+                        'حسناً',
+                        style: GoogleFonts.cairo(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white, // White
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: TextButton(
+                      onPressed: () => Navigator.pop(context, false),
+                      child: Text(
+                        'إلغاء',
+                        style: GoogleFonts.cairo(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: const Color(0xFF9EA3AC), // Grey
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: _buildBody(),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _currentIndex,
-        onDestinationSelected: (index) {
-          setState(() => _currentIndex = index);
-          if (index == 0) _loadData();
-        },
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.dashboard_outlined),
-            selectedIcon: Icon(Icons.dashboard),
-            label: 'الرئيسية',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.people_outlined),
-            selectedIcon: Icon(Icons.people),
-            label: 'الطلاب',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.qr_code_scanner),
-            selectedIcon: Icon(Icons.qr_code_scanner_outlined),
-            label: 'القارئ',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.assessment_outlined),
-            selectedIcon: Icon(Icons.assessment),
-            label: 'التقارير',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.settings_outlined),
-            selectedIcon: Icon(Icons.settings),
-            label: 'الإعدادات',
-          ),
-        ],
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        final shouldExit = await _showExitConfirmationDialog(context);
+        if (shouldExit == true) {
+          SystemNavigator.pop();
+        }
+      },
+      child: Scaffold(
+        body: _buildBody(),
+        bottomNavigationBar: NavigationBar(
+          selectedIndex: _currentIndex,
+          onDestinationSelected: (index) {
+            setState(() => _currentIndex = index);
+            if (index == 0) _loadData();
+          },
+          destinations: [
+            const NavigationDestination(
+              icon: Icon(Icons.dashboard_outlined),
+              selectedIcon: Icon(Icons.dashboard),
+              label: 'الرئيسية',
+            ),
+            NavigationDestination(
+              icon: const Icon(Icons.people_outlined),
+              selectedIcon: const Icon(Icons.people),
+              label: GenderHelper.students(_settings.gender),
+            ),
+            const NavigationDestination(
+              icon: Icon(Icons.qr_code_scanner),
+              selectedIcon: Icon(Icons.qr_code_scanner_outlined),
+              label: 'القارئ',
+            ),
+            const NavigationDestination(
+              icon: Icon(Icons.assessment_outlined),
+              selectedIcon: Icon(Icons.assessment),
+              label: 'التقارير',
+            ),
+            const NavigationDestination(
+              icon: Icon(Icons.settings_outlined),
+              selectedIcon: Icon(Icons.settings),
+              label: 'الإعدادات',
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -338,7 +422,7 @@ class _HomeScreenState extends State<HomeScreen> {
       children: [
         Expanded(
           child: _buildStatCard(
-            'الطلاب',
+            GenderHelper.students(_settings.gender),
             '${_students.length}',
             Icons.people_outline,
             const Color(0xFF3B82F6),
@@ -347,7 +431,7 @@ class _HomeScreenState extends State<HomeScreen> {
         const SizedBox(width: 12),
         Expanded(
           child: _buildStatCard(
-            'حاضر اليوم',
+            '${GenderHelper.present(_settings.gender)} اليوم',
             '$_presentToday',
             Icons.check_circle_outline,
             const Color(0xFF10B981),
@@ -356,7 +440,7 @@ class _HomeScreenState extends State<HomeScreen> {
         const SizedBox(width: 12),
         Expanded(
           child: _buildStatCard(
-            'غائب اليوم',
+            '${GenderHelper.absent(_settings.gender)} اليوم',
             '$_absentToday',
             Icons.highlight_off,
             const Color(0xFFEF4444),
@@ -457,7 +541,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ).then((_) => _loadData()),
             ),
             _buildActionItem(
-              'إجازات الطلاب',
+              'إجازات ${GenderHelper.students(_settings.gender)}',
               Icons.beach_access,
               const Color(0xFF06B6D4),
               () => Navigator.push(
@@ -491,6 +575,15 @@ class _HomeScreenState extends State<HomeScreen> {
               () => Navigator.push(
                 context,
                 MaterialPageRoute(builder: (context) => const PlansScreen()),
+              ).then((_) => _loadData()),
+            ),
+            _buildActionItem(
+              'القرعة العشوائية',
+              Icons.casino,
+              const Color(0xFF0F766E),
+              () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const StudentRaffleScreen()),
               ).then((_) => _loadData()),
             ),
             _buildActionItem(
@@ -652,7 +745,7 @@ class _HomeScreenState extends State<HomeScreen> {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Text(
-              'قائمة الطلاب',
+              'قائمة ${GenderHelper.students(_settings.gender)}',
               style: GoogleFonts.tajawal(
                 fontSize: 18,
                 fontWeight: FontWeight.bold,

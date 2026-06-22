@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import '../../services/database_service.dart';
+import '../../services/quran_service.dart';
 import '../../models/student.dart';
 import '../../models/memorization.dart';
 import '../../models/daily_record.dart';
+import '../../models/behavior_point.dart';
+import '../../models/settings.dart';
 import '../../utils/quran_data.dart';
 import '../../widgets/surah_picker.dart';
 import '../../widgets/ayah_range_picker.dart';
@@ -19,6 +22,7 @@ class AddMemorizationScreen extends StatefulWidget {
 
 class _AddMemorizationScreenState extends State<AddMemorizationScreen> {
   final DatabaseService _db = DatabaseService();
+  final QuranService _quran = QuranService.instance;
   final _formKey = GlobalKey<FormState>();
 
   Student? _selectedStudent;
@@ -31,6 +35,8 @@ class _AddMemorizationScreenState extends State<AddMemorizationScreen> {
   bool _isLoading = true;
   bool _isSaving = false;
 
+  HalaqahSettings _settings = HalaqahSettings();
+
   @override
   void initState() {
     super.initState();
@@ -41,9 +47,30 @@ class _AddMemorizationScreenState extends State<AddMemorizationScreen> {
   Future<void> _loadStudents() async {
     setState(() => _isLoading = true);
     try {
+      await _quran.initialize();
       final students = await _db.getStudents(status: 'active');
+      final settings = await _db.getSettings();
       setState(() {
         _students = students;
+        _settings = settings;
+        if (_selectedStudent != null) {
+          _selectedStudent = students.firstWhere(
+            (s) => s.id == _selectedStudent!.id,
+            orElse: () => _selectedStudent!,
+          );
+        }
+      });
+      if (_selectedStudent != null) {
+        final startPoint = await _getNextMemorizationStartingPoint(_selectedStudent!);
+        if (startPoint != null) {
+          setState(() {
+            _selectedSurahId = startPoint['surahId'];
+            _fromAyah = startPoint['fromAyah']!;
+            _toAyah = startPoint['toAyah']!;
+          });
+        }
+      }
+      setState(() {
         _isLoading = false;
       });
     } catch (e) {
@@ -60,7 +87,10 @@ class _AddMemorizationScreenState extends State<AddMemorizationScreen> {
   }
 
   int get _ayahCount => _toAyah - _fromAyah + 1;
-  int get _estimatedLines => (_ayahCount / 5).ceil();
+  double get _estimatedLines {
+    if (_selectedSurahId == null) return 0;
+    return _quran.calculateLines(_selectedSurahId!, _fromAyah, _toAyah);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -68,34 +98,36 @@ class _AddMemorizationScreenState extends State<AddMemorizationScreen> {
       appBar: AppBar(
         title: const Text('تسجيل حفظ جديد'),
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : Form(
-              key: _formKey,
-              child: ListView(
-                padding: const EdgeInsets.all(16),
-                children: [
-                  if (widget.student == null) _buildStudentSelector(),
-                  if (_selectedStudent != null) ...[
-                    _buildStudentInfo(),
+      body: SafeArea(
+        child: _isLoading
+            ? const Center(child: CircularProgressIndicator())
+            : Form(
+                key: _formKey,
+                child: ListView(
+                  padding: const EdgeInsets.all(16),
+                  children: [
+                    if (widget.student == null) _buildStudentSelector(),
+                    if (_selectedStudent != null) ...[
+                      _buildStudentInfo(),
+                      const SizedBox(height: 16),
+                    ],
+                    _buildSurahSelector(),
+                    if (_selectedSurahId != null) ...[
+                      const SizedBox(height: 16),
+                      _buildAyahRangePicker(),
+                      const SizedBox(height: 16),
+                      _buildEstimatedLines(),
+                    ],
+                    const SizedBox(height: 24),
+                    _buildQualityRating(),
                     const SizedBox(height: 16),
+                    _buildNotesField(),
+                    const SizedBox(height: 24),
+                    _buildSaveButton(),
                   ],
-                  _buildSurahSelector(),
-                  if (_selectedSurahId != null) ...[
-                    const SizedBox(height: 16),
-                    _buildAyahRangePicker(),
-                    const SizedBox(height: 16),
-                    _buildEstimatedLines(),
-                  ],
-                  const SizedBox(height: 24),
-                  _buildQualityRating(),
-                  const SizedBox(height: 16),
-                  _buildNotesField(),
-                  const SizedBox(height: 24),
-                  _buildSaveButton(),
-                ],
+                ),
               ),
-            ),
+      ),
     );
   }
 
@@ -124,11 +156,21 @@ class _AddMemorizationScreenState extends State<AddMemorizationScreen> {
                   child: Text(student.name),
                 );
               }).toList(),
-              onChanged: (student) {
+              onChanged: (student) async {
                 setState(() {
                   _selectedStudent = student;
                   _selectedSurahId = null;
                 });
+                if (student != null) {
+                  final startPoint = await _getNextMemorizationStartingPoint(student);
+                  if (startPoint != null && _selectedStudent?.id == student.id) {
+                    setState(() {
+                      _selectedSurahId = startPoint['surahId'];
+                      _fromAyah = startPoint['fromAyah']!;
+                      _toAyah = startPoint['toAyah']!;
+                    });
+                  }
+                }
               },
               validator: (value) {
                 if (value == null) return 'يرجى اختيار طالب';
@@ -241,6 +283,8 @@ class _AddMemorizationScreenState extends State<AddMemorizationScreen> {
   }
 
   Widget _buildEstimatedLines() {
+    final lines = _estimatedLines;
+    final pages = lines / 15.0;
     return Card(
       color: Colors.blue.withOpacity(0.1),
       child: Padding(
@@ -257,7 +301,7 @@ class _AddMemorizationScreenState extends State<AddMemorizationScreen> {
                   style: TextStyle(fontWeight: FontWeight.bold),
                 ),
                 Text(
-                  '$_ayahCount آية ≈ $_estimatedLines سطر تقريباً',
+                  '$_ayahCount آية ≈ ${lines.toStringAsFixed(1)} سطر (${pages.toStringAsFixed(1)} صفحة)',
                   style: TextStyle(color: Colors.grey[700]),
                 ),
               ],
@@ -376,6 +420,8 @@ class _AddMemorizationScreenState extends State<AddMemorizationScreen> {
         studentId: _selectedStudent!.id,
         date: DateTime.now(),
       )).copyWith(
+        attendance: 'present',
+        arrivalTime: existingRecord?.arrivalTime ?? DateTime.now(),
         memorizationDone: true,
         memorizationAmount: _ayahCount,
         memorizationNote: _notes.isEmpty ? null : _notes,
@@ -388,10 +434,29 @@ class _AddMemorizationScreenState extends State<AddMemorizationScreen> {
       );
       await _db.updateStudent(updatedStudent);
 
+      bool addedExtraPoints = false;
+      int extraPoints = 0;
+      if (_selectedStudent!.planType == 'ayahs' && _ayahCount > _selectedStudent!.planAmount) {
+        extraPoints = _settings.pointsConfig['extra_memorization'] ?? 2;
+        if (extraPoints > 0) {
+          final point = BehaviorPoint(
+            studentId: _selectedStudent!.id,
+            type: 'positive',
+            reason: 'زيادة عن المقرر اليومي',
+            points: extraPoints,
+            date: DateTime.now(),
+          );
+          await _db.insertBehaviorPoint(point);
+          addedExtraPoints = true;
+        }
+      }
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('تم حفظ التسجيل بنجاح'),
+          SnackBar(
+            content: Text(addedExtraPoints
+                ? 'تم حفظ التسجيل بنجاح، وإضافة $extraPoints نقاط مكافأة للزيادة 🎉'
+                : 'تم حفظ التسجيل بنجاح'),
             backgroundColor: Colors.green,
           ),
         );
@@ -408,6 +473,154 @@ class _AddMemorizationScreenState extends State<AddMemorizationScreen> {
         );
       }
     }
+  }
+
+  int _calculateToAyah({
+    required Surah surah,
+    required int fromAyah,
+    required String planType,
+    required int planAmount,
+  }) {
+    if (planType == 'ayahs') {
+      return (fromAyah + planAmount - 1).clamp(1, surah.totalAyahs);
+    }
+    
+    if (planType == 'pages') {
+      final startAyahObj = surah.getAyah(fromAyah);
+      if (startAyahObj == null) return surah.totalAyahs;
+      final startPage = startAyahObj.page;
+      final targetEndPage = startPage + planAmount - 1;
+      
+      int targetToAyah = fromAyah;
+      for (int i = fromAyah; i <= surah.totalAyahs; i++) {
+        final a = surah.getAyah(i);
+        if (a != null && a.page <= targetEndPage) {
+          targetToAyah = i;
+        } else {
+          break;
+        }
+      }
+      return targetToAyah;
+    }
+    
+    if (planType == 'lines') {
+      double linesSum = 0;
+      int targetToAyah = fromAyah;
+      for (int i = fromAyah; i <= surah.totalAyahs; i++) {
+        final a = surah.getAyah(i);
+        if (a != null) {
+          linesSum += a.lines;
+          targetToAyah = i;
+          if (linesSum >= planAmount) {
+            break;
+          }
+        }
+      }
+      return targetToAyah;
+    }
+    
+    return surah.totalAyahs;
+  }
+
+  Future<Map<String, int>?> _getNextMemorizationStartingPoint(Student student) async {
+    final allProgress = await _db.getStudentMemorization(student.id);
+    final memorizations = allProgress.where((p) => !p.isRevision).toList();
+
+    if (memorizations.isNotEmpty) {
+      memorizations.sort((a, b) => b.date.compareTo(a.date));
+      final last = memorizations.first;
+      final surah = _quran.getSurah(last.surahId);
+      if (surah != null) {
+        if (last.toAyah < surah.totalAyahs) {
+          final nextFrom = last.toAyah + 1;
+          return {
+            'surahId': last.surahId,
+            'fromAyah': nextFrom,
+            'toAyah': _calculateToAyah(
+              surah: surah,
+              fromAyah: nextFrom,
+              planType: student.planType,
+              planAmount: student.planAmount,
+            ),
+          };
+        } else {
+          int nextSurahId = student.memorizationDirection == 'desc' 
+              ? last.surahId - 1 
+              : last.surahId + 1;
+          
+          if (nextSurahId >= 1 && nextSurahId <= 114) {
+            final nextSurah = _quran.getSurah(nextSurahId);
+            if (nextSurah != null) {
+              return {
+                'surahId': nextSurahId,
+                'fromAyah': 1,
+                'toAyah': _calculateToAyah(
+                  surah: nextSurah,
+                  fromAyah: 1,
+                  planType: student.planType,
+                  planAmount: student.planAmount,
+                ),
+              };
+            }
+          }
+        }
+      }
+    }
+
+    if (student.preMemorizedEndSurah != null) {
+      int nextSurahId = student.preMemorizedEndSurah!;
+      int nextFromAyah = (student.preMemorizedEndAyah ?? 1) + 1;
+      final currentSurah = _quran.getSurah(nextSurahId);
+      
+      if (currentSurah != null && nextFromAyah <= currentSurah.totalAyahs) {
+        return {
+          'surahId': nextSurahId,
+          'fromAyah': nextFromAyah,
+          'toAyah': _calculateToAyah(
+            surah: currentSurah,
+            fromAyah: nextFromAyah,
+            planType: student.planType,
+            planAmount: student.planAmount,
+          ),
+        };
+      } else {
+        nextSurahId = student.memorizationDirection == 'desc'
+            ? student.preMemorizedEndSurah! - 1
+            : student.preMemorizedEndSurah! + 1;
+            
+        if (nextSurahId >= 1 && nextSurahId <= 114) {
+          final nextSurah = _quran.getSurah(nextSurahId);
+          if (nextSurah != null) {
+            return {
+              'surahId': nextSurahId,
+              'fromAyah': 1,
+              'toAyah': _calculateToAyah(
+                surah: nextSurah,
+                fromAyah: 1,
+                planType: student.planType,
+                planAmount: student.planAmount,
+              ),
+            };
+          }
+        }
+      }
+    }
+
+    int defaultSurahId = student.memorizationDirection == 'desc' ? 114 : 1;
+    final defaultSurah = _quran.getSurah(defaultSurahId);
+    if (defaultSurah != null) {
+      return {
+        'surahId': defaultSurahId,
+        'fromAyah': 1,
+        'toAyah': _calculateToAyah(
+          surah: defaultSurah,
+          fromAyah: 1,
+          planType: student.planType,
+          planAmount: student.planAmount,
+        ),
+      };
+    }
+    return null;
   }
 
   String _getPlanLabel(String planType) {

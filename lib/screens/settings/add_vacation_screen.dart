@@ -38,6 +38,12 @@ class _AddVacationScreenState extends State<AddVacationScreen> {
       final students = await _db.getStudents(status: 'active');
       setState(() {
         _students = students;
+        if (_selectedStudent != null) {
+          _selectedStudent = students.firstWhere(
+            (s) => s.id == _selectedStudent!.id,
+            orElse: () => _selectedStudent!,
+          );
+        }
         _isLoading = false;
       });
     } catch (e) {
@@ -337,10 +343,25 @@ class _AddVacationScreenState extends State<AddVacationScreen> {
 
       await _db.insertVacation(vacation);
 
+      // Auto-update records to excused if they exist and are 'absent'
+      final db = await _db.database;
+      final startStr = _startDate.toIso8601String().split('T')[0];
+      final endStr = _endDate.toIso8601String().split('T')[0];
+      
+      await db.update(
+        'daily_records',
+        {
+          'attendance': 'excused',
+          'notes': 'تحولت لإجازة تلقائيًا: ${VacationReason.getLabel(_reason)}',
+        },
+        where: 'student_id = ? AND date BETWEEN ? AND ? AND attendance = ?',
+        whereArgs: [_selectedStudent!.id, startStr, endStr, 'absent'],
+      );
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('تم إضافة الإجازة بنجاح'),
+            content: Text('تم إضافة الإجازة بنجاح، وتحديث الحضور التلقائي'),
             backgroundColor: Colors.green,
           ),
         );

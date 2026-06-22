@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../../services/database_service.dart';
 import '../../models/student.dart';
+import '../../models/settings.dart';
+import '../../utils/helpers.dart';
 import 'student_form_screen.dart';
 import 'student_detail_screen.dart';
 
@@ -18,6 +21,9 @@ class _StudentsScreenState extends State<StudentsScreen> {
   bool _isLoading = true;
   String _searchQuery = '';
   String _statusFilter = 'all';
+  String _sortBy = 'name';
+  HalaqahSettings _settings = HalaqahSettings();
+  List<String> _leftOutStudentIds = [];
 
   @override
   void initState() {
@@ -29,8 +35,12 @@ class _StudentsScreenState extends State<StudentsScreen> {
     setState(() => _isLoading = true);
     try {
       final students = await _db.getStudents();
+      final settings = await _db.getSettings();
+      final leftOutIds = await _db.getStudentsWhoDidNotReciteLastClass();
       setState(() {
         _students = students;
+        _settings = settings;
+        _leftOutStudentIds = leftOutIds;
         _applyFilters();
         _isLoading = false;
       });
@@ -47,50 +57,109 @@ class _StudentsScreenState extends State<StudentsScreen> {
           _statusFilter == 'all' || student.status == _statusFilter;
       return matchesSearch && matchesStatus;
     }).toList();
+
+    if (_sortBy == 'name') {
+      _filteredStudents.sort((a, b) => a.name.compareTo(b.name));
+    } else if (_sortBy == 'memorized') {
+      _filteredStudents.sort((a, b) => b.totalMemorized.compareTo(a.totalMemorized));
+    } else if (_sortBy == 'left_out') {
+      _filteredStudents.sort((a, b) {
+        final aLeft = _leftOutStudentIds.contains(a.id);
+        final bLeft = _leftOutStudentIds.contains(b.id);
+        if (aLeft && !bLeft) return -1;
+        if (!aLeft && bLeft) return 1;
+        return a.name.compareTo(b.name);
+      });
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('الطلاب'),
+        title: Text(GenderHelper.students(_settings.gender)),
         actions: [
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.sort),
+            tooltip: 'ترتيب ${GenderHelper.students(_settings.gender)}',
+            onSelected: (value) {
+              setState(() {
+                _sortBy = value;
+                _applyFilters();
+              });
+            },
+            itemBuilder: (context) => [
+              PopupMenuItem(
+                value: 'name',
+                child: Row(
+                  children: [
+                    Icon(Icons.sort_by_alpha, color: _sortBy == 'name' ? Theme.of(context).primaryColor : Colors.grey),
+                    const SizedBox(width: 8),
+                    const Text('ترتيب أبجدي (الاسم)'),
+                  ],
+                ),
+              ),
+              PopupMenuItem(
+                value: 'memorized',
+                child: Row(
+                  children: [
+                    Icon(Icons.star, color: _sortBy == 'memorized' ? Theme.of(context).primaryColor : Colors.grey),
+                    const SizedBox(width: 8),
+                    const Text('ترتيب حسب المحفوظ'),
+                  ],
+                ),
+              ),
+              PopupMenuItem(
+                value: 'left_out',
+                child: Row(
+                  children: [
+                    Icon(Icons.priority_high, color: _sortBy == 'left_out' ? Theme.of(context).primaryColor : Colors.grey),
+                    const SizedBox(width: 8),
+                    const Text('الأولوية للذين لم يسمّعوا'),
+                  ],
+                ),
+              ),
+            ],
+          ),
           IconButton(
             icon: const Icon(Icons.filter_list),
             onPressed: _showFilterDialog,
+            tooltip: 'تصفية ${GenderHelper.students(_settings.gender)}',
           ),
         ],
       ),
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: TextField(
-              decoration: const InputDecoration(
-                hintText: 'بحث عن اسم الطالب أو رقم الهاتف...',
-                prefixIcon: Icon(Icons.search),
+      body: SafeArea(
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: TextField(
+                decoration: InputDecoration(
+                  hintText: 'بحث عن اسم ${GenderHelper.student(_settings.gender)} أو رقم الهاتف...',
+                  prefixIcon: const Icon(Icons.search),
+                ),
+                onChanged: (value) {
+                  setState(() {
+                    _searchQuery = value;
+                    _applyFilters();
+                  });
+                },
               ),
-              onChanged: (value) {
-                setState(() {
-                  _searchQuery = value;
-                  _applyFilters();
-                });
-              },
             ),
-          ),
-          Expanded(
-            child: _isLoading
-                ? const Center(child: CircularProgressIndicator())
-                : _filteredStudents.isEmpty
-                    ? _buildEmptyState()
-                    : _buildStudentList(),
-          ),
-        ],
+            Expanded(
+              child: _isLoading
+                  ? const Center(child: CircularProgressIndicator())
+                  : _filteredStudents.isEmpty
+                      ? _buildEmptyState()
+                      : _buildStudentList(),
+            ),
+          ],
+        ),
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _navigateToForm(null),
         icon: const Icon(Icons.add),
-        label: const Text('إضافة طالب'),
+        label: Text(GenderHelper.addStudent(_settings.gender)),
       ),
     );
   }
@@ -103,13 +172,13 @@ class _StudentsScreenState extends State<StudentsScreen> {
           Icon(Icons.people_outline, size: 80, color: Colors.grey[400]),
           const SizedBox(height: 16),
           Text(
-            _searchQuery.isNotEmpty ? 'لا توجد نتائج' : 'لا يوجد طلاب',
+            _searchQuery.isNotEmpty ? 'لا توجد نتائج' : 'لا يوجد ${GenderHelper.students(_settings.gender)}',
             style: TextStyle(fontSize: 18, color: Colors.grey[600]),
           ),
           const SizedBox(height: 8),
           if (_searchQuery.isEmpty)
             Text(
-              'اضغط + لإضافة طالب جديد',
+              'اضغط + لإضافة ${GenderHelper.student(_settings.gender)} جديد',
               style: TextStyle(color: Colors.grey[500]),
             ),
         ],
@@ -172,6 +241,28 @@ class _StudentsScreenState extends State<StudentsScreen> {
                             ),
                           ),
                         ),
+                        if (_leftOutStudentIds.contains(student.id)) ...[
+                          Container(
+                            margin: const EdgeInsets.symmetric(horizontal: 4),
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.amber.shade100,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: Colors.amber.shade300),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.warning_amber_rounded, size: 10, color: Colors.orange),
+                                const SizedBox(width: 4),
+                                Text(
+                                  'لم يسمّع',
+                                  style: GoogleFonts.tajawal(fontSize: 9, color: Colors.brown, fontWeight: FontWeight.bold),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                         Container(
                           padding: const EdgeInsets.symmetric(
                             horizontal: 8,

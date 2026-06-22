@@ -38,6 +38,10 @@ export interface Student {
   planAmount: number;
   status: 'active' | 'inactive';
   memorizationDirection?: 'asc' | 'desc';
+  preMemorizedStartSurah?: number;
+  preMemorizedStartAyah?: number;
+  preMemorizedEndSurah?: number;
+  preMemorizedEndAyah?: number;
 }
 
 export interface AttendanceRecord {
@@ -204,6 +208,12 @@ interface HalaqahStore {
   updateCurrencySymbol: (symbol: string) => Promise<void>;
 
   toggleDarkMode: () => void;
+  pointsConfig: Record<string, number>;
+  fetchPointsConfig: () => void;
+  savePointsConfig: (config: Record<string, number>) => void;
+  suspendedDates: string[];
+  fetchSuspendedDates: () => void;
+  toggleSuspendedDate: (date: string) => void;
 }
 
 export const useStore = create<HalaqahStore>((set, get) => ({
@@ -218,6 +228,8 @@ export const useStore = create<HalaqahStore>((set, get) => ({
   mushafProgress: [],
   messageTemplates: [],
   currencySymbol: 'ر.س',
+  pointsConfig: {},
+  suspendedDates: [],
   loading: false,
   centerType: typeof window !== "undefined" ? (localStorage.getItem("centerType") as 'men' | 'women') || 'men' : 'men',
   darkMode: typeof window !== "undefined" ? localStorage.getItem("darkMode") === "true" : false,
@@ -486,7 +498,11 @@ export const useStore = create<HalaqahStore>((set, get) => ({
           planType: s.plan_type,
           planAmount: s.plan_amount,
           status: s.status,
-          memorizationDirection: s.memorization_direction || 'desc'
+          memorizationDirection: s.memorization_direction || 'desc',
+          preMemorizedStartSurah: s.pre_memorized_start_surah,
+          preMemorizedStartAyah: s.pre_memorized_start_ayah,
+          preMemorizedEndSurah: s.pre_memorized_end_surah,
+          preMemorizedEndAyah: s.pre_memorized_end_ayah,
         }));
         set({ students: mapped as Student[] });
       } else {
@@ -518,7 +534,11 @@ export const useStore = create<HalaqahStore>((set, get) => ({
           status: student.status,
           center_id: center.id,
           halaqa_id: center.activeHalaqa?.id, // Assign to current halaqa
-          memorization_direction: student.memorizationDirection || 'desc'
+          memorization_direction: student.memorizationDirection || 'desc',
+          pre_memorized_start_surah: student.preMemorizedStartSurah || null,
+          pre_memorized_start_ayah: student.preMemorizedStartAyah || null,
+          pre_memorized_end_surah: student.preMemorizedEndSurah || null,
+          pre_memorized_end_ayah: student.preMemorizedEndAyah || null,
         }])
         .select()
         .single();
@@ -540,7 +560,11 @@ export const useStore = create<HalaqahStore>((set, get) => ({
           planType: data.plan_type,
           planAmount: data.plan_amount,
           status: data.status,
-          memorizationDirection: data.memorization_direction || 'desc'
+          memorizationDirection: data.memorization_direction || 'desc',
+          preMemorizedStartSurah: data.pre_memorized_start_surah,
+          preMemorizedStartAyah: data.pre_memorized_start_ayah,
+          preMemorizedEndSurah: data.pre_memorized_end_surah,
+          preMemorizedEndAyah: data.pre_memorized_end_ayah,
         };
         set((state) => ({ students: [...state.students, mapped as Student] }));
         get().addActivity('student_added', `تم إضافة ${isMen ? 'طالب' : 'طالبة'} جديد: ${student.name}`);
@@ -563,6 +587,18 @@ export const useStore = create<HalaqahStore>((set, get) => ({
       };
       if (student.memorizationDirection !== undefined) {
         mapped.memorization_direction = student.memorizationDirection;
+      }
+      if (student.preMemorizedStartSurah !== undefined) {
+        mapped.pre_memorized_start_surah = student.preMemorizedStartSurah;
+      }
+      if (student.preMemorizedStartAyah !== undefined) {
+        mapped.pre_memorized_start_ayah = student.preMemorizedStartAyah;
+      }
+      if (student.preMemorizedEndSurah !== undefined) {
+        mapped.pre_memorized_end_surah = student.preMemorizedEndSurah;
+      }
+      if (student.preMemorizedEndAyah !== undefined) {
+        mapped.pre_memorized_end_ayah = student.preMemorizedEndAyah;
       }
       const { error } = await supabase
         .from('students')
@@ -1398,5 +1434,57 @@ export const useStore = create<HalaqahStore>((set, get) => ({
       console.error("Update currency symbol error:", err);
       alert("فشل تحديث رمز العملة: " + (err as any).message);
     }
+  },
+
+  fetchPointsConfig: () => {
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem('pointsConfig');
+      if (stored) {
+        set({ pointsConfig: JSON.parse(stored) });
+        return;
+      }
+    }
+    const defaultPointsConfig = {
+      daily_memorization: 5,
+      extra_memorization: 2,
+      early_attendance: 2,
+      revision_complete: 3,
+      monthly_exam_pass: 10,
+      good_appearance: 1,
+      late_penalty: -2,
+      incomplete_penalty: -3,
+      unexcused_absence: -5,
+      appearance_violation: -3
+    };
+    set({ pointsConfig: defaultPointsConfig });
+  },
+
+  savePointsConfig: (config: Record<string, number>) => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('pointsConfig', JSON.stringify(config));
+    }
+    set({ pointsConfig: config });
+  },
+
+  fetchSuspendedDates: () => {
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem('suspendedDates');
+      if (stored) {
+        set({ suspendedDates: JSON.parse(stored) });
+        return;
+      }
+    }
+    set({ suspendedDates: [] });
+  },
+
+  toggleSuspendedDate: (date: string) => {
+    const current = get().suspendedDates;
+    const updated = current.includes(date)
+      ? current.filter(d => d !== date)
+      : [...current, date];
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('suspendedDates', JSON.stringify(updated));
+    }
+    set({ suspendedDates: updated });
   },
 }));

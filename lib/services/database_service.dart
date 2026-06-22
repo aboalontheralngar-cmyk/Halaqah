@@ -13,6 +13,7 @@ import '../models/notification_log.dart';
 import '../models/homework_grade.dart';
 import '../models/mushaf_progress.dart';
 import '../models/message_template.dart';
+import 'quran_service.dart';
 
 class DatabaseService {
   static final DatabaseService _instance = DatabaseService._internal();
@@ -31,9 +32,12 @@ class DatabaseService {
     String path = join(await getDatabasesPath(), 'halaqah.db');
     return await openDatabase(
       path,
-      version: 4,
+      version: 5,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
+      onConfigure: (db) async {
+        await db.execute('PRAGMA foreign_keys = ON;');
+      },
     );
   }
 
@@ -53,6 +57,10 @@ class DatabaseService {
         photo_path TEXT,
         notes TEXT,
         memorization_direction TEXT DEFAULT 'desc',
+        pre_memorized_start_surah INTEGER,
+        pre_memorized_start_ayah INTEGER,
+        pre_memorized_end_surah INTEGER,
+        pre_memorized_end_ayah INTEGER,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       )
@@ -168,6 +176,9 @@ class DatabaseService {
     }
     if (oldVersion < 4) {
       await _upgradeToVersion4(db);
+    }
+    if (oldVersion < 5) {
+      await _upgradeToVersion5(db);
     }
   }
 
@@ -415,6 +426,17 @@ class DatabaseService {
     final db = await database;
     await db.insert('vacations', vacation.toMap());
   }
+
+  Future<void> updateVacation(Vacation vacation) async {
+    final db = await database;
+    await db.update(
+      'vacations',
+      vacation.toMap(),
+      where: 'id = ?',
+      whereArgs: [vacation.id],
+    );
+  }
+
 
   Future<List<Vacation>> getStudentVacations(String studentId) async {
     final db = await database;
@@ -807,6 +829,17 @@ class DatabaseService {
     }
   }
 
+  Future<void> _upgradeToVersion5(Database db) async {
+    try {
+      await db.execute("ALTER TABLE students ADD COLUMN pre_memorized_start_surah INTEGER");
+      await db.execute("ALTER TABLE students ADD COLUMN pre_memorized_start_ayah INTEGER");
+      await db.execute("ALTER TABLE students ADD COLUMN pre_memorized_end_surah INTEGER");
+      await db.execute("ALTER TABLE students ADD COLUMN pre_memorized_end_ayah INTEGER");
+    } catch (e) {
+      print("Error upgrading database to version 5: $e");
+    }
+  }
+
   // HomeworkGrade CRUD methods
   Future<void> insertHomeworkGrade(HomeworkGrade grade) async {
     final db = await database;
@@ -854,6 +887,15 @@ class DatabaseService {
     await db.delete('mushaf_progress', where: 'student_id = ?', whereArgs: [studentId]);
   }
 
+  Future<void> clearPreMemorizedProgress(String studentId) async {
+    final db = await database;
+    await db.delete(
+      'mushaf_progress',
+      where: 'student_id = ? AND is_pre_memorized = 1',
+      whereArgs: [studentId],
+    );
+  }
+
   // MessageTemplate CRUD methods
   Future<MessageTemplate?> getMessageTemplate(String type) async {
     final db = await database;
@@ -891,5 +933,251 @@ class DatabaseService {
     final db = await database;
     final List<Map<String, dynamic>> maps = await db.query('mushaf_progress');
     return List.generate(maps.length, (i) => MushafProgress.fromMap(maps[i]));
+  }
+
+  Future<void> initializeMushafProgress(String studentId, int initialJuzCount, String direction) async {
+    final db = await database;
+    await db.transaction((txn) async {
+      final batch = txn.batch();
+      
+      // Determine which Hizbs are pre-memorized
+      Set<int> preMemorizedHizbs = {};
+      if (direction == 'desc') {
+        for (int i = 0; i < initialJuzCount; i++) {
+          final juz = 30 - i;
+          preMemorizedHizbs.add((juz - 1) * 2 + 1);
+          preMemorizedHizbs.add((juz - 1) * 2 + 2);
+        }
+      } else {
+        for (int i = 0; i < initialJuzCount; i++) {
+          final juz = i + 1;
+          preMemorizedHizbs.add((juz - 1) * 2 + 1);
+          preMemorizedHizbs.add((juz - 1) * 2 + 2);
+        }
+      }
+      
+      // We also import uuid packages if needed. Let's generate a UUID.
+      // Since Uuid() is imported or package is available, we can construct Uuid().v4()
+      for (final hizb in preMemorizedHizbs) {
+        for (int thumun = 1; thumun <= 8; thumun++) {
+          final id = DateTime.now().microsecondsSinceEpoch.toString() + '_${hizb}_${thumun}'; // Using microsecond timestamp as fallback to avoid needing Uuid import if not there, or we can use uuid v4. Let's just import uuid at the top. Let's use Uuid.
+          batch.insert(
+            'mushaf_progress',
+            {
+              'id': '${studentId}_${hizb}_${thumun}', // Deterministic ID is even better for UNIQUE constraint
+              'student_id': studentId,
+              'hizb_number': hizb,
+              'thumun_number': thumun,
+              'average_grade': 0.0,
+              'last_graded_date': null,
+              'is_pre_memorized': 1,
+            },
+            conflictAlgorithm: ConflictAlgorithm.replace,
+          );
+        }
+      }
+      
+      await batch.commit(noResult: true);
+    });
+  }
+
+  Future<void> initializeMushafProgressForRange(
+    String studentId,
+    int startSurahId,
+    int startAyah,
+    int endSurahId,
+    int endAyah,
+  ) async {
+    final db = await database;
+    await db.transaction((txn) async {
+      final batch = txn.batch();
+      
+      final uniqueThumuns = <String>{}; // Format: "hizb_thumun"
+      
+      final start = startSurahId;
+      final end = endSurahId;
+      
+      if (start == end) {
+        final surah = QuranService.instance.getSurah(start);
+        if (surah != null && endAyah >= startAyah) {
+          final ayahs = surah.getAyahRange(startAyah, endAyah);
+          for (final ayah in ayahs) {
+            final hizb = ayah.hizb;
+            final quarter = ayah.quarter;
+            if (hizb >= 1 && hizb <= 60 && quarter >= 1 && quarter <= 240) {
+              final quarterInHizb = ((quarter - 1) % 4) + 1;
+              final thumun1 = (quarterInHizb - 1) * 2 + 1;
+              final thumun2 = (quarterInHizb - 1) * 2 + 2;
+              uniqueThumuns.add('${hizb}_$thumun1');
+              uniqueThumuns.add('${hizb}_$thumun2');
+            }
+          }
+        }
+      } else if (start > end) {
+        // Descending (e.g. 114 down to 112)
+        // Start Surah (from startAyah to totalAyahs)
+        final startSurahObj = QuranService.instance.getSurah(start);
+        if (startSurahObj != null) {
+          final total = startSurahObj.totalAyahs;
+          if (total >= startAyah) {
+            final ayahs = startSurahObj.getAyahRange(startAyah, total);
+            for (final ayah in ayahs) {
+              final hizb = ayah.hizb;
+              final quarter = ayah.quarter;
+              if (hizb >= 1 && hizb <= 60 && quarter >= 1 && quarter <= 240) {
+                final quarterInHizb = ((quarter - 1) % 4) + 1;
+                final thumun1 = (quarterInHizb - 1) * 2 + 1;
+                final thumun2 = (quarterInHizb - 1) * 2 + 2;
+                uniqueThumuns.add('${hizb}_$thumun1');
+                uniqueThumuns.add('${hizb}_$thumun2');
+              }
+            }
+          }
+        }
+        
+        // Full Surahs in between (end + 1 to start - 1)
+        for (int i = end + 1; i <= start - 1; i++) {
+          final surah = QuranService.instance.getSurah(i);
+          if (surah == null) continue;
+          for (final ayah in surah.ayahs) {
+            final hizb = ayah.hizb;
+            final quarter = ayah.quarter;
+            if (hizb >= 1 && hizb <= 60 && quarter >= 1 && quarter <= 240) {
+              final quarterInHizb = ((quarter - 1) % 4) + 1;
+              final thumun1 = (quarterInHizb - 1) * 2 + 1;
+              final thumun2 = (quarterInHizb - 1) * 2 + 2;
+              uniqueThumuns.add('${hizb}_$thumun1');
+              uniqueThumuns.add('${hizb}_$thumun2');
+            }
+          }
+        }
+        
+        // End Surah (from 1 to endAyah)
+        final endSurahObj = QuranService.instance.getSurah(end);
+        if (endSurahObj != null) {
+          final ayahs = endSurahObj.getAyahRange(1, endAyah);
+          for (final ayah in ayahs) {
+            final hizb = ayah.hizb;
+            final quarter = ayah.quarter;
+            if (hizb >= 1 && hizb <= 60 && quarter >= 1 && quarter <= 240) {
+              final quarterInHizb = ((quarter - 1) % 4) + 1;
+              final thumun1 = (quarterInHizb - 1) * 2 + 1;
+              final thumun2 = (quarterInHizb - 1) * 2 + 2;
+              uniqueThumuns.add('${hizb}_$thumun1');
+              uniqueThumuns.add('${hizb}_$thumun2');
+            }
+          }
+        }
+      } else {
+        // Ascending (e.g. 2 up to 5)
+        // Start Surah (from startAyah to totalAyahs)
+        final startSurahObj = QuranService.instance.getSurah(start);
+        if (startSurahObj != null) {
+          final total = startSurahObj.totalAyahs;
+          if (total >= startAyah) {
+            final ayahs = startSurahObj.getAyahRange(startAyah, total);
+            for (final ayah in ayahs) {
+              final hizb = ayah.hizb;
+              final quarter = ayah.quarter;
+              if (hizb >= 1 && hizb <= 60 && quarter >= 1 && quarter <= 240) {
+                final quarterInHizb = ((quarter - 1) % 4) + 1;
+                final thumun1 = (quarterInHizb - 1) * 2 + 1;
+                final thumun2 = (quarterInHizb - 1) * 2 + 2;
+                uniqueThumuns.add('${hizb}_$thumun1');
+                uniqueThumuns.add('${hizb}_$thumun2');
+              }
+            }
+          }
+        }
+        
+        // Full Surahs in between (start + 1 to end - 1)
+        for (int i = start + 1; i <= end - 1; i++) {
+          final surah = QuranService.instance.getSurah(i);
+          if (surah == null) continue;
+          for (final ayah in surah.ayahs) {
+            final hizb = ayah.hizb;
+            final quarter = ayah.quarter;
+            if (hizb >= 1 && hizb <= 60 && quarter >= 1 && quarter <= 240) {
+              final quarterInHizb = ((quarter - 1) % 4) + 1;
+              final thumun1 = (quarterInHizb - 1) * 2 + 1;
+              final thumun2 = (quarterInHizb - 1) * 2 + 2;
+              uniqueThumuns.add('${hizb}_$thumun1');
+              uniqueThumuns.add('${hizb}_$thumun2');
+            }
+          }
+        }
+        
+        // End Surah (from 1 to endAyah)
+        final endSurahObj = QuranService.instance.getSurah(end);
+        if (endSurahObj != null) {
+          final ayahs = endSurahObj.getAyahRange(1, endAyah);
+          for (final ayah in ayahs) {
+            final hizb = ayah.hizb;
+            final quarter = ayah.quarter;
+            if (hizb >= 1 && hizb <= 60 && quarter >= 1 && quarter <= 240) {
+              final quarterInHizb = ((quarter - 1) % 4) + 1;
+              final thumun1 = (quarterInHizb - 1) * 2 + 1;
+              final thumun2 = (quarterInHizb - 1) * 2 + 2;
+              uniqueThumuns.add('${hizb}_$thumun1');
+              uniqueThumuns.add('${hizb}_$thumun2');
+            }
+          }
+        }
+      }
+      
+      for (final key in uniqueThumuns) {
+        final parts = key.split('_');
+        final hizb = int.parse(parts[0]);
+        final thumun = int.parse(parts[1]);
+        
+        batch.insert(
+          'mushaf_progress',
+          {
+            'id': '${studentId}_${hizb}_${thumun}',
+            'student_id': studentId,
+            'hizb_number': hizb,
+            'thumun_number': thumun,
+            'average_grade': 0.0,
+            'last_graded_date': null,
+            'is_pre_memorized': 1,
+          },
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      }
+      
+      await batch.commit(noResult: true);
+    });
+  }
+
+  Future<List<String>> getSuspendedDates() async {
+    final val = await getSetting('suspended_dates');
+    if (val == null || val.trim().isEmpty) return [];
+    return val.split(',');
+  }
+
+  Future<void> saveSuspendedDates(List<String> dates) async {
+    await saveSetting('suspended_dates', dates.join(','));
+  }
+
+  Future<bool> isDateSuspended(DateTime date) async {
+    final dateStr = date.toIso8601String().split('T')[0];
+    final dates = await getSuspendedDates();
+    return dates.contains(dateStr);
+  }
+
+  Future<List<String>> getStudentsWhoDidNotReciteLastClass() async {
+    final db = await database;
+    final List<Map<String, dynamic>> results = await db.rawQuery('''
+      SELECT student_id FROM daily_records dr
+      WHERE (attendance = 'present' OR attendance = 'late')
+      AND date = (
+        SELECT MAX(date) FROM daily_records 
+        WHERE student_id = dr.student_id 
+        AND (attendance = 'present' OR attendance = 'late')
+      )
+      AND memorization_done = 0 
+      AND revision_done = 0
+    ''');
+    return results.map((r) => r['student_id'] as String).toList();
   }
 }

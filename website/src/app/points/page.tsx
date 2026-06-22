@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { 
   Plus, 
   Trophy, 
@@ -15,14 +15,21 @@ import {
   Flame,
   Award,
   Zap,
-  HelpCircle
+  HelpCircle,
+  Clock,
+  AlertTriangle,
+  LogOut
 } from "lucide-react";
 import { useStore } from "@/store/useStore";
 
 export default function PointsPage() {
-  const { students, points, activities, addPoints, centerType } = useStore();
+  const { students, points, activities, addPoints, centerType, pointsConfig, fetchPointsConfig } = useStore();
   const [showForm, setShowForm] = useState(false);
   
+  useEffect(() => {
+    fetchPointsConfig();
+  }, [fetchPointsConfig]);
+
   const topStudents = useMemo(() => {
     return students
       .map(student => {
@@ -43,6 +50,52 @@ export default function PointsPage() {
     reason: "",
     type: "positive" as "positive" | "negative"
   });
+
+  const reasonChoices = useMemo(() => {
+    const isPositive = formData.type === "positive";
+    
+    // Standard rules mapping
+    const positiveStandards = [
+      { key: "daily_memorization", label: "إتمام الحفظ اليومي", defaultVal: 5 },
+      { key: "extra_memorization", label: "زيادة عن المقرر", defaultVal: 2 },
+      { key: "early_attendance", label: "الحضور المبكر", defaultVal: 2 },
+      { key: "revision_complete", label: "إتمام المراجعة", defaultVal: 3 },
+      { key: "monthly_exam_pass", label: "نجاح في الامتحان", defaultVal: 10 },
+      { key: "good_appearance", label: "المظهر الحسن", defaultVal: 1 },
+    ];
+
+    const negativeStandards = [
+      { key: "late_penalty", label: "التأخير عن الحلقة", defaultVal: -2 },
+      { key: "incomplete_penalty", label: "عدم إتمام المقرر اليومي", defaultVal: -3 },
+      { key: "unexcused_absence", label: "الغياب بدون عذر مقبول", defaultVal: -5 },
+      { key: "appearance_violation", label: "مخالفة المظهر/الحلاقة", defaultVal: -3 },
+    ];
+
+    const standards = isPositive ? positiveStandards : negativeStandards;
+    const list = standards.map(s => {
+      const amt = pointsConfig[s.key] !== undefined ? pointsConfig[s.key] : s.defaultVal;
+      return {
+        label: s.label,
+        amount: Math.abs(amt)
+      };
+    });
+
+    // Custom rules
+    Object.entries(pointsConfig).forEach(([key, val]) => {
+      if (key.startsWith("c_")) {
+        const label = key.substring(2);
+        const isRulePositive = val >= 0;
+        if (isPositive === isRulePositive) {
+          list.push({
+            label,
+            amount: Math.abs(val)
+          });
+        }
+      }
+    });
+
+    return list;
+  }, [formData.type, pointsConfig]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -174,12 +227,45 @@ export default function PointsPage() {
                 {students.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
               <div className="grid grid-cols-2 gap-4">
-                <button type="button" onClick={() => setFormData({...formData, type: 'positive'})} className={`py-4 rounded-xl font-black text-xs ${formData.type === 'positive' ? "bg-green-600 text-white" : "bg-gray-50 text-gray-400"}`}>نقاط إيجابية</button>
-                <button type="button" onClick={() => setFormData({...formData, type: 'negative'})} className={`py-4 rounded-xl font-black text-xs ${formData.type === 'negative' ? "bg-rose-600 text-white" : "bg-gray-50 text-gray-400"}`}>نقاط سلبية</button>
+                <button type="button" onClick={() => setFormData({...formData, type: 'positive', amount: 5, reason: ''})} className={`py-4 rounded-xl font-black text-xs ${formData.type === 'positive' ? "bg-green-600 text-white" : "bg-gray-50 dark:bg-gray-850 text-gray-400"}`}>نقاط إيجابية</button>
+                <button type="button" onClick={() => setFormData({...formData, type: 'negative', amount: 3, reason: ''})} className={`py-4 rounded-xl font-black text-xs ${formData.type === 'negative' ? "bg-rose-600 text-white" : "bg-gray-50 dark:bg-gray-850 text-gray-400"}`}>نقاط سلبية</button>
               </div>
-              <input type="number" value={formData.amount} onChange={e => setFormData({...formData, amount: parseInt(e.target.value)})} className="w-full bg-gray-50 dark:bg-gray-800 border-none rounded-2xl px-6 py-4 text-sm font-bold outline-none" />
-              <input type="text" value={formData.reason} onChange={e => setFormData({...formData, reason: e.target.value})} placeholder="السبب..." required className="w-full bg-gray-50 dark:bg-gray-800 border-none rounded-2xl px-6 py-4 text-sm font-bold outline-none" />
-              <button type="submit" className="w-full py-5 bg-purple-600 text-white rounded-2xl font-black text-sm shadow-xl">تأكيد التسجيل</button>
+              
+              <div>
+                <label className="block text-xs font-black text-gray-400 mb-2 mr-1 uppercase">اختر البند السلوكي</label>
+                <select
+                  onChange={e => {
+                    const idx = e.target.value;
+                    if (idx !== "") {
+                      const choice = reasonChoices[parseInt(idx)];
+                      setFormData({
+                        ...formData,
+                        reason: choice.label,
+                        amount: choice.amount
+                      });
+                    }
+                  }}
+                  className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-100 dark:border-gray-750 rounded-2xl px-6 py-4 text-sm font-bold outline-none dark:text-white"
+                >
+                  <option value="">اختر من القائمة المحددة</option>
+                  {reasonChoices.map((choice, index) => (
+                    <option key={index} value={index}>
+                      {choice.label} ({formData.type === "positive" ? "+" : "-"}{choice.amount} نقاط)
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-black text-gray-400 mb-2 mr-1 uppercase">النقاط</label>
+                <input type="number" value={formData.amount} onChange={e => setFormData({...formData, amount: parseInt(e.target.value) || 0})} className="w-full bg-gray-50 dark:bg-gray-800 border-none rounded-2xl px-6 py-4 text-sm font-bold outline-none dark:text-white" />
+              </div>
+
+              <div>
+                <label className="block text-xs font-black text-gray-400 mb-2 mr-1 uppercase">السبب التفصيلي</label>
+                <input type="text" value={formData.reason} onChange={e => setFormData({...formData, reason: e.target.value})} placeholder="اكتب السبب هنا أو عدّله..." required className="w-full bg-gray-50 dark:bg-gray-800 border-none rounded-2xl px-6 py-4 text-sm font-bold outline-none dark:text-white" />
+              </div>
+              <button type="submit" className="w-full py-5 bg-purple-600 text-white rounded-2xl font-black text-sm shadow-xl hover:bg-purple-700 transition-colors">تأكيد التسجيل</button>
             </form>
           </div>
         </div>
