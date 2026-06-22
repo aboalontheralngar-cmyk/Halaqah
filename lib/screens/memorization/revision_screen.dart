@@ -101,18 +101,20 @@ class _RevisionScreenState extends State<RevisionScreen> {
           ),
         ],
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : _memorizedSurahs.isEmpty
-              ? _buildEmptyState()
-              : Column(
-                  children: [
-                    _buildSortingInfo(),
-                    _buildSelectionInfo(),
-                    Expanded(child: _buildSurahList()),
-                    if (_selectedSurahs.isNotEmpty) _buildBottomSheet(),
-                  ],
-                ),
+      body: SafeArea(
+        child: _isLoading
+            ? const Center(child: CircularProgressIndicator())
+            : _memorizedSurahs.isEmpty
+                ? _buildEmptyState()
+                : Column(
+                    children: [
+                      _buildSortingInfo(),
+                      _buildSelectionInfo(),
+                      Expanded(child: _buildSurahList()),
+                      if (_selectedSurahs.isNotEmpty) _buildBottomSheet(),
+                    ],
+                  ),
+      ),
     );
   }
 
@@ -203,98 +205,167 @@ class _RevisionScreenState extends State<RevisionScreen> {
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
       color: isSelected ? Theme.of(context).primaryColor.withOpacity(0.1) : null,
-      child: InkWell(
-        onTap: () {
-          setState(() {
-            if (isSelected) {
-              _selectedSurahs.remove(surah.id);
-            } else {
-              _selectedSurahs.add(surah.id);
-            }
-          });
-        },
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Row(
-            children: [
-              Checkbox(
-                value: isSelected,
-                onChanged: (value) {
-                  setState(() {
-                    if (value == true) {
-                      _selectedSurahs.add(surah.id);
-                    } else {
-                      _selectedSurahs.remove(surah.id);
-                    }
-                  });
-                },
-              ),
-              CircleAvatar(
-                backgroundColor: isSelected
-                    ? Theme.of(context).primaryColor
-                    : Theme.of(context).primaryColor.withOpacity(0.1),
-                child: Text(
-                  '${surah.id}',
-                  style: TextStyle(
-                    color: isSelected ? Colors.white : Theme.of(context).primaryColor,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 12,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      surah.name,
-                      style: const TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                    Text(
-                      '${surah.ayahs} آية - الجزء ${surah.juz}',
-                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                    ),
-                  ],
-                ),
-              ),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
+      child: Column(
+        children: [
+          InkWell(
+            onTap: () {
+              setState(() {
+                if (isSelected) {
+                  _selectedSurahs.remove(surah.id);
+                } else {
+                  _selectedSurahs.add(surah.id);
+                  surah.selectedFromAyah = 1;
+                  surah.selectedToAyah = surah.ayahs;
+                }
+              });
+            },
+            borderRadius: BorderRadius.circular(12),
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Row(
                 children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: needsRevision
-                          ? Colors.orange.withOpacity(0.1)
-                          : Colors.green.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
+                  Checkbox(
+                    value: isSelected,
+                    onChanged: (value) {
+                      setState(() {
+                        if (value == true) {
+                          _selectedSurahs.add(surah.id);
+                          surah.selectedFromAyah = 1;
+                          surah.selectedToAyah = surah.ayahs;
+                        } else {
+                          _selectedSurahs.remove(surah.id);
+                        }
+                      });
+                    },
+                  ),
+                  CircleAvatar(
+                    backgroundColor: isSelected
+                        ? Theme.of(context).primaryColor
+                        : Theme.of(context).primaryColor.withOpacity(0.1),
                     child: Text(
-                      needsRevision ? 'تحتاج مراجعة' : 'مراجعة حديثة',
+                      '${surah.id}',
                       style: TextStyle(
-                        fontSize: 10,
-                        color: needsRevision ? Colors.orange : Colors.green,
+                        color: isSelected ? Colors.white : Theme.of(context).primaryColor,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12,
                       ),
                     ),
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    surah.lastRevision != null
-                        ? Helpers.formatHijriDate(surah.lastRevision!)
-                        : 'لم تراجع',
-                    style: TextStyle(fontSize: 10, color: Colors.grey[500]),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          surah.name,
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        Text(
+                          '${surah.ayahs} آية - الجزء ${surah.juz}',
+                          style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: needsRevision
+                              ? Colors.orange.withOpacity(0.1)
+                              : Colors.green.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          needsRevision ? 'تحتاج مراجعة' : 'مراجعة حديثة',
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: needsRevision ? Colors.orange : Colors.green,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        surah.lastRevision != null
+                            ? Helpers.formatHijriDate(surah.lastRevision!)
+                            : 'لم تراجع',
+                        style: TextStyle(fontSize: 10, color: Colors.grey[500]),
+                      ),
+                    ],
                   ),
                 ],
               ),
-            ],
+            ),
           ),
-        ),
+          if (isSelected) ...[
+            const Divider(height: 1),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Row(
+                children: [
+                  const Icon(Icons.tune, size: 16, color: Colors.blueGrey),
+                  const SizedBox(width: 8),
+                  const Text(
+                    'نطاق الآيات للمراجعة:',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.blueGrey),
+                  ),
+                  const Spacer(),
+                  const Text('من: ', style: TextStyle(fontSize: 12)),
+                  DropdownButton<int>(
+                    value: surah.selectedFromAyah,
+                    items: List.generate(surah.ayahs, (i) => i + 1)
+                        .map((num) => DropdownMenuItem<int>(
+                              value: num,
+                              child: Text('$num'),
+                            ))
+                        .toList(),
+                    onChanged: (val) {
+                      if (val != null) {
+                        setState(() {
+                          surah.selectedFromAyah = val;
+                          if (surah.selectedToAyah < val) {
+                            surah.selectedToAyah = val;
+                          }
+                        });
+                      }
+                    },
+                  ),
+                  const SizedBox(width: 16),
+                  const Text('إلى: ', style: TextStyle(fontSize: 12)),
+                  DropdownButton<int>(
+                    value: surah.selectedToAyah,
+                    items: List.generate(surah.ayahs - surah.selectedFromAyah + 1, (i) => i + surah.selectedFromAyah)
+                        .map((num) => DropdownMenuItem<int>(
+                              value: num,
+                              child: Text('$num'),
+                            ))
+                        .toList(),
+                    onChanged: (val) {
+                      if (val != null) {
+                        setState(() {
+                          surah.selectedToAyah = val;
+                        });
+                      }
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }
 
   Widget _buildBottomSheet() {
+    int totalSelectedAyahs = 0;
+    for (final surahId in _selectedSurahs) {
+      final surah = _memorizedSurahs.firstWhere((s) => s.id == surahId, orElse: () => _memorizedSurahs.first);
+      totalSelectedAyahs += (surah.selectedToAyah - surah.selectedFromAyah + 1);
+    }
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -314,7 +385,7 @@ class _RevisionScreenState extends State<RevisionScreen> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                'السور المحددة: ${_selectedSurahs.length}',
+                'السور المحددة: ${_selectedSurahs.length} (إجمالي $totalSelectedAyahs آية)',
                 style: const TextStyle(fontWeight: FontWeight.bold),
               ),
               QualityRating(
@@ -350,13 +421,14 @@ class _RevisionScreenState extends State<RevisionScreen> {
 
       for (final surahId in _selectedSurahs) {
         final surah = _memorizedSurahs.firstWhere((s) => s.id == surahId);
-        totalAyahs += surah.ayahs;
+        final count = surah.selectedToAyah - surah.selectedFromAyah + 1;
+        totalAyahs += count;
 
         final progress = MemorizationProgress(
           studentId: widget.student.id,
           surahId: surahId,
-          fromAyah: 1,
-          toAyah: surah.ayahs,
+          fromAyah: surah.selectedFromAyah,
+          toAyah: surah.selectedToAyah,
           date: DateTime.now(),
           qualityRating: _qualityRating,
           isRevision: true,
@@ -374,6 +446,8 @@ class _RevisionScreenState extends State<RevisionScreen> {
         studentId: widget.student.id,
         date: DateTime.now(),
       )).copyWith(
+        attendance: 'present',
+        arrivalTime: existingRecord?.arrivalTime ?? DateTime.now(),
         revisionDone: true,
         revisionAmount: totalAyahs,
       );
@@ -409,6 +483,8 @@ class MemorizedSurah {
   final int ayahs;
   final int juz;
   final DateTime? lastRevision;
+  int selectedFromAyah;
+  int selectedToAyah;
 
   MemorizedSurah({
     required this.id,
@@ -416,5 +492,8 @@ class MemorizedSurah {
     required this.ayahs,
     required this.juz,
     this.lastRevision,
-  });
+    int? selectedFromAyah,
+    int? selectedToAyah,
+  }) : this.selectedFromAyah = selectedFromAyah ?? 1,
+       this.selectedToAyah = selectedToAyah ?? ayahs;
 }

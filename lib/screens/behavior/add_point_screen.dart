@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../services/database_service.dart';
 import '../../models/student.dart';
 import '../../models/behavior_point.dart';
+import '../../models/settings.dart';
 
 class AddPointScreen extends StatefulWidget {
   final Student? student;
@@ -25,23 +26,47 @@ class _AddPointScreenState extends State<AddPointScreen> {
   bool _isLoading = true;
   bool _isSaving = false;
 
-  static const List<PointReason> positiveReasons = [
-    PointReason('memorization_complete', 'إتمام الحفظ اليومي', 5),
-    PointReason('extra_memorization', 'زيادة عن المقرر', 2),
-    PointReason('early_attendance', 'الحضور المبكر', 2),
-    PointReason('revision_complete', 'إتمام المراجعة', 3),
-    PointReason('exam_success', 'نجاح في الامتحان', 10),
-    PointReason('good_appearance', 'المظهر الحسن', 1),
-    PointReason('custom_positive', 'أخرى (مخصص)', 0),
-  ];
+  HalaqahSettings _settings = HalaqahSettings();
 
-  static const List<PointReason> negativeReasons = [
-    PointReason('late', 'التأخير', -2),
-    PointReason('incomplete_memorization', 'عدم إتمام المقرر', -3),
-    PointReason('absence_no_excuse', 'الغياب بدون عذر', -5),
-    PointReason('appearance_violation', 'مخالفة المظهر/الحلاقة', -3),
-    PointReason('custom_negative', 'أخرى (مخصص)', 0),
-  ];
+  List<PointReason> get positiveReasons {
+    final list = [
+      PointReason('memorization_complete', 'إتمام الحفظ اليومي', _settings.pointsConfig['daily_memorization'] ?? 5),
+      PointReason('extra_memorization', 'زيادة عن المقرر', _settings.pointsConfig['extra_memorization'] ?? 2),
+      PointReason('early_attendance', 'الحضور المبكر', _settings.pointsConfig['early_attendance'] ?? 2),
+      PointReason('revision_complete', 'إتمام المراجعة', _settings.pointsConfig['revision_complete'] ?? 3),
+      PointReason('exam_success', 'نجاح في الامتحان', _settings.pointsConfig['monthly_exam_pass'] ?? 10),
+      PointReason('good_appearance', 'المظهر الحسن', _settings.pointsConfig['good_appearance'] ?? 1),
+    ];
+    
+    _settings.pointsConfig.forEach((key, val) {
+      if (key.startsWith('c_') && val >= 0) {
+        final label = key.substring(2);
+        list.add(PointReason(key, label, val));
+      }
+    });
+    
+    list.add(const PointReason('custom_positive', 'أخرى (مخصص)', 0));
+    return list;
+  }
+
+  List<PointReason> get negativeReasons {
+    final list = [
+      PointReason('late', 'التأخير', _settings.pointsConfig['late_penalty'] ?? -2),
+      PointReason('incomplete_memorization', 'عدم إتمام المقرر', _settings.pointsConfig['incomplete_penalty'] ?? -3),
+      PointReason('absence_no_excuse', 'الغياب بدون عذر', _settings.pointsConfig['unexcused_absence'] ?? -5),
+      PointReason('appearance_violation', 'مخالفة المظهر/الحلاقة', _settings.pointsConfig['appearance_violation'] ?? -3),
+    ];
+    
+    _settings.pointsConfig.forEach((key, val) {
+      if (key.startsWith('c_') && val < 0) {
+        final label = key.substring(2);
+        list.add(PointReason(key, label, val));
+      }
+    });
+    
+    list.add(const PointReason('custom_negative', 'أخرى (مخصص)', 0));
+    return list;
+  }
 
   @override
   void initState() {
@@ -54,8 +79,10 @@ class _AddPointScreenState extends State<AddPointScreen> {
     setState(() => _isLoading = true);
     try {
       final students = await _db.getStudents(status: 'active');
+      final settings = await _db.getSettings();
       setState(() {
         _students = students;
+        _settings = settings;
         _isLoading = false;
       });
     } catch (e) {

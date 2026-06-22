@@ -47,12 +47,13 @@ class _VacationsScreenState extends State<VacationsScreen> {
     return student.name;
   }
 
-  void _showAddVacationDialog() {
-    String? selectedStudentId;
-    String selectedReason = VacationReason.sick;
-    DateTime startDate = DateTime.now();
-    DateTime endDate = DateTime.now().add(const Duration(days: 3));
-    String notes = '';
+  void _showVacationDialog({Vacation? vacationToEdit}) {
+    final isEditing = vacationToEdit != null;
+    String? selectedStudentId = vacationToEdit?.studentId;
+    String selectedReason = vacationToEdit?.reason ?? VacationReason.sick;
+    DateTime startDate = vacationToEdit?.startDate ?? DateTime.now();
+    DateTime endDate = vacationToEdit?.endDate ?? DateTime.now().add(const Duration(days: 3));
+    String notes = vacationToEdit?.notes ?? '';
 
     final formKey = GlobalKey<FormState>();
 
@@ -86,7 +87,7 @@ class _VacationsScreenState extends State<VacationsScreen> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text(
-                        'تسجيل إجازة / غياب عذر',
+                        isEditing ? 'تعديل بيانات الإجازة' : 'تسجيل إجازة / غياب عذر',
                         style: GoogleFonts.tajawal(
                           fontSize: 20,
                           fontWeight: FontWeight.bold,
@@ -153,7 +154,7 @@ class _VacationsScreenState extends State<VacationsScreen> {
                     onTap: () async {
                       final picked = await showDateRangePicker(
                         context: context,
-                        firstDate: DateTime.now().subtract(const Duration(days: 30)),
+                        firstDate: DateTime.now().subtract(const Duration(days: 90)),
                         lastDate: DateTime.now().add(const Duration(days: 365)),
                         initialDateRange: DateTimeRange(start: startDate, end: endDate),
                       );
@@ -187,6 +188,7 @@ class _VacationsScreenState extends State<VacationsScreen> {
 
                   // Notes
                   TextFormField(
+                    initialValue: notes,
                     decoration: const InputDecoration(
                       labelText: 'ملاحظات / تفاصيل الإجازة',
                       prefixIcon: Icon(Icons.description),
@@ -204,21 +206,27 @@ class _VacationsScreenState extends State<VacationsScreen> {
                       onPressed: () async {
                         if (formKey.currentState!.validate()) {
                           final vac = Vacation(
+                            id: vacationToEdit?.id,
                             studentId: selectedStudentId!,
                             startDate: startDate,
                             endDate: endDate,
                             reason: selectedReason,
                             notes: notes.trim().isEmpty ? null : notes.trim(),
-                            approved: true,
+                            approved: vacationToEdit?.approved ?? true,
+                            createdAt: vacationToEdit?.createdAt,
                           );
-                          await _db.insertVacation(vac);
+                          if (isEditing) {
+                            await _db.updateVacation(vac);
+                          } else {
+                            await _db.insertVacation(vac);
+                          }
                           if (context.mounted) {
                             Navigator.pop(context);
                             _loadData();
                           }
                         }
                       },
-                      child: const Text('تسجيل الغياب بعذر'),
+                      child: Text(isEditing ? 'حفظ التعديلات' : 'تسجيل الغياب بعذر'),
                     ),
                   ),
                 ],
@@ -267,7 +275,7 @@ class _VacationsScreenState extends State<VacationsScreen> {
         title: const Text('إدارة إجازات الطلاب'),
       ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: _showAddVacationDialog,
+        onPressed: () => _showVacationDialog(),
         icon: const Icon(Icons.add),
         label: const Text('تسجيل إجازة'),
       ),
@@ -320,9 +328,19 @@ class _VacationsScreenState extends State<VacationsScreen> {
                                         fontWeight: FontWeight.bold,
                                       ),
                                     ),
-                                    IconButton(
-                                      icon: const Icon(Icons.delete_outline, color: Colors.red),
-                                      onPressed: () => _deleteVacation(vac.id),
+                                    Row(
+                                      children: [
+                                        IconButton(
+                                          icon: const Icon(Icons.edit_outlined, color: Colors.teal),
+                                          onPressed: () => _showVacationDialog(vacationToEdit: vac),
+                                          tooltip: 'تعديل الإجازة',
+                                        ),
+                                        IconButton(
+                                          icon: const Icon(Icons.delete_outline, color: Colors.red),
+                                          onPressed: () => _deleteVacation(vac.id),
+                                          tooltip: 'حذف الإجازة',
+                                        ),
+                                      ],
                                     ),
                                   ],
                                 ),

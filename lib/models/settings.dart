@@ -20,7 +20,29 @@ class HalaqahSettings {
   int fontSize;
   
   String revisionOrder;
+  String currencySymbol;
+  String gender; // 'male' or 'female'
+  String timeFormat; // '12h', '24h', or 'device'
   
+  // Timing parameters
+  String timingType; // 'fixed' or 'relative'
+  String country; // e.g. 'YE', 'SA'
+  String city; // e.g. 'صنعاء', 'الرياض'
+  double? customLatitude;
+  double? customLongitude;
+  String calculationMethod; // e.g. 'umm_al_qura'
+  String relativeStartPrayer; // e.g. 'asr', 'fajr'
+  int relativeStartOffset; // e.g. 15, -10
+  int classDurationMinutes; // e.g. 120
+
+  // Ramadan Specific Dynamic timing parameters
+  String ramadanTimingType; // 'same', 'fixed', 'relative'
+  String ramadanRelativeStartPrayer; // e.g. 'fajr', 'asr'
+  int ramadanRelativeStartOffset; // e.g. 30
+  int ramadanClassDurationMinutes; // e.g. 90
+  String ramadanFixedStartTime; // e.g. '21:00'
+  String ramadanFixedEndTime; // e.g. '22:30'
+
   Map<String, int> pointsConfig;
 
   HalaqahSettings({
@@ -40,6 +62,24 @@ class HalaqahSettings {
     this.theme = 'light',
     this.fontSize = 16,
     this.revisionOrder = 'ascending',
+    this.currencySymbol = 'ر.س',
+    this.gender = 'male',
+    this.timeFormat = '12h',
+    this.timingType = 'fixed',
+    this.country = 'YE',
+    this.city = 'صنعاء',
+    this.customLatitude,
+    this.customLongitude,
+    this.calculationMethod = 'umm_al_qura',
+    this.relativeStartPrayer = 'asr',
+    this.relativeStartOffset = 15,
+    this.classDurationMinutes = 120,
+    this.ramadanTimingType = 'same',
+    this.ramadanRelativeStartPrayer = 'fajr',
+    this.ramadanRelativeStartOffset = 30,
+    this.ramadanClassDurationMinutes = 90,
+    this.ramadanFixedStartTime = '21:00',
+    this.ramadanFixedEndTime = '22:30',
     Map<String, int>? pointsConfig,
   }) : pointsConfig = pointsConfig ?? defaultPointsConfig;
 
@@ -73,6 +113,24 @@ class HalaqahSettings {
         'theme': theme,
         'font_size': fontSize,
         'revision_order': revisionOrder,
+        'currency_symbol': currencySymbol,
+        'gender': gender,
+        'time_format': timeFormat,
+        'timing_type': timingType,
+        'country': country,
+        'city': city,
+        'custom_latitude': customLatitude?.toString() ?? '',
+        'custom_longitude': customLongitude?.toString() ?? '',
+        'calculation_method': calculationMethod,
+        'relative_start_prayer': relativeStartPrayer,
+        'relative_start_offset': relativeStartOffset,
+        'class_duration_minutes': classDurationMinutes,
+        'ramadan_timing_type': ramadanTimingType,
+        'ramadan_relative_start_prayer': ramadanRelativeStartPrayer,
+        'ramadan_relative_start_offset': ramadanRelativeStartOffset,
+        'ramadan_class_duration_minutes': ramadanClassDurationMinutes,
+        'ramadan_fixed_start_time': ramadanFixedStartTime,
+        'ramadan_fixed_end_time': ramadanFixedEndTime,
         'points_config': pointsConfig.entries
             .map((e) => '${e.key}:${e.value}')
             .join(','),
@@ -90,6 +148,25 @@ class HalaqahSettings {
       }
     }
 
+    bool parseBool(dynamic val, bool defaultVal) {
+      if (val == null) return defaultVal;
+      if (val is bool) return val;
+      if (val is int) return val == 1;
+      final s = val.toString();
+      return s == '1' || s.toLowerCase() == 'true';
+    }
+
+    int parseInt(dynamic val, int defaultVal) {
+      if (val == null) return defaultVal;
+      if (val is int) return val;
+      return int.tryParse(val.toString()) ?? defaultVal;
+    }
+
+    double? parseDouble(dynamic val) {
+      if (val == null || val.toString().isEmpty) return null;
+      return double.tryParse(val.toString());
+    }
+
     return HalaqahSettings(
       halaqahName: map['halaqah_name'] ?? 'حلقتي',
       mosqueName: map['mosque_name'] ?? '',
@@ -97,16 +174,34 @@ class HalaqahSettings {
       teacherPhone: map['teacher_phone'] ?? '',
       normalStartTime: map['normal_start_time'] ?? '16:00',
       normalEndTime: map['normal_end_time'] ?? '18:00',
-      isRamadanMode: map['is_ramadan_mode'] == 1,
+      isRamadanMode: parseBool(map['is_ramadan_mode'], false),
       ramadanStartTime: map['ramadan_start_time'] ?? '21:00',
       ramadanEndTime: map['ramadan_end_time'] ?? '23:00',
-      absenceDaysBeforeWarning: map['absence_days_warning'] ?? 2,
-      absenceDaysBeforeExpulsion: map['absence_days_expulsion'] ?? 7,
-      autoExpulsionEnabled: map['auto_expulsion_enabled'] == 1,
-      useHijriCalendar: map['use_hijri_calendar'] != 0,
+      absenceDaysBeforeWarning: parseInt(map['absence_days_warning'], 2),
+      absenceDaysBeforeExpulsion: parseInt(map['absence_days_expulsion'], 7),
+      autoExpulsionEnabled: parseBool(map['auto_expulsion_enabled'], false),
+      useHijriCalendar: parseBool(map['use_hijri_calendar'], true),
       theme: map['theme'] ?? 'light',
-      fontSize: map['font_size'] ?? 16,
+      fontSize: parseInt(map['font_size'], 16),
       revisionOrder: map['revision_order'] ?? 'ascending',
+      currencySymbol: map['currency_symbol'] ?? 'ر.س',
+      gender: map['gender'] ?? 'male',
+      timeFormat: map['time_format'] ?? '12h',
+      timingType: map['timing_type'] ?? 'fixed',
+      country: map['country'] ?? 'YE',
+      city: map['city'] ?? 'صنعاء',
+      customLatitude: parseDouble(map['custom_latitude']),
+      customLongitude: parseDouble(map['custom_longitude']),
+      calculationMethod: map['calculation_method'] ?? 'umm_al_qura',
+      relativeStartPrayer: map['relative_start_prayer'] ?? 'asr',
+      relativeStartOffset: parseInt(map['relative_start_offset'], 15),
+      classDurationMinutes: parseInt(map['class_duration_minutes'], 120),
+      ramadanTimingType: map['ramadan_timing_type'] ?? 'same',
+      ramadanRelativeStartPrayer: map['ramadan_relative_start_prayer'] ?? 'fajr',
+      ramadanRelativeStartOffset: parseInt(map['ramadan_relative_start_offset'], 30),
+      ramadanClassDurationMinutes: parseInt(map['ramadan_class_duration_minutes'], 90),
+      ramadanFixedStartTime: map['ramadan_fixed_start_time'] ?? '21:00',
+      ramadanFixedEndTime: map['ramadan_fixed_end_time'] ?? '22:30',
       pointsConfig: points.isEmpty ? null : points,
     );
   }
@@ -128,6 +223,24 @@ class HalaqahSettings {
     String? theme,
     int? fontSize,
     String? revisionOrder,
+    String? currencySymbol,
+    String? gender,
+    String? timeFormat,
+    String? timingType,
+    String? country,
+    String? city,
+    double? customLatitude,
+    double? customLongitude,
+    String? calculationMethod,
+    String? relativeStartPrayer,
+    int? relativeStartOffset,
+    int? classDurationMinutes,
+    String? ramadanTimingType,
+    String? ramadanRelativeStartPrayer,
+    int? ramadanRelativeStartOffset,
+    int? ramadanClassDurationMinutes,
+    String? ramadanFixedStartTime,
+    String? ramadanFixedEndTime,
     Map<String, int>? pointsConfig,
   }) {
     return HalaqahSettings(
@@ -149,6 +262,24 @@ class HalaqahSettings {
       theme: theme ?? this.theme,
       fontSize: fontSize ?? this.fontSize,
       revisionOrder: revisionOrder ?? this.revisionOrder,
+      currencySymbol: currencySymbol ?? this.currencySymbol,
+      gender: gender ?? this.gender,
+      timeFormat: timeFormat ?? this.timeFormat,
+      timingType: timingType ?? this.timingType,
+      country: country ?? this.country,
+      city: city ?? this.city,
+      customLatitude: customLatitude ?? this.customLatitude,
+      customLongitude: customLongitude ?? this.customLongitude,
+      calculationMethod: calculationMethod ?? this.calculationMethod,
+      relativeStartPrayer: relativeStartPrayer ?? this.relativeStartPrayer,
+      relativeStartOffset: relativeStartOffset ?? this.relativeStartOffset,
+      classDurationMinutes: classDurationMinutes ?? this.classDurationMinutes,
+      ramadanTimingType: ramadanTimingType ?? this.ramadanTimingType,
+      ramadanRelativeStartPrayer: ramadanRelativeStartPrayer ?? this.ramadanRelativeStartPrayer,
+      ramadanRelativeStartOffset: ramadanRelativeStartOffset ?? this.ramadanRelativeStartOffset,
+      ramadanClassDurationMinutes: ramadanClassDurationMinutes ?? this.ramadanClassDurationMinutes,
+      ramadanFixedStartTime: ramadanFixedStartTime ?? this.ramadanFixedStartTime,
+      ramadanFixedEndTime: ramadanFixedEndTime ?? this.ramadanFixedEndTime,
       pointsConfig: pointsConfig ?? this.pointsConfig,
     );
   }

@@ -66,5 +66,7 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSContactsUsageDescription</key>
+	<string>نحتاج للوصول لجهات الاتصال لتسهيل استيراد وتعبئة أرقام هواتف الطلاب وأولياء أمورهم.</string>
 </dict>
 </plist>

@@ -3,10 +3,14 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../../services/database_service.dart';
 import '../../services/qr_service.dart';
+import '../../models/settings.dart';
 import '../../models/student.dart';
 import '../../models/daily_record.dart';
+import '../../models/vacation.dart';
 import '../../utils/helpers.dart';
+import '../../utils/prayer_time_helper.dart';
 import '../memorization/recitation_screen.dart';
+import '../settings/add_vacation_screen.dart';
 
 class AttendanceScreen extends StatefulWidget {
   const AttendanceScreen({super.key});
@@ -20,7 +24,11 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   List<Student> _students = [];
   Map<String, DailyRecord> _todayRecords = {};
   DateTime _selectedDate = DateTime.now();
+  HalaqahSettings _settings = HalaqahSettings();
   bool _isLoading = true;
+  String _filter = 'all'; // 'all', 'present', 'absent', 'excused', 'remaining'
+  List<Vacation> _vacations = [];
+  bool _isSuspended = false;
 
   @override
   void initState() {
@@ -28,20 +36,56 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     _loadData();
   }
 
-  Future<void> _loadData() async {
-    setState(() => _isLoading = true);
+  Future<void> _loadData({bool silent = false}) async {
+    if (!silent) {
+      setState(() => _isLoading = true);
+    }
     try {
       final students = await _db.getStudents(status: 'active');
       final records = await _db.getDailyRecordsForDate(_selectedDate);
+      final settings = await _db.getSettings();
+      final vacations = await _db.getAllVacations();
+      final isSuspended = await _db.isDateSuspended(_selectedDate);
       
       final recordsMap = <String, DailyRecord>{};
       for (final record in records) {
         recordsMap[record.studentId] = record;
       }
       
+      // Auto-mark students on approved vacation as 'excused' if they have no record yet
+      bool recordAdded = false;
+      for (final student in students) {
+        Vacation? activeVac;
+        for (final v in vacations) {
+          if (v.studentId == student.id && v.approved && v.isDateInVacation(_selectedDate)) {
+            activeVac = v;
+            break;
+          }
+        }
+        
+        if (activeVac != null) {
+          final existing = recordsMap[student.id];
+          if (existing == null || existing.attendance == null || existing.attendance!.isEmpty) {
+            final reasonLabel = VacationReason.getLabel(activeVac.reason);
+            final newRecord = DailyRecord(
+              studentId: student.id,
+              date: _selectedDate,
+              attendance: 'excused',
+              notes: 'إجازة تلقائية: $reasonLabel',
+            );
+            await _db.saveDailyRecord(newRecord);
+            recordsMap[student.id] = newRecord;
+            recordAdded = true;
+          }
+        }
+      }
+      
       setState(() {
         _students = students;
         _todayRecords = recordsMap;
+        _settings = settings;
+        _vacations = vacations;
+        _isSuspended = isSuspended;
         _isLoading = false;
       });
     } catch (e) {
@@ -54,16 +98,137 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
         DailyRecord(studentId: studentId, date: _selectedDate);
   }
 
+  bool isLate(DailyRecord? record) {
+    if (record == null || record.arrivalTime == null) return false;
+    final arrival = record.arrivalTime!;
+    final classTimes = PrayerTimeHelper.calculateClassTimes(_settings, record.date);
+    final start = classTimes.start;
+    
+    if (arrival.hour > start.hour) return true;
+    if (arrival.hour == start.hour && arrival.minute > start.minute) return true;
+    return false;
+  }
+
   Future<void> _updateAttendance(String studentId, String attendance) async {
+    if (attendance == 'excused') {
+      final student = _students.firstWhere((s) => s.id == studentId);
+      final hasVacation = _vacations.any(
+        (v) => v.studentId == studentId && v.approved && v.isDateInVacation(_selectedDate),
+      );
+      
+      if (!hasVacation) {
+        await _showQuickVacationDialog(student);
+        return;
+      }
+    }
+
     final record = _getOrCreateRecord(studentId);
     final updated = record.copyWith(
       attendance: attendance,
-      arrivalTime: attendance == 'present' || attendance == 'late'
-          ? DateTime.now()
+      arrivalTime: attendance == 'present'
+          ? (record.arrivalTime ?? DateTime.now())
           : null,
     );
     await _db.saveDailyRecord(updated);
-    _loadData();
+    _loadData(silent: true);
+  }
+
+  Future<void> _showQuickVacationDialog(Student student) async {
+    String selectedReason = 'travel';
+    String notes = '';
+    
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: Text('تسجيل إجازة لـ ${student.name}'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('الرجاء اختيار سبب الاستئذان لتسجيل الإجازة:'),
+                  const SizedBox(height: 16),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: VacationReason.getAll().map((item) {
+                      final val = item['value']!;
+                      final label = item['label']!;
+                      final isSelected = selectedReason == val;
+                      return ChoiceChip(
+                        label: Text(label),
+                        selected: isSelected,
+                        onSelected: (selected) {
+                          if (selected) {
+                            setDialogState(() => selectedReason = val);
+                          }
+                        },
+                      );
+                    }).toList(),
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    decoration: const InputDecoration(
+                      labelText: 'ملاحظات الإجازة (اختياري)',
+                      border: OutlineInputBorder(),
+                    ),
+                    onChanged: (val) => notes = val,
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context, false),
+                  child: const Text('إلغاء'),
+                ),
+                ElevatedButton(
+                  onPressed: () => Navigator.pop(context, true),
+                  child: const Text('إجازة اليوم فقط'),
+                ),
+                TextButton(
+                  onPressed: () {
+                    Navigator.pop(context, false);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => AddVacationScreen(student: student),
+                      ),
+                    ).then((val) {
+                      if (val == true) {
+                        _loadData(silent: true);
+                      }
+                    });
+                  },
+                  child: const Text('إجازة مطولة/مخصصة'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+    
+    if (result == true) {
+      final vacation = Vacation(
+        studentId: student.id,
+        startDate: _selectedDate,
+        endDate: _selectedDate,
+        reason: selectedReason,
+        notes: notes.isEmpty ? null : notes,
+      );
+      await _db.insertVacation(vacation);
+      
+      final record = _getOrCreateRecord(student.id);
+      final updated = record.copyWith(
+        attendance: 'excused',
+        arrivalTime: null,
+        notes: 'إجازة: ${VacationReason.getLabel(selectedReason)}',
+      );
+      await _db.saveDailyRecord(updated);
+      _loadData(silent: true);
+    }
   }
 
   Future<void> _selectDate() async {
@@ -131,11 +296,20 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     final absentCount = _todayRecords.values
         .where((r) => r.attendance == 'absent')
         .length;
+    final excusedCount = _todayRecords.values
+        .where((r) => r.attendance == 'excused')
+        .length;
+    final remainingCount = _students.length - presentCount - absentCount - excusedCount;
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('الحضور اليومي'),
         actions: [
+          IconButton(
+            icon: Icon(_isSuspended ? Icons.play_circle_fill : Icons.pause_circle_filled, color: _isSuspended ? Colors.green : Colors.orange),
+            onPressed: _toggleSuspension,
+            tooltip: _isSuspended ? 'تفعيل الحلقة' : 'تعليق الحلقة',
+          ),
           IconButton(
             icon: const Icon(Icons.qr_code_scanner),
             onPressed: _openQrScanner,
@@ -143,18 +317,21 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
           ),
         ],
       ),
-      body: Column(
-        children: [
-          _buildDateSelector(),
-          _buildStatsBar(presentCount, absentCount),
-          Expanded(
-            child: _isLoading
-                ? const Center(child: CircularProgressIndicator())
-                : _students.isEmpty
-                    ? _buildEmptyState()
-                    : _buildStudentList(),
-          ),
-        ],
+      body: SafeArea(
+        child: Column(
+          children: [
+            _buildDateSelector(),
+            if (_isSuspended) _buildSuspendedBanner(),
+            _buildStatsBar(presentCount, absentCount, excusedCount, remainingCount),
+            Expanded(
+              child: _isLoading
+                  ? const Center(child: CircularProgressIndicator())
+                  : _students.isEmpty
+                      ? _buildEmptyState()
+                      : _buildStudentList(),
+            ),
+          ],
+        ),
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: _openQrScanner,
@@ -164,100 +341,148 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   }
 
   Widget _buildDateSelector() {
+    final classTimes = PrayerTimeHelper.calculateClassTimes(_settings, _selectedDate);
+    final startTimeFormatted = Helpers.formatTime(classTimes.start, format: _settings.timeFormat, context: context);
+    final sourceText = classTimes.calculationSource ?? '';
+
     return Container(
       padding: const EdgeInsets.all(12),
       color: Theme.of(context).primaryColor.withOpacity(0.1),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
+      child: Column(
         children: [
-          IconButton(
-            icon: const Icon(Icons.chevron_right),
-            onPressed: () {
-              setState(() {
-                _selectedDate = _selectedDate.subtract(const Duration(days: 1));
-              });
-              _loadData();
-            },
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              IconButton(
+                icon: const Icon(Icons.chevron_right),
+                onPressed: () {
+                  setState(() {
+                    _selectedDate = _selectedDate.subtract(const Duration(days: 1));
+                  });
+                  _loadData();
+                },
+              ),
+              GestureDetector(
+                onTap: _selectDate,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(8),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.1),
+                        blurRadius: 4,
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    children: [
+                      Text(
+                        Helpers.getDayName(_selectedDate),
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      Text(
+                        Helpers.getFullHijriDate(_selectedDate),
+                        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.chevron_left),
+                onPressed: Helpers.isSameDay(_selectedDate, DateTime.now())
+                    ? null
+                    : () {
+                        setState(() {
+                          _selectedDate = _selectedDate.add(const Duration(days: 1));
+                        });
+                        _loadData();
+                      },
+              ),
+            ],
           ),
-          GestureDetector(
-            onTap: _selectDate,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(8),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.1),
-                    blurRadius: 4,
-                  ),
-                ],
-              ),
-              child: Column(
-                children: [
-                  Text(
-                    Helpers.getDayName(_selectedDate),
-                    style: const TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  Text(
-                    Helpers.getFullHijriDate(_selectedDate),
-                    style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                  ),
-                ],
-              ),
+          const SizedBox(height: 6),
+          Text(
+            'وقت بدء اليوم: $startTimeFormatted ($sourceText)',
+            style: GoogleFonts.tajawal(
+              fontSize: 12,
+              color: Theme.of(context).primaryColor,
+              fontWeight: FontWeight.w600,
             ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.chevron_left),
-            onPressed: Helpers.isSameDay(_selectedDate, DateTime.now())
-                ? null
-                : () {
-                    setState(() {
-                      _selectedDate = _selectedDate.add(const Duration(days: 1));
-                    });
-                    _loadData();
-                  },
           ),
         ],
       ),
     );
   }
 
-  Widget _buildStatsBar(int present, int absent) {
+  Widget _buildStatsBar(int present, int absent, int excused, int remaining) {
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: [
-          _buildStatChip('الطلاب', '${_students.length}', Colors.blue),
-          _buildStatChip('حاضر', '$present', Colors.green),
-          _buildStatChip('غائب', '$absent', Colors.red),
-          _buildStatChip('متبقي', '${_students.length - present - absent}', Colors.grey),
+          _buildStatChip('الكل', '${_students.length}', Colors.blue, 'all'),
+          _buildStatChip(GenderHelper.present(_settings.gender), '$present', Colors.green, 'present'),
+          _buildStatChip(GenderHelper.absent(_settings.gender), '$absent', Colors.red, 'absent'),
+          _buildStatChip(GenderHelper.excused(_settings.gender), '$excused', Colors.orange, 'excused'),
+          _buildStatChip(GenderHelper.remaining(_settings.gender), '$remaining', Colors.grey, 'remaining'),
         ],
       ),
     );
   }
 
-  Widget _buildStatChip(String label, String value, Color color) {
-    return Column(
-      children: [
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+  Widget _buildStatChip(String label, String value, Color color, String filterType) {
+    final isSelected = _filter == filterType;
+    return Expanded(
+      child: GestureDetector(
+        onTap: () {
+          setState(() {
+            _filter = filterType;
+          });
+        },
+        child: Container(
+          margin: const EdgeInsets.symmetric(horizontal: 2),
+          padding: const EdgeInsets.symmetric(vertical: 6),
           decoration: BoxDecoration(
-            color: color.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Text(
-            value,
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              color: color,
+            color: isSelected ? color.withOpacity(0.15) : Colors.transparent,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: isSelected ? color : Colors.transparent,
+              width: 1.5,
             ),
           ),
+          child: Column(
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: color.withOpacity(isSelected ? 0.35 : 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  value,
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: color,
+                    fontSize: 13,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 10,
+                  color: Colors.grey[600],
+                  fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                ),
+              ),
+            ],
+          ),
         ),
-        const SizedBox(height: 2),
-        Text(label, style: TextStyle(fontSize: 10, color: Colors.grey[600])),
-      ],
+      ),
     );
   }
 
@@ -274,14 +499,61 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     );
   }
 
+  List<Student> _getFilteredStudents() {
+    switch (_filter) {
+      case 'present':
+        return _students.where((s) {
+          final r = _todayRecords[s.id];
+          return r?.attendance == 'present' || r?.attendance == 'late';
+        }).toList();
+      case 'absent':
+        return _students.where((s) {
+          final r = _todayRecords[s.id];
+          return r?.attendance == 'absent';
+        }).toList();
+      case 'excused':
+        return _students.where((s) {
+          final r = _todayRecords[s.id];
+          return r?.attendance == 'excused';
+        }).toList();
+      case 'remaining':
+        return _students.where((s) {
+          final r = _todayRecords[s.id];
+          return r == null || r.attendance == null || r.attendance!.isEmpty;
+        }).toList();
+      case 'all':
+      default:
+        return _students;
+    }
+  }
+
   Widget _buildStudentList() {
+    final filtered = _getFilteredStudents();
+    if (filtered.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.filter_list_off, size: 48, color: Colors.grey[400]),
+              const SizedBox(height: 8),
+              Text(
+                'لا يوجد طلاب في هذا التصنيف',
+                style: TextStyle(color: Colors.grey[600]),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
     return RefreshIndicator(
       onRefresh: _loadData,
       child: ListView.builder(
         padding: const EdgeInsets.all(8),
-        itemCount: _students.length,
+        itemCount: filtered.length,
         itemBuilder: (context, index) {
-          final student = _students[index];
+          final student = filtered[index];
           final record = _todayRecords[student.id];
           return _buildStudentCard(student, record);
         },
@@ -320,15 +592,48 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                       ),
                       if (record?.arrivalTime != null)
                         Text(
-                          'وصل: ${Helpers.formatTime(record!.arrivalTime!)}',
-                          style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                          '${GenderHelper.arrivalWord(_settings.gender)}: ${Helpers.formatTime(record!.arrivalTime!, format: _settings.timeFormat, context: context)}' + (isLate(record) ? ' (${GenderHelper.lateWord(_settings.gender)})' : ''),
+                          style: TextStyle(
+                            fontSize: 12, 
+                            color: isLate(record) ? Colors.orange : Colors.grey[600],
+                            fontWeight: isLate(record) ? FontWeight.bold : FontWeight.normal,
+                          ),
                         ),
+                      (() {
+                        Vacation? studentVacation;
+                        for (final v in _vacations) {
+                          if (v.studentId == student.id && v.approved && v.isDateInVacation(_selectedDate)) {
+                            studentVacation = v;
+                            break;
+                          }
+                        }
+                        if (studentVacation != null) {
+                          return Padding(
+                            padding: const EdgeInsets.only(top: 4),
+                            child: Row(
+                              children: [
+                                const Icon(Icons.beach_access, size: 14, color: Colors.orange),
+                                const SizedBox(width: 4),
+                                Text(
+                                  'إجازة: ${VacationReason.getLabel(studentVacation.reason)}',
+                                  style: const TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.orange,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        }
+                        return const SizedBox.shrink();
+                      })(),
                     ],
                   ),
                 ),
                 IconButton(
                   icon: const Icon(Icons.more_vert),
-                  onPressed: () => _showStudentOptions(student, record),
+                  onPressed: _isSuspended ? null : () => _showStudentOptions(student, record),
                 ),
               ],
             ),
@@ -344,18 +649,18 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                 ),
                 const SizedBox(width: 8),
                 _buildAttendanceButton(
-                  'متأخر',
-                  'late',
-                  attendance,
-                  Colors.orange,
-                  student.id,
-                ),
-                const SizedBox(width: 8),
-                _buildAttendanceButton(
                   'غائب',
                   'absent',
                   attendance,
                   Colors.red,
+                  student.id,
+                ),
+                const SizedBox(width: 8),
+                _buildAttendanceButton(
+                  'مستأذن',
+                  'excused',
+                  attendance,
+                  Colors.orange,
                   student.id,
                 ),
               ],
@@ -398,7 +703,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     final isSelected = current == value;
     return Expanded(
       child: InkWell(
-        onTap: () => _updateAttendance(studentId, value),
+        onTap: _isSuspended ? null : () => _updateAttendance(studentId, value),
         borderRadius: BorderRadius.circular(8),
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 10),
@@ -422,7 +727,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
 
   Widget _buildToggleButton(String label, bool isActive, VoidCallback onTap) {
     return InkWell(
-      onTap: onTap,
+      onTap: _isSuspended ? null : onTap,
       borderRadius: BorderRadius.circular(8),
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 8),
@@ -462,48 +767,50 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     final r = record ?? DailyRecord(studentId: studentId, date: _selectedDate);
     final updated = r.copyWith(memorizationDone: !r.memorizationDone);
     await _db.saveDailyRecord(updated);
-    _loadData();
+    _loadData(silent: true);
   }
 
   Future<void> _toggleRevision(String studentId, DailyRecord? record) async {
     final r = record ?? DailyRecord(studentId: studentId, date: _selectedDate);
     final updated = r.copyWith(revisionDone: !r.revisionDone);
     await _db.saveDailyRecord(updated);
-    _loadData();
+    _loadData(silent: true);
   }
 
   void _showStudentOptions(Student student, DailyRecord? record) {
     showModalBottomSheet(
       context: context,
-      builder: (context) => Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          ListTile(
-            leading: const Icon(Icons.note_add),
-            title: const Text('إضافة ملاحظة'),
-            onTap: () {
-              Navigator.pop(context);
-              _showNotesDialog(student, record);
-            },
-          ),
-          if (record?.attendance == 'absent')
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
             ListTile(
-              leading: const Icon(Icons.help_outline),
-              title: const Text('سبب الغياب'),
+              leading: const Icon(Icons.note_add),
+              title: const Text('إضافة ملاحظة'),
               onTap: () {
                 Navigator.pop(context);
-                _showAbsenceReasonDialog(student, record!);
+                _showNotesDialog(student, record);
               },
             ),
-          ListTile(
-            leading: const Icon(Icons.book),
-            title: const Text('تسجيل الحفظ'),
-            onTap: () {
-              Navigator.pop(context);
-              _showMemorizationDialog(student);
-            },
-          ),
-        ],
+            if (record?.attendance == 'absent')
+              ListTile(
+                leading: const Icon(Icons.help_outline),
+                title: const Text('سبب الغياب'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _showAbsenceReasonDialog(student, record!);
+                },
+              ),
+            ListTile(
+              leading: const Icon(Icons.book),
+              title: const Text('تسجيل الحفظ'),
+              onTap: () {
+                Navigator.pop(context);
+                _showMemorizationDialog(student);
+              },
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -602,6 +909,76 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
       context,
       MaterialPageRoute(builder: (context) => RecitationScreen(student: student)),
     );
+  }
+
+  Widget _buildSuspendedBanner() {
+    return Container(
+      width: double.infinity,
+      color: Colors.orange.withOpacity(0.15),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      border: Border(bottom: BorderSide(color: Colors.orange.withOpacity(0.3))),
+      child: Row(
+        children: [
+          const Icon(Icons.warning_amber_rounded, color: Colors.orange),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              'تعليق الحلقة اليوم لظروف طارئة أو امتحانات العامة.',
+              style: GoogleFonts.tajawal(fontWeight: FontWeight.bold, color: Colors.orange[900]),
+            ),
+          ),
+          TextButton.icon(
+            onPressed: _toggleSuspension,
+            icon: const Icon(Icons.play_circle_outline, size: 16),
+            label: Text('تفعيل الحلقة الآن', style: GoogleFonts.tajawal(fontWeight: FontWeight.bold)),
+            style: TextButton.styleFrom(foregroundColor: Colors.teal),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _toggleSuspension() async {
+    final dateStr = _selectedDate.toIso8601String().split('T')[0];
+    final suspendedDates = await _db.getSuspendedDates();
+    if (_isSuspended) {
+      suspendedDates.remove(dateStr);
+      await _db.saveSuspendedDates(suspendedDates);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('تم إلغاء تعليق الحلقة لهذا اليوم')),
+      );
+    } else {
+      final confirm = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text('تعليق الحلقة', style: GoogleFonts.tajawal(fontWeight: FontWeight.bold)),
+          content: Text('هل أنت متأكد من تعليق الحلقة لهذا اليوم؟ لن يتم احتساب حضور أو غياب للطلاب في هذا اليوم.', style: GoogleFonts.tajawal()),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: Text('إلغاء', style: GoogleFonts.tajawal()),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: Text('تعليق', style: GoogleFonts.tajawal()),
+            ),
+          ],
+        ),
+      );
+      
+      if (confirm != true) return;
+      
+      suspendedDates.add(dateStr);
+      await _db.saveSuspendedDates(suspendedDates);
+      
+      final db = await _db.database;
+      await db.delete('daily_records', where: 'date = ?', whereArgs: [dateStr]);
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('تم تعليق الحلقة لهذا اليوم بنجاح 🗓️')),
+      );
+    }
+    _loadData();
   }
 }
 

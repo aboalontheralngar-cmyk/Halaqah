@@ -2,9 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import '../../services/database_service.dart';
 import '../../services/qr_service.dart';
+import '../../services/quran_service.dart';
 import '../../models/student.dart';
 import '../../models/daily_record.dart';
 import '../../models/behavior_point.dart';
+import '../../models/settings.dart';
+import '../../models/homework_grade.dart';
 import '../../utils/helpers.dart';
 import '../../utils/quran_data.dart';
 import 'student_form_screen.dart';
@@ -26,8 +29,12 @@ class _StudentDetailScreenState extends State<StudentDetailScreen>
   
   List<DailyRecord> _records = [];
   List<BehaviorPoint> _behaviorPoints = [];
+  List<HomeworkGrade> _homeworkGrades = [];
   int _totalPoints = 0;
   Map<String, dynamic> _stats = {};
+  int _uniquePagesCount = 0;
+  int _uniqueAyahsCount = 0;
+  HalaqahSettings _settings = HalaqahSettings();
   bool _isLoading = true;
 
   @override
@@ -51,6 +58,22 @@ class _StudentDetailScreenState extends State<StudentDetailScreen>
       final points = await _db.getStudentBehaviorPoints(_student.id);
       final totalPoints = await _db.getStudentTotalPoints(_student.id);
       final stats = await _db.getStudentStatistics(_student.id);
+      final grades = await _db.getStudentHomeworkGrades(_student.id);
+      final settings = await _db.getSettings();
+      
+      await QuranService.instance.initialize();
+      
+      final uniquePages = <int>{};
+      final uniqueAyahs = <String>{};
+      
+      for (final grade in grades) {
+        if (grade.gradeMark == 'absent') continue;
+        final range = QuranService.instance.getAyahRange(grade.surahId, grade.fromAyah, grade.toAyah);
+        for (final ayah in range) {
+          uniquePages.add(ayah.page);
+          uniqueAyahs.add('${grade.surahId}_${ayah.number}');
+        }
+      }
       
       final updatedStudent = await _db.getStudent(_student.id);
       
@@ -58,8 +81,12 @@ class _StudentDetailScreenState extends State<StudentDetailScreen>
         if (updatedStudent != null) _student = updatedStudent;
         _records = records;
         _behaviorPoints = points;
+        _homeworkGrades = grades;
         _totalPoints = totalPoints;
         _stats = stats;
+        _uniquePagesCount = uniquePages.length;
+        _uniqueAyahsCount = uniqueAyahs.length;
+        _settings = settings;
         _isLoading = false;
       });
     } catch (e) {
@@ -90,13 +117,13 @@ class _StudentDetailScreenState extends State<StudentDetailScreen>
                   ],
                 ),
               ),
-              const PopupMenuItem(
+              PopupMenuItem(
                 value: 'delete',
                 child: Row(
                   children: [
-                    Icon(Icons.delete, color: Colors.red),
-                    SizedBox(width: 8),
-                    Text('حذف الطالب', style: TextStyle(color: Colors.red)),
+                    const Icon(Icons.delete, color: Colors.red),
+                    const SizedBox(width: 8),
+                    Text('حذف ${GenderHelper.student(_settings.gender)}', style: const TextStyle(color: Colors.red)),
                   ],
                 ),
               ),
@@ -293,9 +320,9 @@ class _StudentDetailScreenState extends State<StudentDetailScreen>
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'معلومات الطالب',
-              style: TextStyle(
+            Text(
+              'معلومات ${GenderHelper.student(_settings.gender)}',
+              style: const TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.bold,
               ),
@@ -382,7 +409,7 @@ class _StudentDetailScreenState extends State<StudentDetailScreen>
             ),
             trailing: record.arrivalTime != null
                 ? Text(
-                    Helpers.formatTime(record.arrivalTime!),
+                    Helpers.formatTime(record.arrivalTime!, format: _settings.timeFormat, context: context),
                     style: TextStyle(color: Colors.grey[600]),
                   )
                 : null,
@@ -433,6 +460,54 @@ class _StudentDetailScreenState extends State<StudentDetailScreen>
               ),
             ),
             const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        children: [
+                          const Icon(Icons.menu_book, color: Colors.teal),
+                          const SizedBox(height: 8),
+                          Text(
+                            '$_uniquePagesCount',
+                            style: const TextStyle(
+                              fontSize: 24,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const Text('صفحات فريدة', style: TextStyle(fontSize: 12)),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        children: [
+                          const Icon(Icons.format_list_numbered, color: Colors.blue),
+                          const SizedBox(height: 8),
+                          Text(
+                            '$_uniqueAyahsCount',
+                            style: const TextStyle(
+                              fontSize: 24,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const Text('آيات منجزة', style: TextStyle(fontSize: 12)),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
             const Text(
               'السور المحفوظة',
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
@@ -454,6 +529,104 @@ class _StudentDetailScreenState extends State<StudentDetailScreen>
                     label: Text(QuranData.getSurahName(surahId)),
                   );
                 }).toList(),
+              ),
+            const SizedBox(height: 24),
+            const Text(
+              'سجل المحفوظات اليومي التفصيلي 🗓️',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            if (_homeworkGrades.isEmpty)
+              const Card(
+                child: Padding(
+                  padding: EdgeInsets.all(32),
+                  child: Center(child: Text('لا يوجد سجل محفوظات يومي')),
+                ),
+              )
+            else
+              ListView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: _homeworkGrades.length,
+                itemBuilder: (context, index) {
+                  final grade = _homeworkGrades[index];
+                  final surahName = QuranData.getSurahName(grade.surahId);
+                  
+                  return Card(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                Helpers.getFullHijriDate(grade.date),
+                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.blue),
+                              ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: grade.isRevision ? Colors.orange.shade50 : Colors.teal.shade50,
+                                  borderRadius: BorderRadius.circular(15),
+                                  border: Border.all(color: grade.isRevision ? Colors.orange.shade200 : Colors.teal.shade200),
+                                ),
+                                child: Text(
+                                  grade.isRevision ? 'مراجعة' : 'حفظ جديد',
+                                  style: TextStyle(
+                                    color: grade.isRevision ? Colors.orange.shade800 : Colors.teal.shade800,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'سورة $surahName (الآيات من ${grade.fromAyah} إلى ${grade.toAyah})',
+                            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                          ),
+                          const SizedBox(height: 6),
+                          Row(
+                            children: [
+                              const Icon(Icons.workspace_premium, size: 16, color: Colors.amber),
+                              const SizedBox(width: 4),
+                              Text(
+                                'التقييم: ${grade.gradeMarkArabic}',
+                                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+                              ),
+                              const SizedBox(width: 16),
+                              const Icon(Icons.error_outline, size: 16, color: Colors.red),
+                              const SizedBox(width: 4),
+                              Text(
+                                'الأخطاء: ${grade.mistakesCount}',
+                                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+                              ),
+                            ],
+                          ),
+                          if (grade.remark != null && grade.remark!.isNotEmpty) ...[
+                            const SizedBox(height: 8),
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: Colors.grey.shade50,
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Text(
+                                'توصية الشيخ: ${grade.remark}',
+                                style: TextStyle(fontSize: 12, color: Colors.grey.shade700, fontStyle: FontStyle.italic),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  );
+                },
               ),
           ],
         );
@@ -590,7 +763,7 @@ class _StudentDetailScreenState extends State<StudentDetailScreen>
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('حذف الطالب'),
+        title: Text('حذف ${GenderHelper.student(_settings.gender)}'),
         content: Text('هل أنت متأكد من حذف ${_student.name}؟\nسيتم حذف جميع بياناته.'),
         actions: [
           TextButton(

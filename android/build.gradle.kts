@@ -15,6 +15,22 @@ subprojects {
 subprojects {
     project.evaluationDependsOn(":app")
 }
+<<<<<<< HEAD
+=======
+subprojects {
+    configurations.all {
+        resolutionStrategy {
+            force("androidx.activity:activity:1.9.3")
+            force("androidx.activity:activity-ktx:1.9.3")
+            force("androidx.core:core:1.15.0")
+            force("androidx.core:core-ktx:1.15.0")
+            force("androidx.navigationevent:navigationevent-android:1.0.0")
+            force("androidx.browser:browser:1.8.0")
+        }
+    }
+}
+
+>>>>>>> 88d2a6888b44cf598d027c8378664b56578ca703
 
 tasks.register<Delete>("clean") {
     delete(rootProject.layout.buildDirectory)

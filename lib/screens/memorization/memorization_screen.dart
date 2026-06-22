@@ -24,6 +24,7 @@ class _MemorizationScreenState extends State<MemorizationScreen>
   Map<String, DailyRecord> _todayRecords = {};
   bool _isLoading = true;
   String _filter = 'all';
+  String _sortBy = 'name';
 
   @override
   void initState() {
@@ -60,16 +61,26 @@ class _MemorizationScreenState extends State<MemorizationScreen>
   }
 
   List<Student> get _filteredStudents {
-    if (_filter == 'all') return _students;
-    
-    return _students.where((student) {
-      final record = _todayRecords[student.id];
-      if (_filter == 'completed') {
-        return record?.memorizationDone == true;
-      } else {
-        return record?.memorizationDone != true;
-      }
-    }).toList();
+    List<Student> list;
+    if (_filter == 'all') {
+      list = List<Student>.from(_students);
+    } else {
+      list = _students.where((student) {
+        final record = _todayRecords[student.id];
+        if (_filter == 'completed') {
+          return record?.memorizationDone == true;
+        } else {
+          return record?.memorizationDone != true;
+        }
+      }).toList();
+    }
+
+    if (_sortBy == 'name') {
+      list.sort((a, b) => a.name.compareTo(b.name));
+    } else if (_sortBy == 'memorized') {
+      list.sort((a, b) => b.totalMemorized.compareTo(a.totalMemorized));
+    }
+    return list;
   }
 
   @override
@@ -96,6 +107,37 @@ class _MemorizationScreenState extends State<MemorizationScreen>
             tooltip: 'خطة الحفظ',
           ),
           PopupMenuButton<String>(
+            icon: const Icon(Icons.sort),
+            tooltip: 'ترتيب الطلاب',
+            onSelected: (value) {
+              setState(() {
+                _sortBy = value;
+              });
+            },
+            itemBuilder: (context) => [
+              PopupMenuItem(
+                value: 'name',
+                child: Row(
+                  children: [
+                    Icon(Icons.sort_by_alpha, color: _sortBy == 'name' ? Theme.of(context).primaryColor : Colors.grey),
+                    const SizedBox(width: 8),
+                    const Text('ترتيب أبجدي (الاسم)'),
+                  ],
+                ),
+              ),
+              PopupMenuItem(
+                value: 'memorized',
+                child: Row(
+                  children: [
+                    Icon(Icons.star, color: _sortBy == 'memorized' ? Theme.of(context).primaryColor : Colors.grey),
+                    const SizedBox(width: 8),
+                    const Text('ترتيب حسب المحفوظ'),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          PopupMenuButton<String>(
             icon: const Icon(Icons.filter_list),
             onSelected: (value) {
               setState(() => _filter = value);
@@ -108,20 +150,22 @@ class _MemorizationScreenState extends State<MemorizationScreen>
           ),
         ],
       ),
-      body: Column(
-        children: [
-          _buildDateHeader(),
-          _buildStatsBar(),
-          Expanded(
-            child: TabBarView(
-              controller: _tabController,
-              children: [
-                _buildMemorizationTab(),
-                _buildRevisionTab(),
-              ],
+      body: SafeArea(
+        child: Column(
+          children: [
+            _buildDateHeader(),
+            _buildStatsBar(),
+            Expanded(
+              child: TabBarView(
+                controller: _tabController,
+                children: [
+                  _buildMemorizationTab(),
+                  _buildRevisionTab(),
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: () => _navigateToAddMemorization(null),

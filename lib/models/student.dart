@@ -13,6 +13,11 @@ class Student {
   String status;
   String? photoPath;
   String? notes;
+  String memorizationDirection; // 'desc' or 'asc'
+  int? preMemorizedStartSurah;
+  int? preMemorizedStartAyah;
+  int? preMemorizedEndSurah;
+  int? preMemorizedEndAyah;
   DateTime createdAt;
   DateTime updatedAt;
 
@@ -29,6 +34,11 @@ class Student {
     this.status = 'active',
     this.photoPath,
     this.notes,
+    this.memorizationDirection = 'desc',
+    this.preMemorizedStartSurah,
+    this.preMemorizedStartAyah,
+    this.preMemorizedEndSurah,
+    this.preMemorizedEndAyah,
     DateTime? createdAt,
     DateTime? updatedAt,
   })  : id = id ?? const Uuid().v4(),
@@ -50,6 +60,11 @@ class Student {
         'status': status,
         'photo_path': photoPath,
         'notes': notes,
+        'memorization_direction': memorizationDirection,
+        'pre_memorized_start_surah': preMemorizedStartSurah,
+        'pre_memorized_start_ayah': preMemorizedStartAyah,
+        'pre_memorized_end_surah': preMemorizedEndSurah,
+        'pre_memorized_end_ayah': preMemorizedEndAyah,
         'created_at': createdAt.toIso8601String(),
         'updated_at': updatedAt.toIso8601String(),
       };
@@ -67,6 +82,11 @@ class Student {
         status: map['status'] ?? 'active',
         photoPath: map['photo_path'],
         notes: map['notes'],
+        memorizationDirection: map['memorization_direction'] ?? 'desc',
+        preMemorizedStartSurah: map['pre_memorized_start_surah'],
+        preMemorizedStartAyah: map['pre_memorized_start_ayah'],
+        preMemorizedEndSurah: map['pre_memorized_end_surah'],
+        preMemorizedEndAyah: map['pre_memorized_end_ayah'],
         createdAt: DateTime.parse(map['created_at']),
         updatedAt: DateTime.parse(map['updated_at']),
       );
@@ -81,6 +101,12 @@ class Student {
     String? status,
     String? photoPath,
     String? notes,
+    String? memorizationDirection,
+    int? preMemorizedStartSurah,
+    int? preMemorizedStartAyah,
+    int? preMemorizedEndSurah,
+    int? preMemorizedEndAyah,
+    bool clearPreMemorized = false,
   }) {
     return Student(
       id: id,
@@ -95,8 +121,21 @@ class Student {
       status: status ?? this.status,
       photoPath: photoPath ?? this.photoPath,
       notes: notes ?? this.notes,
+      memorizationDirection: memorizationDirection ?? this.memorizationDirection,
+      preMemorizedStartSurah: clearPreMemorized ? null : (preMemorizedStartSurah ?? this.preMemorizedStartSurah),
+      preMemorizedStartAyah: clearPreMemorized ? null : (preMemorizedStartAyah ?? this.preMemorizedStartAyah),
+      preMemorizedEndSurah: clearPreMemorized ? null : (preMemorizedEndSurah ?? this.preMemorizedEndSurah),
+      preMemorizedEndAyah: clearPreMemorized ? null : (preMemorizedEndAyah ?? this.preMemorizedEndAyah),
       createdAt: createdAt,
       updatedAt: DateTime.now(),
     );
   }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is Student && runtimeType == other.runtimeType && id == other.id;
+
+  @override
+  int get hashCode => id.hashCode;
 }

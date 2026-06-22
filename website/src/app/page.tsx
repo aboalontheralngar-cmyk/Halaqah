@@ -25,7 +25,9 @@ import {
   Lightbulb,
   Trophy,
   X,
-  Loader2
+  Loader2,
+  Dices,
+  Palmtree
 } from "lucide-react";
 import { useStore } from "@/store/useStore";
 import { StatCard, ActionButton } from "@/components/ui/DashboardCards";
@@ -167,7 +169,9 @@ export default function Dashboard() {
               { label: labels.addStudent, icon: UserPlus, color: "text-blue-600", bg: "bg-blue-50 dark:bg-blue-900/20", href: "/students" },
               { label: "الحفظ والمراجعة", icon: BookOpen, color: "text-amber-600", bg: "bg-amber-50 dark:bg-amber-900/20", href: "/memorization" },
               { label: "النقاط والسلوك", icon: Award, color: "text-purple-600", bg: "bg-purple-50 dark:bg-purple-900/20", href: "/points" },
+              { label: "إجازات الطلاب", icon: Palmtree, color: "text-sky-600", bg: "bg-sky-50 dark:bg-sky-900/20", href: "/vacations" },
               { label: "الامتحانات", icon: ShieldCheck, color: "text-rose-600", bg: "bg-rose-50 dark:bg-rose-900/20", href: "/exams" },
+              { label: "القرعة العشوائية", icon: Dices, color: "text-emerald-600", bg: "bg-emerald-50 dark:bg-emerald-900/20", href: "/students/raffle" },
               { label: "التقارير", icon: BarChart3, color: "text-cyan-600", bg: "bg-cyan-50 dark:bg-cyan-900/20", href: "/reports" },
             ].map((action, i) => (
               <button 

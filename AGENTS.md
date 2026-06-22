@@ -62,6 +62,7 @@ Refactor if needed
 Add comments only where necessary
 Explain complex logic clearly
 Keep README updated if major changes occur
+توثيق الميزات بعد كل عملية تطوير وتدوينها في ملف [release_notes.md](file:///c:/Users/salman/Documents/flutter_App/Halaqah/docs/release_notes.md) لضمان معرفة المستخدم والمدرس بكل ما تم إنجازه.
 🚫 What to Avoid
 
 Overengineering

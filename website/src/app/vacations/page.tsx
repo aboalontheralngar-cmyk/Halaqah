@@ -1,14 +1,15 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { Palmtree, Plus, Trash2, CheckCircle, Clock, X, CalendarRange } from "lucide-react";
+import { Palmtree, Plus, Trash2, CheckCircle, Clock, X, CalendarRange, Pencil } from "lucide-react";
 import { useStore } from "@/store/useStore";
 import { supabase } from "@/lib/supabase";
 import { getHijriDate } from "@/utils/dateUtils";
 
 export default function VacationsPage() {
-  const { students, vacations, addVacation, deleteVacation, fetchVacations } = useStore();
+  const { students, vacations, addVacation, deleteVacation, fetchVacations, fetchAttendance } = useStore();
   const [showModal, setShowModal] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState({ studentId: "", startDate: "", endDate: "", reason: "" });
 
   const today = new Date().toISOString().split("T")[0];
@@ -32,9 +33,58 @@ export default function VacationsPage() {
       alert("تاريخ النهاية يجب أن يكون بعد تاريخ البداية");
       return;
     }
-    await addVacation({ ...form, approved: true });
+    
+    if (editingId) {
+      if (supabase) {
+        await supabase
+          .from("vacations")
+          .update({
+            student_id: form.studentId,
+            start_date: form.startDate,
+            end_date: form.endDate,
+            reason: form.reason
+          })
+          .eq("id", editingId);
+      }
+      await fetchVacations();
+    } else {
+      await addVacation({ ...form, approved: true });
+    }
+
+    // Auto-update attendance records (Component 7)
+    if (supabase) {
+      const { data: absentRecords } = await supabase
+        .from("attendance")
+        .select("id")
+        .eq("student_id", form.studentId)
+        .gte("date", form.startDate)
+        .lte("date", form.endDate)
+        .eq("status", "absent");
+
+      if (absentRecords && absentRecords.length > 0) {
+        const ids = absentRecords.map(r => r.id);
+        await supabase
+          .from("attendance")
+          .update({ status: "excused", notes: "تحديث تلقائي لتسجيل إجازة للطالب" })
+          .in("id", ids);
+        await fetchAttendance();
+      }
+    }
+    
     setShowModal(false);
+    setEditingId(null);
     setForm({ studentId: "", startDate: "", endDate: "", reason: "" });
+  };
+
+  const handleEdit = (vacation: any) => {
+    setEditingId(vacation.id);
+    setForm({
+      studentId: vacation.studentId,
+      startDate: vacation.startDate,
+      endDate: vacation.endDate,
+      reason: vacation.reason || ""
+    });
+    setShowModal(true);
   };
 
   const toggleApproval = async (id: string, approved: boolean) => {
@@ -131,12 +181,19 @@ export default function VacationsPage() {
                           {v.approved ? "معتمدة" : "بانتظار الاعتماد"}
                         </button>
                       </td>
-                      <td className="px-8 py-6 text-center">
+                      <td className="px-8 py-6 text-center flex items-center justify-center gap-2">
+                        <button
+                          onClick={() => handleEdit(v)}
+                          className="p-2 rounded-xl text-gray-400 hover:text-teal-600 hover:bg-teal-50 dark:hover:bg-teal-900/20 transition-all"
+                          aria-label="تعديل الإجازة"
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </button>
                         <button
                           onClick={() => {
                             if (confirm("هل تريد حذف هذه الإجازة؟")) deleteVacation(v.id);
                           }}
-                          className="p-2 rounded-xl text-gray-300 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all"
+                          className="p-2 rounded-xl text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all"
                           aria-label="حذف الإجازة"
                         >
                           <Trash2 className="w-4 h-4" />
@@ -151,18 +208,24 @@ export default function VacationsPage() {
         )}
       </div>
 
-      {/* Add Modal */}
+      {/* Add/Edit Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-gray-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-300">
           <div className="bg-white dark:bg-gray-900 rounded-[2.5rem] p-10 w-full max-w-md shadow-2xl relative">
             <button
-              onClick={() => setShowModal(false)}
+              onClick={() => {
+                setShowModal(false);
+                setEditingId(null);
+                setForm({ studentId: "", startDate: "", endDate: "", reason: "" });
+              }}
               className="absolute top-8 left-8 p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors"
               aria-label="إغلاق"
             >
               <X className="w-6 h-6 text-gray-400" />
             </button>
-            <h3 className="text-2xl font-black text-gray-900 dark:text-white mb-6">تسجيل إجازة جديدة</h3>
+            <h3 className="text-2xl font-black text-gray-900 dark:text-white mb-6">
+              {editingId ? "تعديل تفاصيل الإجازة" : "تسجيل إجازة جديدة"}
+            </h3>
 
             <div className="space-y-5">
               <div>

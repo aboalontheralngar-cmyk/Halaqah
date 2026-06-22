@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { 
   Calendar as CalendarIcon, 
   CheckCircle, 
@@ -27,11 +27,17 @@ function formatDate(date: Date): string {
 }
 
 export default function AttendancePage() {
-  const { students, attendance, vacations, addAttendance, updateAttendance } = useStore();
+  const { students, attendance, vacations, addAttendance, updateAttendance, suspendedDates = [], fetchSuspendedDates, toggleSuspendedDate } = useStore();
   const [selectedDate, setSelectedDate] = useState(formatDate(new Date()));
   const [search, setSearch] = useState("");
   const [showDetailModal, setShowDetailModal] = useState<{studentId: string, status: AttendanceRecord['status']} | null>(null);
   const [extraData, setExtraData] = useState({ arrivalTime: "", absenceReason: "", notes: "" });
+
+  useEffect(() => {
+    fetchSuspendedDates();
+  }, [fetchSuspendedDates]);
+
+  const isSuspended = suspendedDates.includes(selectedDate);
 
   const getAttendanceStatus = (studentId: string, date: string) => {
     const record = attendance.find(a => a.studentId === studentId && a.date === date);
@@ -92,17 +98,40 @@ export default function AttendancePage() {
           <p className="text-gray-500 dark:text-gray-400 mt-2 font-medium">نظام رصد دقيق يشمل وقت الوصول، الإجازات، وأسباب الغياب.</p>
         </div>
         
-        <div className="bg-white/60 dark:bg-gray-900/60 backdrop-blur-md border border-white dark:border-gray-800 rounded-3xl shadow-xl p-4 flex items-center gap-6">
-          <input 
-            type="date" 
-            value={selectedDate} 
-            onChange={(e) => setSelectedDate(e.target.value)}
-            className="bg-transparent border-none outline-none font-black text-teal-600 dark:text-teal-400 cursor-pointer" 
-          />
-          <div className="h-8 w-[1px] bg-gray-100 dark:bg-gray-800" />
-          <span className="text-xs font-bold text-gray-400 dark:text-gray-500">{getHijriDate(new Date(selectedDate)).full}</span>
+        <div className="flex items-center gap-4">
+          <button
+            onClick={() => toggleSuspendedDate(selectedDate)}
+            className={`px-5 py-3 rounded-2xl text-xs font-black transition-all border flex items-center gap-2 ${
+              isSuspended
+                ? "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/20 dark:text-emerald-450 dark:border-emerald-900"
+                : "bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/20 dark:text-rose-450 dark:border-rose-900"
+            }`}
+          >
+            🗓️ {isSuspended ? "إلغاء تعليق الحلقة" : "تعليق الحلقة اليوم"}
+          </button>
+
+          <div className="bg-white/60 dark:bg-gray-900/60 backdrop-blur-md border border-white dark:border-gray-800 rounded-3xl shadow-xl p-4 flex items-center gap-6">
+            <input 
+              type="date" 
+              value={selectedDate} 
+              onChange={(e) => setSelectedDate(e.target.value)}
+              className="bg-transparent border-none outline-none font-black text-teal-600 dark:text-teal-400 cursor-pointer" 
+            />
+            <div className="h-8 w-[1px] bg-gray-100 dark:bg-gray-800" />
+            <span className="text-xs font-bold text-gray-400 dark:text-gray-500">{getHijriDate(new Date(selectedDate)).full}</span>
+          </div>
         </div>
       </div>
+
+      {isSuspended && (
+        <div className="bg-rose-500/10 border border-rose-500/20 text-rose-700 dark:text-rose-400 p-6 rounded-[2rem] flex items-center gap-4 animate-in slide-in-from-top-4">
+          <AlertCircle className="w-8 h-8 text-rose-600 animate-pulse" />
+          <div>
+            <h4 className="font-black text-base text-rose-900 dark:text-white">الحلقة معلقة اليوم ⚠️</h4>
+            <p className="text-xs font-bold text-rose-600 dark:text-rose-405 mt-1">الحلقة معلقة اليوم لظرف طارئ أو امتحانات مدرسية. تم قفل إجراءات تسجيل الحضور ولن يحتسب هذا اليوم في نسب الغياب العامة.</p>
+          </div>
+        </div>
+      )}
 
       {/* Stats Section */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4 lg:gap-6">
@@ -210,10 +239,10 @@ export default function AttendancePage() {
                     </td>
                     <td className="px-8 py-6">
                       <div className="flex items-center justify-center gap-2">
-                        <button onClick={() => handleQuickStatus(student.id, "present")} className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${status === "present" ? "bg-green-600 text-white" : "bg-gray-50 dark:bg-gray-800 text-gray-400 hover:text-green-600"}`}><CheckCircle className="w-5 h-5" /></button>
-                        <button onClick={() => handleQuickStatus(student.id, "late")} className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${status === "late" ? "bg-amber-500 text-white" : "bg-gray-50 dark:bg-gray-800 text-gray-400 hover:text-amber-500"}`}><Clock className="w-5 h-5" /></button>
-                        <button onClick={() => handleQuickStatus(student.id, "absent")} className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${status === "absent" ? "bg-red-600 text-white" : "bg-gray-50 dark:bg-gray-800 text-gray-400 hover:text-red-600"}`}><XCircle className="w-5 h-5" /></button>
-                        <button onClick={() => handleQuickStatus(student.id, "excused")} className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${status === "excused" ? "bg-blue-600 text-white" : "bg-gray-50 dark:bg-gray-800 text-gray-400 hover:text-blue-600"}`}><MessageSquare className="w-5 h-5" /></button>
+                        <button disabled={isSuspended} onClick={() => handleQuickStatus(student.id, "present")} className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${isSuspended ? "opacity-35 cursor-not-allowed" : ""} ${status === "present" ? "bg-green-600 text-white" : "bg-gray-50 dark:bg-gray-800 text-gray-400 hover:text-green-600"}`}><CheckCircle className="w-5 h-5" /></button>
+                        <button disabled={isSuspended} onClick={() => handleQuickStatus(student.id, "late")} className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${isSuspended ? "opacity-35 cursor-not-allowed" : ""} ${status === "late" ? "bg-amber-500 text-white" : "bg-gray-50 dark:bg-gray-800 text-gray-400 hover:text-amber-500"}`}><Clock className="w-5 h-5" /></button>
+                        <button disabled={isSuspended} onClick={() => handleQuickStatus(student.id, "absent")} className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${isSuspended ? "opacity-35 cursor-not-allowed" : ""} ${status === "absent" ? "bg-red-600 text-white" : "bg-gray-50 dark:bg-gray-800 text-gray-400 hover:text-red-600"}`}><XCircle className="w-5 h-5" /></button>
+                        <button disabled={isSuspended} onClick={() => handleQuickStatus(student.id, "excused")} className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${isSuspended ? "opacity-35 cursor-not-allowed" : ""} ${status === "excused" ? "bg-blue-600 text-white" : "bg-gray-50 dark:bg-gray-800 text-gray-400 hover:text-blue-600"}`}><MessageSquare className="w-5 h-5" /></button>
                       </div>
                     </td>
                   </tr>
