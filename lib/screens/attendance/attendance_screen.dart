@@ -903,9 +903,11 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   Widget _buildSuspendedBanner() {
     return Container(
       width: double.infinity,
-      color: Colors.orange.withOpacity(0.15),
+      decoration: BoxDecoration(
+        color: Colors.orange.withOpacity(0.15),
+        border: Border(bottom: BorderSide(color: Colors.orange.withOpacity(0.3))),
+      ),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      border: Border(bottom: BorderSide(color: Colors.orange.withOpacity(0.3))),
       child: Row(
         children: [
           const Icon(Icons.warning_amber_rounded, color: Colors.orange),

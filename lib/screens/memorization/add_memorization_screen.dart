@@ -6,6 +6,7 @@ import '../../models/memorization.dart';
 import '../../models/daily_record.dart';
 import '../../models/behavior_point.dart';
 import '../../models/settings.dart';
+import '../../models/ayah.dart';
 import '../../utils/quran_data.dart';
 import '../../widgets/surah_picker.dart';
 import '../../widgets/ayah_range_picker.dart';
