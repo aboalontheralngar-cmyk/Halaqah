@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:printing/printing.dart';
+import 'package:share_plus/share_plus.dart';
 import '../../services/database_service.dart';
 import '../../services/pdf_service.dart';
 import '../../models/student.dart';
@@ -169,6 +170,16 @@ class _ReportsScreenState extends State<ReportsScreen> {
                     onSelected: (value) => _handleStudentReport(student, value),
                     itemBuilder: (context) => [
                       const PopupMenuItem(
+                        value: 'whatsapp',
+                        child: Row(
+                          children: [
+                            Icon(Icons.chat, color: Colors.green, size: 20),
+                            SizedBox(width: 8),
+                            Text('تقرير واتساب الشهري'),
+                          ],
+                        ),
+                      ),
+                      const PopupMenuItem(
                         value: 'full',
                         child: Text('تقرير شامل'),
                       ),
@@ -249,6 +260,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
   void _handleStudentReport(Student student, String type) {
     switch (type) {
+      case 'whatsapp':
+        _showWhatsAppMonthlyReport(student);
+        break;
       case 'full':
         _showStudentFullReport(student);
         break;
@@ -259,6 +273,97 @@ class _ReportsScreenState extends State<ReportsScreen> {
         _showStudentAttendanceReport(student);
         break;
     }
+  }
+
+  // يبني تقريراً شهرياً منسّقاً بالإيموجي جاهزاً للإرسال عبر واتساب لولي الأمر
+  Future<String> _buildWhatsAppReportText(Student student) async {
+    final stats = await _db.getStudentStatistics(student.id);
+    final attendance = stats['attendance'] as Map<String, dynamic>? ?? {};
+    final points = stats['points'] ?? 0;
+    final memorized = stats['memorization'] ?? 0;
+
+    final present = attendance['present'] ?? 0;
+    final late = attendance['late'] ?? 0;
+    final absent = attendance['absent'] ?? 0;
+    final total = attendance['total'] ?? 0;
+    final pct = (total is int && total > 0)
+        ? (((present is int ? present : 0) + (late is int ? late : 0)) / total * 100).round()
+        : 0;
+
+    final monthName = Helpers.getHijriMonthName(DateTime.now().month);
+    final child = 'ابنكم';
+
+    final buffer = StringBuffer();
+    buffer.writeln('🕌 *تقرير شهر $monthName*');
+    buffer.writeln('');
+    buffer.writeln('السلام عليكم ورحمة الله وبركاته 🌿');
+    buffer.writeln('نوافيكم بتقرير أداء $child *${student.name}* لهذا الشهر:');
+    buffer.writeln('');
+    buffer.writeln('📅 *الحضور والمواظبة:*');
+    buffer.writeln('✅ أيام الحضور: $present');
+    if (late is int && late > 0) buffer.writeln('⏰ أيام التأخر: $late');
+    buffer.writeln('❌ أيام الغياب: $absent');
+    buffer.writeln('📊 نسبة الحضور: $pct%');
+    buffer.writeln('');
+    buffer.writeln('📖 *الحفظ:*');
+    buffer.writeln('📗 إجمالي المحفوظ: $memorized آية');
+    buffer.writeln('🎯 المقرر اليومي: ${student.planAmount} ${_getPlanLabel(student.planType)}');
+    buffer.writeln('');
+    buffer.writeln('🏆 *النقاط السلوكية:* $points');
+    buffer.writeln('');
+    if (pct >= 90) {
+      buffer.writeln('🌟 أداء متميز، بارك الله فيه وزاده توفيقاً.');
+    } else if (pct >= 70) {
+      buffer.writeln('👍 أداء جيد، نتطلع لمزيد من المواظبة.');
+    } else {
+      buffer.writeln('🤝 نأمل تعزيز المواظبة، ونسعد بتعاونكم لرفع المستوى.');
+    }
+    buffer.writeln('');
+    buffer.writeln('جزاكم الله خيراً على متابعتكم 🌹');
+    return buffer.toString();
+  }
+
+  void _showWhatsAppMonthlyReport(Student student) async {
+    final text = await _buildWhatsAppReportText(student);
+    if (!mounted) return;
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.chat, color: Colors.green),
+            SizedBox(width: 8),
+            Text('تقرير واتساب الشهري'),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.grey[100],
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Text(text, style: const TextStyle(fontSize: 13, height: 1.5)),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('إغلاق'),
+          ),
+          ElevatedButton.icon(
+            onPressed: () {
+              Navigator.pop(context);
+              Share.share(text, subject: 'تقرير ${student.name} الشهري');
+            },
+            icon: const Icon(Icons.share, size: 18),
+            label: const Text('إرسال / مشاركة'),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+          ),
+        ],
+      ),
+    );
   }
 
   void _showStudentFullReport(Student student) async {
