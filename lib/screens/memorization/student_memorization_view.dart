@@ -5,7 +5,6 @@ import '../../models/memorization.dart';
 import '../../utils/quran_data.dart';
 import '../../utils/helpers.dart';
 import '../../widgets/quality_rating.dart';
-import 'mushaf_visualizer_screen.dart';
 
 class StudentMemorizationView extends StatefulWidget {
   final Student student;
@@ -79,20 +78,6 @@ class _StudentMemorizationViewState extends State<StudentMemorizationView> {
     return Scaffold(
       appBar: AppBar(
         title: Text('محفوظات ${widget.student.name}'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.map_outlined),
-            tooltip: 'خريطة المصحف',
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => MushafVisualizerScreen(student: widget.student),
-                ),
-              ).then((_) => _loadData());
-            },
-          ),
-        ],
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
@@ -101,63 +86,6 @@ class _StudentMemorizationViewState extends State<StudentMemorizationView> {
               child: CustomScrollView(
                 slivers: [
                   SliverToBoxAdapter(child: _buildStatsSection()),
-                  SliverToBoxAdapter(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                      child: Card(
-                        elevation: 0,
-                        color: Theme.of(context).primaryColor.withOpacity(0.08),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          side: BorderSide(color: Theme.of(context).primaryColor.withOpacity(0.15)),
-                        ),
-                        child: InkWell(
-                          onTap: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) => MushafVisualizerScreen(student: widget.student),
-                              ),
-                            ).then((_) => _loadData());
-                          },
-                          borderRadius: BorderRadius.circular(12),
-                          child: Padding(
-                            padding: const EdgeInsets.all(16),
-                            child: Row(
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.all(10),
-                                  decoration: BoxDecoration(
-                                    color: Theme.of(context).primaryColor.withOpacity(0.15),
-                                    shape: BoxShape.circle,
-                                  ),
-                                  child: Icon(Icons.map, color: Theme.of(context).primaryColor),
-                                ),
-                                const SizedBox(width: 16),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      const Text(
-                                        'خريطة المصحف المرئية',
-                                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        'تتبع تقدم حفظ الأثمان والأحزاب بالتفصيل',
-                                        style: TextStyle(color: Colors.grey[600], fontSize: 12),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                Icon(Icons.arrow_forward_ios, size: 16, color: Theme.of(context).primaryColor),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
                   SliverToBoxAdapter(child: _buildProgressOverview()),
                   SliverPadding(
                     padding: const EdgeInsets.all(16),

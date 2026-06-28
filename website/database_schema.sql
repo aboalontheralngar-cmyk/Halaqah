@@ -89,7 +89,6 @@ CREATE TABLE attendance (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     student_id UUID REFERENCES students(id) ON DELETE CASCADE,
     center_id UUID REFERENCES centers(id) ON DELETE CASCADE,
-    halaqa_id UUID REFERENCES halaqat(id) ON DELETE CASCADE,
     date DATE NOT NULL,
     status TEXT CHECK (status IN ('present', 'absent', 'excused', 'late')) NOT NULL,
     arrival_time TIME,
@@ -103,7 +102,6 @@ CREATE TABLE memorization (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     student_id UUID REFERENCES students(id) ON DELETE CASCADE,
     center_id UUID REFERENCES centers(id) ON DELETE CASCADE,
-    halaqa_id UUID REFERENCES halaqat(id) ON DELETE CASCADE,
     surah TEXT NOT NULL,
     from_ayah INTEGER,
     to_ayah INTEGER,
@@ -118,7 +116,6 @@ CREATE TABLE points (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     student_id UUID REFERENCES students(id) ON DELETE CASCADE,
     center_id UUID REFERENCES centers(id) ON DELETE CASCADE,
-    halaqa_id UUID REFERENCES halaqat(id) ON DELETE CASCADE,
     type TEXT CHECK (type IN ('positive', 'negative')) NOT NULL,
     amount INTEGER NOT NULL,
     reason TEXT NOT NULL,
@@ -131,7 +128,6 @@ CREATE TABLE points (
 CREATE TABLE exams (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     center_id UUID REFERENCES centers(id) ON DELETE CASCADE,
-    halaqa_id UUID REFERENCES halaqat(id) ON DELETE CASCADE,
     title TEXT NOT NULL,
     date DATE NOT NULL,
     type TEXT CHECK (type IN ('oral', 'written')) NOT NULL,
@@ -154,7 +150,6 @@ CREATE TABLE vacations (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     student_id UUID REFERENCES students(id) ON DELETE CASCADE,
     center_id UUID REFERENCES centers(id) ON DELETE CASCADE,
-    halaqa_id UUID REFERENCES halaqat(id) ON DELETE CASCADE,
     start_date DATE NOT NULL,
     end_date DATE NOT NULL,
     reason TEXT,
@@ -166,7 +161,6 @@ CREATE TABLE vacations (
 CREATE TABLE activities (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     center_id UUID REFERENCES centers(id) ON DELETE CASCADE,
-    halaqa_id UUID REFERENCES halaqat(id) ON DELETE CASCADE,
     type TEXT NOT NULL, -- 'student_added', 'attendance_recorded', 'points_awarded', 'exam_created', etc.
     description TEXT NOT NULL,
     metadata JSONB,

@@ -14,9 +14,7 @@ import {
   Loader2,
   MoreVertical,
   X,
-  UserCheck,
-  Copy,
-  Check
+  UserCheck
 } from "lucide-react";
 import { useStore } from "@/store/useStore";
 
@@ -29,7 +27,6 @@ export default function TeachersPage() {
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [copiedId, setCopiedId] = useState<string | null>(null);
   const [newTeacher, setNewTeacher] = useState({
     email: "",
     halaqahId: ""
@@ -43,13 +40,6 @@ export default function TeachersPage() {
     };
     loadData();
   }, []);
-
-  const handleCopyInvite = (id: string) => {
-    const url = `${window.location.origin}/login?email=${encodeURIComponent(teachers.find(t=>t.id===id)?.email || "")}`;
-    navigator.clipboard.writeText(url);
-    setCopiedId(id);
-    setTimeout(() => setCopiedId(null), 2000);
-  };
 
   const handleAddTeacher = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -145,23 +135,14 @@ export default function TeachersPage() {
                 <div className="w-16 h-16 bg-gray-50 dark:bg-gray-800 rounded-2xl flex items-center justify-center text-gray-400">
                   <Mail className="w-8 h-8" />
                 </div>
-                <div className="flex gap-2">
-                  <button 
-                    onClick={() => handleCopyInvite(teacher.id)}
-                    className={`p-3 rounded-xl transition-all flex items-center gap-2 text-xs font-bold ${copiedId === teacher.id ? "bg-green-50 text-green-600" : "bg-teal-50 text-teal-600 hover:bg-teal-100"}`}
-                  >
-                    {copiedId === teacher.id ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                    {copiedId === teacher.id ? "تم النسخ" : "نسخ الرابط"}
-                  </button>
-                  <button 
-                    onClick={() => {
-                      if (confirm("هل أنت متأكد من حذف هذا المعلم؟")) removeTeacher(teacher.id);
-                    }}
-                    className="p-3 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20 rounded-xl transition-all opacity-0 group-hover:opacity-100"
-                  >
-                    <Trash2 className="w-5 h-5" />
-                  </button>
-                </div>
+                <button 
+                  onClick={() => {
+                    if (confirm("هل أنت متأكد من حذف هذا المعلم؟")) removeTeacher(teacher.id);
+                  }}
+                  className="p-3 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20 rounded-xl transition-all opacity-0 group-hover:opacity-100"
+                >
+                  <Trash2 className="w-5 h-5" />
+                </button>
               </div>
 
               <div className="space-y-4">
@@ -251,7 +232,7 @@ export default function TeachersPage() {
                   type="submit"
                   className="flex-1 bg-teal-600 text-white py-6 rounded-[2rem] font-black text-sm hover:bg-teal-700 shadow-xl shadow-teal-500/20 transition-all flex items-center justify-center gap-3 group"
                 >
-                  إضافة المعلم
+                  إرسال الدعوة
                   <ArrowRight className="w-5 h-5 group-hover:-translate-x-2 transition-transform" />
                 </button>
               </div>

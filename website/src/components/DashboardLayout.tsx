@@ -52,7 +52,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const navItems = useMemo(() => {
     const items = [
       { id: "home", label: "الرئيسية", icon: Home, href: "/" },
-      { id: "students", label: centerType === 'men' ? "الطلاب" : "الطالبات", icon: Users, href: "/students" },
+      { id: "students", label: centerType === 'men' ? "الطلاب" : centerType === 'women' ? "الطالبات" : "الطلاب والطالبات", icon: Users, href: "/students" },
       { id: "parents", label: "أولياء الأمور", icon: User, href: "/parents" },
       { id: "attendance", label: "الحضور", icon: ClipboardCheck, href: "/attendance" },
       { id: "discipline", label: "الانضباط", icon: AlertTriangle, href: "/discipline" },
@@ -224,7 +224,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
         <div className="mt-auto mb-6 p-5 bg-teal-50 dark:bg-teal-900/20 rounded-3xl border border-teal-100/50 dark:border-teal-800/30">
           <div className="flex items-center gap-3">
-            <div className={`w-10 h-10 rounded-2xl flex items-center justify-center text-white font-bold ${centerType === 'men' ? "bg-teal-600" : "bg-rose-500"}`}>
+            <div className={`w-10 h-10 rounded-2xl flex items-center justify-center text-white font-bold ${centerType === 'men' ? "bg-teal-600" : centerType === 'women' ? "bg-rose-500" : "bg-amber-500"}`}>
               {centerInitial}
             </div>
             <div className="flex-1 overflow-hidden">

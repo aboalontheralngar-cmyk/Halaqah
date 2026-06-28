@@ -12,38 +12,42 @@ class BackupService {
   final DatabaseService _db = DatabaseService();
 
   Future<String> exportBackup() async {
-    final db = await _db.database;
-
-    // Load all data from tables in bulk (high efficiency O(1) query count)
-    final students = await db.query('students');
-    final records = await db.query('daily_records');
-    final memorizations = await db.query('memorization_progress');
-    final behaviorPoints = await db.query('behavior_points');
-    final exams = await db.query('exams');
-    final vacations = await db.query('vacations');
-    final fundTransactions = await db.query('fund_transactions');
-    final plans = await db.query('plans');
-    final notifications = await db.query('notifications');
-    final homeworkGrades = await db.query('homework_grades');
-    final mushafProgress = await db.query('mushaf_progress');
-    final messageTemplates = await db.query('message_templates');
+    final students = await _db.getStudents();
     final settings = await _db.getSettings();
     
+    final allRecords = <Map<String, dynamic>>[];
+    final allMemorizations = <Map<String, dynamic>>[];
+    final allBehaviorPoints = <Map<String, dynamic>>[];
+    final allExams = <Map<String, dynamic>>[];
+    final allVacations = <Map<String, dynamic>>[];
+    
+    for (final student in students) {
+      final records = await _db.getStudentRecords(student.id, limit: 100000);
+      allRecords.addAll(records.map((r) => r.toMap()));
+
+      final memorizations = await _db.getStudentMemorization(student.id);
+      allMemorizations.addAll(memorizations.map((m) => m.toMap()));
+
+      
+      final points = await _db.getStudentBehaviorPoints(student.id);
+      allBehaviorPoints.addAll(points.map((p) => p.toMap()));
+      
+      final exams = await _db.getStudentExams(student.id);
+      allExams.addAll(exams.map((e) => e.toMap()));
+      
+      final vacations = await _db.getStudentVacations(student.id);
+      allVacations.addAll(vacations.map((v) => v.toMap()));
+    }
+    
     final backup = {
-      'version': '3.0',
+      'version': '1.0',
       'date': DateTime.now().toIso8601String(),
-      'students': students,
-      'records': records,
-      'memorizations': memorizations,
-      'behavior_points': behaviorPoints,
-      'exams': exams,
-      'vacations': vacations,
-      'fund_transactions': fundTransactions,
-      'plans': plans,
-      'notifications': notifications,
-      'homework_grades': homeworkGrades,
-      'mushaf_progress': mushafProgress,
-      'message_templates': messageTemplates,
+      'students': students.map((s) => s.toMap()).toList(),
+      'records': allRecords,
+      'memorizations': allMemorizations,
+      'behavior_points': allBehaviorPoints,
+      'exams': allExams,
+      'vacations': allVacations,
       'settings': settings.toMap(),
     };
     
@@ -67,12 +71,13 @@ class BackupService {
       final jsonString = await file.readAsString();
       final backup = json.decode(jsonString) as Map<String, dynamic>;
 
-      // Validate basic backup structure
-      if (backup['students'] is! List) {
+      // Validate backup structure before touching the database
+      if (backup['version'] == null || backup['students'] is! List) {
         return false;
       }
 
       await _db.restoreFromBackup(backup);
+
       return true;
     } catch (e) {
       return false;

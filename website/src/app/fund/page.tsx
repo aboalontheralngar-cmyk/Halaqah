@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo } from "react";
 import {
   Plus,
   DollarSign,
@@ -27,11 +27,7 @@ interface FundTransaction {
 }
 
 export default function FundPage() {
-  const { students, currencySymbol, fetchCenterSettings } = useStore();
-
-  useEffect(() => {
-    fetchCenterSettings();
-  }, [fetchCenterSettings]);
+  const { students } = useStore();
   
   // محاكاة بيانات الصندوق
   const [transactions, setTransactions] = useState<FundTransaction[]>([
@@ -157,7 +153,7 @@ export default function FundPage() {
             <DollarSign className="w-6 h-6 opacity-80" />
           </div>
           <p className="text-4xl font-black mb-2">{balance.toLocaleString()}</p>
-          <p className="text-sm opacity-80">{currencySymbol}</p>
+          <p className="text-sm opacity-80">ر.س</p>
         </div>
 
         <div className="grid grid-cols-2 gap-4">
@@ -237,7 +233,7 @@ export default function FundPage() {
                     }`}>
                       {transaction.amount > 0 ? "+" : ""}{transaction.amount}
                     </p>
-                    <p className="text-xs opacity-60">{currencySymbol}</p>
+                    <p className="text-xs opacity-60">ر.س</p>
                   </div>
                 </div>
               );
@@ -298,7 +294,7 @@ export default function FundPage() {
               )}
 
               <div>
-                <label className="block text-sm font-bold mb-3">المبلغ ({currencySymbol})</label>
+                <label className="block text-sm font-bold mb-3">المبلغ (ر.س)</label>
                 <input
                   type="number"
                   value={formData.amount}
