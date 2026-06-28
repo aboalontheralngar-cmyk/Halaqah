@@ -209,27 +209,7 @@ class _AddExamScreenState extends State<AddExamScreen> {
   }
 
   Widget _buildSurahRange() {
-    if (_memorizedSurahs.isEmpty) {
-      return Card(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            children: [
-              Icon(Icons.warning, color: Colors.orange[700], size: 48),
-              const SizedBox(height: 8),
-              const Text(
-                'لا يوجد حفظ مسجل لهذا الطالب',
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
-              const Text(
-                'قم بتسجيل الحفظ أولاً',
-                style: TextStyle(fontSize: 12, color: Colors.grey),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
+    final noMemorization = _memorizedSurahs.isEmpty;
 
     return Card(
       child: Padding(
@@ -238,6 +218,28 @@ class _AddExamScreenState extends State<AddExamScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text('نطاق الامتحان', style: TextStyle(fontWeight: FontWeight.bold)),
+            if (noMemorization) ...[
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.orange.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.info_outline, color: Colors.orange[700], size: 18),
+                    const SizedBox(width: 8),
+                    const Expanded(
+                      child: Text(
+                        'لا يوجد حفظ مسجل لهذا الطالب — يمكنك اختيار أي سورة لإجراء الامتحان.',
+                        style: TextStyle(fontSize: 12),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             const SizedBox(height: 16),
             Row(
               children: [
@@ -291,7 +293,8 @@ class _AddExamScreenState extends State<AddExamScreen> {
         final id = await showSurahPicker(
           context,
           selectedSurahId: selectedId,
-          allowedSurahIds: _memorizedSurahs,
+          // إن لم يكن لدى الطالب حفظ مسجل، نسمح باختيار أي سورة (allowedSurahIds = null)
+          allowedSurahIds: _memorizedSurahs.isEmpty ? null : _memorizedSurahs,
           title: label,
         );
         if (id != null) {

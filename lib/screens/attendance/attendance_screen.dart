@@ -31,6 +31,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   String _filter = 'all'; // 'all', 'present', 'absent', 'excused', 'remaining'
   List<Vacation> _vacations = [];
   bool _isSuspended = false;
+  String? _suspensionReason;
 
   @override
   void initState() {
@@ -48,6 +49,10 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
       final settings = await _db.getSettings();
       final vacations = await _db.getAllVacations();
       final isSuspended = await _db.isDateSuspended(_selectedDate);
+      final dateKey = _selectedDate.toIso8601String().split('T')[0];
+      final reasons = await _db.getSuspensionReasons();
+      final suspensionReason = reasons[dateKey] ??
+          (settings.isHolidayWeekday(_selectedDate) ? 'إجازة أسبوعية' : null);
       
       final recordsMap = <String, DailyRecord>{};
       for (final record in records) {
@@ -88,6 +93,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
         _settings = settings;
         _vacations = vacations;
         _isSuspended = isSuspended;
+        _suspensionReason = suspensionReason;
         _isLoading = false;
       });
     } catch (e) {
@@ -948,9 +954,20 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
           const Icon(Icons.warning_amber_rounded, color: Colors.orange),
           const SizedBox(width: 12),
           Expanded(
-            child: Text(
-              'تعليق الحلقة اليوم لظروف طارئة أو امتحانات العامة.',
-              style: GoogleFonts.tajawal(fontWeight: FontWeight.bold, color: Colors.orange[900]),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'الدراسة معلّقة في هذا اليوم.',
+                  style: GoogleFonts.tajawal(fontWeight: FontWeight.bold, color: Colors.orange[900]),
+                ),
+                if (_suspensionReason != null && _suspensionReason!.isNotEmpty)
+                  Text(
+                    'السبب: $_suspensionReason',
+                    style: GoogleFonts.tajawal(fontSize: 12, color: Colors.orange[800]),
+                  ),
+              ],
             ),
           ),
           TextButton.icon(
@@ -974,37 +991,113 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
         const SnackBar(content: Text('تم إلغاء تعليق الحلقة لهذا اليوم')),
       );
     } else {
-      final confirm = await showDialog<bool>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: Text('تعليق الحلقة', style: GoogleFonts.tajawal(fontWeight: FontWeight.bold)),
-          content: Text('هل أنت متأكد من تعليق الحلقة لهذا اليوم؟ لن يتم احتساب حضور أو غياب للطلاب في هذا اليوم.', style: GoogleFonts.tajawal()),
+      final result = await _showSuspensionDialog();
+      if (result == null) return;
+
+      final reason = result['reason'] as String;
+      final days = result['days'] as int;
+
+      final db = await _db.database;
+      for (int i = 0; i < days; i++) {
+        final d = _selectedDate.add(Duration(days: i));
+        final dStr = d.toIso8601String().split('T')[0];
+        if (!suspendedDates.contains(dStr)) {
+          suspendedDates.add(dStr);
+        }
+        await _db.setSuspensionReason(dStr, reason);
+        await db.delete('daily_records', where: 'date = ?', whereArgs: [dStr]);
+      }
+      await _db.saveSuspendedDates(suspendedDates);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('تم تعليق الدراسة ${days > 1 ? 'لـ $days أيام' : 'لهذا اليوم'} بنجاح 🗓️')),
+        );
+      }
+    }
+    _loadData();
+  }
+
+  Future<Map<String, dynamic>?> _showSuspensionDialog() async {
+    final reasonController = TextEditingController();
+    int days = 1;
+
+    return showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text('تعليق الدراسة', style: GoogleFonts.tajawal(fontWeight: FontWeight.bold)),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('سبب تعليق الدراسة (إلزامي):', style: GoogleFonts.tajawal(fontWeight: FontWeight.w600)),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: reasonController,
+                  textDirection: TextDirection.rtl,
+                  maxLines: 2,
+                  decoration: InputDecoration(
+                    hintText: 'مثال: امتحانات عامة، ظرف طارئ، إجازة رسمية...',
+                    hintStyle: GoogleFonts.tajawal(fontSize: 12),
+                    border: const OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text('مدة التعليق:', style: GoogleFonts.tajawal(fontWeight: FontWeight.w600)),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    IconButton(
+                      onPressed: days > 1 ? () => setDialogState(() => days--) : null,
+                      icon: const Icon(Icons.remove_circle_outline),
+                    ),
+                    Expanded(
+                      child: Text(
+                        days == 1 ? 'هذا اليوم فقط' : '$days أيام متتالية',
+                        textAlign: TextAlign.center,
+                        style: GoogleFonts.tajawal(fontWeight: FontWeight.bold, fontSize: 15),
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: days < 30 ? () => setDialogState(() => days++) : null,
+                      icon: const Icon(Icons.add_circle_outline),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'لن يُحتسب حضور أو غياب أو نقاط سلبية خلال أيام التعليق.',
+                  style: GoogleFonts.tajawal(fontSize: 11, color: Colors.grey[600]),
+                ),
+              ],
+            ),
+          ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(context, false),
+              onPressed: () => Navigator.pop(context),
               child: Text('إلغاء', style: GoogleFonts.tajawal()),
             ),
             ElevatedButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: Text('تعليق', style: GoogleFonts.tajawal()),
+              onPressed: () {
+                if (reasonController.text.trim().isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('الرجاء إدخال سبب التعليق', style: GoogleFonts.tajawal())),
+                  );
+                  return;
+                }
+                Navigator.pop(context, {
+                  'reason': reasonController.text.trim(),
+                  'days': days,
+                });
+              },
+              child: Text('تأكيد التعليق', style: GoogleFonts.tajawal()),
             ),
           ],
         ),
-      );
-      
-      if (confirm != true) return;
-      
-      suspendedDates.add(dateStr);
-      await _db.saveSuspendedDates(suspendedDates);
-      
-      final db = await _db.database;
-      await db.delete('daily_records', where: 'date = ?', whereArgs: [dateStr]);
-      
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تم تعليق الحلقة لهذا اليوم بنجاح 🗓️')),
-      );
-    }
-    _loadData();
+      ),
+    );
   }
 }
 

@@ -45,6 +45,9 @@ class HalaqahSettings {
 
   Map<String, int> pointsConfig;
 
+  // أيام العطلة الأسبوعية (تُعتبر معطّلة تلقائياً). تستخدم ترقيم DateTime.weekday: الإثنين=1 ... الأحد=7، الجمعة=5.
+  List<int> holidayWeekdays;
+
   HalaqahSettings({
     this.halaqahName = 'حلقتي',
     this.mosqueName = '',
@@ -81,7 +84,9 @@ class HalaqahSettings {
     this.ramadanFixedStartTime = '21:00',
     this.ramadanFixedEndTime = '22:30',
     Map<String, int>? pointsConfig,
-  }) : pointsConfig = pointsConfig ?? defaultPointsConfig;
+    List<int>? holidayWeekdays,
+  })  : pointsConfig = pointsConfig ?? Map<String, int>.from(defaultPointsConfig),
+        holidayWeekdays = holidayWeekdays ?? [5];
 
   static Map<String, int> defaultPointsConfig = {
     'daily_memorization': 5,
@@ -94,6 +99,7 @@ class HalaqahSettings {
     'incomplete_penalty': -3,
     'unexcused_absence': -5,
     'appearance_violation': -3,
+    'no_thobe': -3,
   };
 
   Map<String, dynamic> toMap() => {
@@ -134,6 +140,7 @@ class HalaqahSettings {
         'points_config': pointsConfig.entries
             .map((e) => '${e.key}:${e.value}')
             .join(','),
+        'holiday_weekdays': holidayWeekdays.join(','),
       };
 
   factory HalaqahSettings.fromMap(Map<String, dynamic> map) {
@@ -165,6 +172,16 @@ class HalaqahSettings {
     double? parseDouble(dynamic val) {
       if (val == null || val.toString().isEmpty) return null;
       return double.tryParse(val.toString());
+    }
+
+    List<int>? holidayDays;
+    if (map['holiday_weekdays'] != null && map['holiday_weekdays'].toString().trim().isNotEmpty) {
+      holidayDays = map['holiday_weekdays']
+          .toString()
+          .split(',')
+          .map((e) => int.tryParse(e.trim()))
+          .whereType<int>()
+          .toList();
     }
 
     return HalaqahSettings(
@@ -203,6 +220,7 @@ class HalaqahSettings {
       ramadanFixedStartTime: map['ramadan_fixed_start_time'] ?? '21:00',
       ramadanFixedEndTime: map['ramadan_fixed_end_time'] ?? '22:30',
       pointsConfig: points.isEmpty ? null : points,
+      holidayWeekdays: holidayDays,
     );
   }
 
@@ -242,6 +260,7 @@ class HalaqahSettings {
     String? ramadanFixedStartTime,
     String? ramadanFixedEndTime,
     Map<String, int>? pointsConfig,
+    List<int>? holidayWeekdays,
   }) {
     return HalaqahSettings(
       halaqahName: halaqahName ?? this.halaqahName,
@@ -281,8 +300,11 @@ class HalaqahSettings {
       ramadanFixedStartTime: ramadanFixedStartTime ?? this.ramadanFixedStartTime,
       ramadanFixedEndTime: ramadanFixedEndTime ?? this.ramadanFixedEndTime,
       pointsConfig: pointsConfig ?? this.pointsConfig,
+      holidayWeekdays: holidayWeekdays ?? this.holidayWeekdays,
     );
   }
+
+  bool isHolidayWeekday(DateTime date) => holidayWeekdays.contains(date.weekday);
 
   String get currentStartTime =>
       isRamadanMode ? ramadanStartTime : normalStartTime;

@@ -1162,7 +1162,35 @@ class DatabaseService {
   Future<bool> isDateSuspended(DateTime date) async {
     final dateStr = date.toIso8601String().split('T')[0];
     final dates = await getSuspendedDates();
-    return dates.contains(dateStr);
+    if (dates.contains(dateStr)) return true;
+    // أيام العطلة الأسبوعية (مثل الجمعة) تُعتبر معطّلة تلقائياً
+    final settings = await getSettings();
+    return settings.isHolidayWeekday(date);
+  }
+
+  // أسباب/ملاحظات تعليق الدراسة: تُخزَّن كأزواج "تاريخ=السبب" مفصولة بفاصلة منقوطة
+  Future<Map<String, String>> getSuspensionReasons() async {
+    final val = await getSetting('suspension_reasons');
+    if (val == null || val.trim().isEmpty) return {};
+    final map = <String, String>{};
+    for (final entry in val.split(';')) {
+      final idx = entry.indexOf('=');
+      if (idx > 0) {
+        map[entry.substring(0, idx)] = entry.substring(idx + 1);
+      }
+    }
+    return map;
+  }
+
+  Future<void> setSuspensionReason(String dateStr, String? reason) async {
+    final map = await getSuspensionReasons();
+    if (reason == null || reason.trim().isEmpty) {
+      map.remove(dateStr);
+    } else {
+      map[dateStr] = reason.trim().replaceAll(';', ' ').replaceAll('=', ' ');
+    }
+    final encoded = map.entries.map((e) => '${e.key}=${e.value}').join(';');
+    await saveSetting('suspension_reasons', encoded);
   }
 
   /// احتساب النقاط السلبية التلقائية لتاريخ معيّن (افتراضياً اليوم) دون تدخل المعلم.
