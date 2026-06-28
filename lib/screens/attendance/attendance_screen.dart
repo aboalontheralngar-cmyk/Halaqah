@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../../services/database_service.dart';
@@ -10,6 +11,7 @@ import '../../models/vacation.dart';
 import '../../utils/helpers.dart';
 import '../../utils/prayer_time_helper.dart';
 import '../memorization/recitation_screen.dart';
+import '../memorization/revision_screen.dart';
 import '../settings/add_vacation_screen.dart';
 
 class AttendanceScreen extends StatefulWidget {
@@ -669,23 +671,38 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
               const SizedBox(height: 8),
               Row(
                 children: [
-                  Expanded(
-                    child: _buildToggleButton(
-                      'حفظ',
-                      record?.memorizationDone ?? false,
-                      () => _toggleMemorization(student.id, record),
+                  if (!_hasFinishedQuran(student))
+                    Expanded(
+                      child: _buildToggleButton(
+                        'حفظ',
+                        record?.memorizationDone ?? false,
+                        () => _openMemorization(student),
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 8),
+                  if (!_hasFinishedQuran(student)) const SizedBox(width: 8),
                   Expanded(
                     child: _buildToggleButton(
                       'مراجعة',
                       record?.revisionDone ?? false,
-                      () => _toggleRevision(student.id, record),
+                      () => _openRevision(student),
                     ),
                   ),
                 ],
               ),
+              if (_hasFinishedQuran(student))
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Row(
+                    children: [
+                      Icon(Icons.verified, size: 14, color: Colors.amber[800]),
+                      const SizedBox(width: 4),
+                      Text(
+                        'أتم حفظ القرآن الكريم — المراجعة فقط',
+                        style: TextStyle(fontSize: 11, color: Colors.amber[800], fontWeight: FontWeight.bold),
+                      ),
+                    ],
+                  ),
+                ),
             ],
           ],
         ),
@@ -763,18 +780,25 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     );
   }
 
-  Future<void> _toggleMemorization(String studentId, DailyRecord? record) async {
-    final r = record ?? DailyRecord(studentId: studentId, date: _selectedDate);
-    final updated = r.copyWith(memorizationDone: !r.memorizationDone);
-    await _db.saveDailyRecord(updated);
-    _loadData(silent: true);
+  // الطالب الذي ختم القرآن: إجمالي محفوظه يساوي أو يتجاوز آيات المصحف (6236)
+  bool _hasFinishedQuran(Student student) {
+    return student.totalMemorized >= 6236;
   }
 
-  Future<void> _toggleRevision(String studentId, DailyRecord? record) async {
-    final r = record ?? DailyRecord(studentId: studentId, date: _selectedDate);
-    final updated = r.copyWith(revisionDone: !r.revisionDone);
-    await _db.saveDailyRecord(updated);
-    _loadData(silent: true);
+  Future<void> _openMemorization(Student student) async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => RecitationScreen(student: student)),
+    );
+    if (result == true) _loadData(silent: true);
+  }
+
+  Future<void> _openRevision(Student student) async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => RevisionScreen(student: student)),
+    );
+    if (result == true) _loadData(silent: true);
   }
 
   void _showStudentOptions(Student student, DailyRecord? record) {
@@ -914,9 +938,11 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   Widget _buildSuspendedBanner() {
     return Container(
       width: double.infinity,
-      color: Colors.orange.withOpacity(0.15),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      border: Border(bottom: BorderSide(color: Colors.orange.withOpacity(0.3))),
+      decoration: BoxDecoration(
+        color: Colors.orange.withOpacity(0.15),
+        border: Border(bottom: BorderSide(color: Colors.orange.withOpacity(0.3))),
+      ),
       child: Row(
         children: [
           const Icon(Icons.warning_amber_rounded, color: Colors.orange),

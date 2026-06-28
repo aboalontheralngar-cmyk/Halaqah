@@ -124,7 +124,19 @@ class _RecitationScreenState extends State<RecitationScreen> {
     final memorizations = allProgress.where((p) => !p.isRevision).toList();
 
     if (memorizations.isNotEmpty) {
-      memorizations.sort((a, b) => b.date.compareTo(a.date));
+      // نختار أبعد نقطة وصل إليها الطالب (الجبهة الأمامية للحفظ) وليس آخر سجل بالتاريخ،
+      // حتى لا يرجع المؤشر للخلف عند إعادة تسميع مقطع سابق.
+      final isDesc = student.memorizationDirection == 'desc';
+      memorizations.sort((a, b) {
+        // في الاتجاه التنازلي: الأبعد هو الأصغر رقم سورة ثم الأكبر آية
+        // في الاتجاه التصاعدي: الأبعد هو الأكبر رقم سورة ثم الأكبر آية
+        if (a.surahId != b.surahId) {
+          return isDesc
+              ? a.surahId.compareTo(b.surahId) // الأصغر أولاً (سنأخذ first)
+              : b.surahId.compareTo(a.surahId); // الأكبر أولاً
+        }
+        return b.toAyah.compareTo(a.toAyah); // الأكبر آية أولاً
+      });
       final last = memorizations.first;
       final surah = _quran.getSurah(last.surahId);
       if (surah != null) {
@@ -1149,6 +1161,14 @@ class _RecitationScreenState extends State<RecitationScreen> {
         revisionAmount: _isRevision ? _ayahs.length : (existingRecord?.revisionAmount ?? 0),
       );
       await _db.saveDailyRecord(record);
+
+      // 4.b تحديث إجمالي المحفوظ للطالب عند الحفظ الجديد (غير المراجعة)
+      // حتى تعمل آلية اكتشاف ختم القرآن وإحصائيات التقدم.
+      if (!_isRevision && _selectedGrade != 'absent') {
+        final newTotal = widget.student.totalMemorized + _ayahs.length;
+        final updatedStudent = widget.student.copyWith(totalMemorized: newTotal);
+        await _db.updateStudent(updatedStudent);
+      }
 
       // 5. Send message to parent if selected
       if (sendToParent) {
