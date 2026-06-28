@@ -25,6 +25,21 @@ class _StudentsScreenState extends State<StudentsScreen> {
   HalaqahSettings _settings = HalaqahSettings();
   List<String> _leftOutStudentIds = [];
 
+  // إشعار "لم يسمّع" لا يظهر إلا بعد انتهاء وقت دوام الحلقة (وقت النهاية في الإعدادات)
+  bool _checkPastEndTime(HalaqahSettings settings) {
+    final endStr =
+        settings.isRamadanMode ? settings.ramadanEndTime : settings.normalEndTime;
+    final parts = endStr.split(':');
+    if (parts.length < 2) return true;
+    final h = int.tryParse(parts[0]) ?? 0;
+    final m = int.tryParse(parts[1]) ?? 0;
+    final now = DateTime.now();
+    final endToday = DateTime(now.year, now.month, now.day, h, m);
+    return now.isAfter(endToday);
+  }
+
+  bool get _isPastClassEndTime => _checkPastEndTime(_settings);
+
   @override
   void initState() {
     super.initState();
@@ -36,6 +51,10 @@ class _StudentsScreenState extends State<StudentsScreen> {
     try {
       final students = await _db.getStudents();
       final settings = await _db.getSettings();
+      // احتساب النقاط السلبية التلقائية بعد انتهاء دوام الحلقة فقط (idempotent)
+      if (_checkPastEndTime(settings)) {
+        await _db.applyAutomaticNegativePoints();
+      }
       final leftOutIds = await _db.getStudentsWhoDidNotReciteLastClass();
       setState(() {
         _students = students;
@@ -241,7 +260,7 @@ class _StudentsScreenState extends State<StudentsScreen> {
                             ),
                           ),
                         ),
-                        if (_leftOutStudentIds.contains(student.id)) ...[
+                        if (_isPastClassEndTime && _leftOutStudentIds.contains(student.id)) ...[
                           Container(
                             margin: const EdgeInsets.symmetric(horizontal: 4),
                             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),

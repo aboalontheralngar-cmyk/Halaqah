@@ -1165,6 +1165,79 @@ class DatabaseService {
     return dates.contains(dateStr);
   }
 
+  /// احتساب النقاط السلبية التلقائية لتاريخ معيّن (افتراضياً اليوم) دون تدخل المعلم.
+  /// - الغياب بدون عذر: عقوبة الغياب.
+  /// - الحضور دون تسميع ولا مراجعة: عقوبة عدم إتمام المقرر.
+  /// الدالة idempotent: لا تكرر إضافة نقاط لنفس السبب ونفس التاريخ.
+  /// لا تُحتسب نقاط في الأيام المعطّلة (عطلة). يمرر [isHoliday] من طبقة الأعلى.
+  Future<int> applyAutomaticNegativePoints({
+    DateTime? date,
+    bool isHoliday = false,
+  }) async {
+    if (isHoliday) return 0;
+    final db = await database;
+    final targetDate = date ?? DateTime.now();
+    final dateStr = targetDate.toIso8601String().split('T')[0];
+
+    final settings = await getSettings();
+    final absencePenalty = settings.pointsConfig['unexcused_absence'] ?? -5;
+    final incompletePenalty = settings.pointsConfig['incomplete_penalty'] ?? -3;
+
+    const absenceReason = 'غياب بدون عذر (تلقائي)';
+    const incompleteReason = 'عدم التسميع (تلقائي)';
+
+    final records = await getDailyRecordsForDate(targetDate);
+    int added = 0;
+
+    for (final record in records) {
+      // غياب بدون عذر
+      if (record.attendance == 'absent') {
+        final exists = await db.query(
+          'behavior_points',
+          where: 'student_id = ? AND date = ? AND reason = ?',
+          whereArgs: [record.studentId, dateStr, absenceReason],
+          limit: 1,
+        );
+        if (exists.isEmpty) {
+          await insertBehaviorPoint(BehaviorPoint(
+            studentId: record.studentId,
+            type: 'negative',
+            reason: absenceReason,
+            points: absencePenalty,
+            date: targetDate,
+            resolved: true,
+            notes: 'احتساب تلقائي عند إغلاق اليوم',
+          ));
+          added++;
+        }
+      }
+      // حاضر لكن لم يسمّع ولم يراجع
+      else if ((record.attendance == 'present' || record.attendance == 'late') &&
+          !record.memorizationDone &&
+          !record.revisionDone) {
+        final exists = await db.query(
+          'behavior_points',
+          where: 'student_id = ? AND date = ? AND reason = ?',
+          whereArgs: [record.studentId, dateStr, incompleteReason],
+          limit: 1,
+        );
+        if (exists.isEmpty) {
+          await insertBehaviorPoint(BehaviorPoint(
+            studentId: record.studentId,
+            type: 'negative',
+            reason: incompleteReason,
+            points: incompletePenalty,
+            date: targetDate,
+            resolved: true,
+            notes: 'احتساب تلقائي عند إغلاق اليوم',
+          ));
+          added++;
+        }
+      }
+    }
+    return added;
+  }
+
   Future<List<String>> getStudentsWhoDidNotReciteLastClass() async {
     final db = await database;
     final List<Map<String, dynamic>> results = await db.rawQuery('''
