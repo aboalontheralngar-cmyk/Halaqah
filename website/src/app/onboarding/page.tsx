@@ -26,7 +26,7 @@ export default function OnboardingPage() {
     fullName: "",
     role: "center_admin" as "center_admin" | "supervisor",
     centerName: "",
-    centerType: "men" as "men" | "women",
+    centerType: "men" as "men" | "women" | "mixed",
     centerAddress: "",
     supervisorName: ""
   });
@@ -207,20 +207,27 @@ export default function OnboardingPage() {
                     className="w-full pr-16 pl-6 py-6 bg-gray-50 dark:bg-gray-800/50 border-none rounded-2xl text-lg font-bold outline-none focus:ring-4 ring-teal-500/10 dark:text-white transition-all"
                   />
                 </div>
-                <div className="grid grid-cols-2 gap-6">
+                <div className="grid grid-cols-3 gap-4">
                   <button 
                     onClick={() => setData({...data, centerType: 'men'})}
                     className={`p-6 rounded-2xl border-2 transition-all flex flex-col items-center gap-3 ${data.centerType === 'men' ? "border-teal-600 bg-teal-50 dark:bg-teal-900/20 text-teal-700" : "border-gray-50 dark:border-gray-800 text-gray-400"}`}
                   >
                     <Users className="w-6 h-6" />
-                    <span className="text-sm font-black">مركز رجال</span>
+                    <span className="text-sm font-black">رجال</span>
                   </button>
                   <button 
                     onClick={() => setData({...data, centerType: 'women'})}
                     className={`p-6 rounded-2xl border-2 transition-all flex flex-col items-center gap-3 ${data.centerType === 'women' ? "border-rose-500 bg-rose-50 dark:bg-rose-900/20 text-rose-500" : "border-gray-50 dark:border-gray-800 text-gray-400"}`}
                   >
                     <VenetianMask className="w-6 h-6" />
-                    <span className="text-sm font-black">مركز نساء</span>
+                    <span className="text-sm font-black">نساء</span>
+                  </button>
+                  <button 
+                    onClick={() => setData({...data, centerType: 'mixed'})}
+                    className={`p-6 rounded-2xl border-2 transition-all flex flex-col items-center gap-3 ${data.centerType === 'mixed' ? "border-amber-500 bg-amber-50 dark:bg-amber-900/20 text-amber-600" : "border-gray-50 dark:border-gray-800 text-gray-400"}`}
+                  >
+                    <Building2 className="w-6 h-6" />
+                    <span className="text-sm font-black">مختلط</span>
                   </button>
                 </div>
               </div>

@@ -144,11 +144,11 @@ interface HalaqahStore {
   currencySymbol: string;
   loading: boolean;
   darkMode: boolean;
-  centerType: 'men' | 'women';
+  centerType: 'men' | 'women' | 'mixed';
   user: any | null;
   profile: Profile | null;
-  currentCenter: { id: string, name: string, type: 'men' | 'women', activeHalaqa?: { id: string, name: string } } | null;
-  userCenters: { id: string, name: string, type: 'men' | 'women' }[];
+  currentCenter: { id: string, name: string, type: 'men' | 'women' | 'mixed', activeHalaqa?: { id: string, name: string } } | null;
+  userCenters: { id: string, name: string, type: 'men' | 'women' | 'mixed' }[];
   currentSupervisor: Supervisor | null;
   teachers: Teacher[];
   halaqat: { id: string, name: string }[];
@@ -162,9 +162,9 @@ interface HalaqahStore {
   fetchTeachers: () => Promise<void>;
   addTeacher: (email: string, halaqahId?: string) => Promise<void>;
   removeTeacher: (id: string) => Promise<void>;
-  setUserCenters: (centers: { id: string, name: string, type: 'men' | 'women' }[]) => void;
-  setCurrentCenter: (center: { id: string, name: string, type: 'men' | 'women' } | null) => void;
-  setCenterType: (type: 'men' | 'women') => void;
+  setUserCenters: (centers: { id: string, name: string, type: 'men' | 'women' | 'mixed' }[]) => void;
+  setCurrentCenter: (center: { id: string, name: string, type: 'men' | 'women' | 'mixed' } | null) => void;
+  setCenterType: (type: 'men' | 'women' | 'mixed') => void;
   fetchStudents: () => Promise<void>;
   addStudent: (student: Omit<Student, 'id'>) => Promise<void>;
   updateStudent: (id: string, student: Partial<Student>) => Promise<void>;
@@ -231,7 +231,7 @@ export const useStore = create<HalaqahStore>((set, get) => ({
   pointsConfig: {},
   suspendedDates: [],
   loading: false,
-  centerType: typeof window !== "undefined" ? (localStorage.getItem("centerType") as 'men' | 'women') || 'men' : 'men',
+  centerType: typeof window !== "undefined" ? (localStorage.getItem("centerType") as 'men' | 'women' | 'mixed') || 'men' : 'men',
   darkMode: typeof window !== "undefined" ? localStorage.getItem("darkMode") === "true" : false,
   user: null,
   profile: null,
@@ -792,41 +792,39 @@ export const useStore = create<HalaqahStore>((set, get) => ({
     const user = get().user;
     if (!supabase || !user) return false;
 
-    // 1. Find the invitation
-    const { data: member, error: findError } = await supabase
-      .from('center_members')
-      .select('id, user_id, email')
-      .eq('invitation_code', code)
-      .single();
-    
-    if (findError || !member) {
-      alert("الكود غير صحيح أو منتهي الصلاحية");
+    // استدعاء الدالة الآمنة في قاعدة البيانات (تتجاوز RLS وتتحقق من الكود والبريد)
+    const { data, error } = await supabase.rpc('join_center_with_code', {
+      p_code: code.trim(),
+    });
+
+    if (error) {
+      alert("فشل الانضمام: " + error.message);
       return false;
     }
 
-    // Security Check: Email must match the invited email
-    if (member.email.toLowerCase() !== user.email?.toLowerCase()) {
-      alert(`عذراً، هذا الكود مخصص للبريد: ${member.email}. يرجى التسجيل بهذا البريد للمتابعة.`);
+    const result = data as { success: boolean; error?: string; email?: string };
+
+    if (!result?.success) {
+      switch (result?.error) {
+        case 'invalid_code':
+          alert("الكود غير صحيح أو منتهي الصلاحية");
+          break;
+        case 'email_mismatch':
+          alert(`عذراً، هذا الكود مخصص للبريد: ${result.email}. يرجى التسجيل بهذا البريد للمتابعة.`);
+          break;
+        case 'already_used':
+          alert("هذا الكود تم استخدامه من قبل حساب آخر");
+          break;
+        case 'not_authenticated':
+          alert("يجب تسجيل الدخول أولاً");
+          break;
+        default:
+          alert("تعذّر الانضمام، حاول مرة أخرى");
+      }
       return false;
     }
 
-    if (member.user_id && member.user_id !== user.id) {
-      alert("هذا الكود تم استخدامه من قبل حساب آخر");
-      return false;
-    }
-
-    // 2. Link the user and clear the code (so it's one-time use if preferred, or keep it)
-    const { error: updateError } = await supabase
-      .from('center_members')
-      .update({ user_id: user.id })
-      .eq('id', member.id);
-    
-    if (updateError) {
-      alert("فشل الانضمام: " + updateError.message);
-      return false;
-    }
-
-    // 3. Refresh profile and return success
+    // تحديث الملف الشخصي وإرجاع النجاح
     await get().fetchProfile();
     return true;
   },
