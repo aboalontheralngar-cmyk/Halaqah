@@ -39,7 +39,7 @@ CREATE TABLE centers (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     name TEXT NOT NULL,
     address TEXT,
-    type TEXT CHECK (type IN ('men', 'women')) NOT NULL,
+    type TEXT CHECK (type IN ('men', 'women', 'mixed')) NOT NULL,
     supervisor_id UUID REFERENCES supervisors(id) ON DELETE SET NULL, -- اختياري
     owner_id UUID REFERENCES auth.users(id),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()

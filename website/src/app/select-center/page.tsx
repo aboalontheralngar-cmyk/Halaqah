@@ -345,9 +345,8 @@ export default function SelectCenterPage() {
               <div>
                 <label className="block text-xs font-black text-gray-400 mb-3 uppercase tracking-widest">النوع</label>
                 <div className="grid grid-cols-2 gap-4">
-                  <button type="button" onClick={() => setNewCenterData({...newCenterData, type: 'men'})} className={`py-4 rounded-xl font-black text-xs ${newCenterData.type === 'men' ? "bg-teal-600 text-white" : "bg-gray-50 dark:bg-gray-800 text-gray-400"}`}>رجال</button>
-                  <button type="button" onClick={() => setNewCenterData({...newCenterData, type: 'women'})} className={`py-4 rounded-xl font-black text-xs ${newCenterData.type === 'women' ? "bg-rose-500 text-white" : "bg-gray-50 dark:bg-gray-800 text-gray-400"}`}>نساء</button>
-                  <button type="button" onClick={() => setNewCenterData({...newCenterData, type: 'mixed'})} className={`py-4 rounded-xl font-black text-xs ${newCenterData.type === 'mixed' ? "bg-amber-500 text-white" : "bg-gray-50 dark:bg-gray-800 text-gray-400"}`}>مختلط</button>
+                  <button type="button" onClick={() => setNewCenterData({...newCenterData, type: newCenterData.type === 'men' ? 'women' : newCenterData.type === 'mixed' ? 'women' : 'mixed'})} className={`py-4 rounded-xl font-black text-xs ${newCenterData.type === 'men' || newCenterData.type === 'mixed' ? "bg-teal-600 text-white" : "bg-gray-50 dark:bg-gray-800 text-gray-400"}`}>رجال</button>
+                  <button type="button" onClick={() => setNewCenterData({...newCenterData, type: newCenterData.type === 'women' ? 'men' : newCenterData.type === 'mixed' ? 'men' : 'mixed'})} className={`py-4 rounded-xl font-black text-xs ${newCenterData.type === 'women' || newCenterData.type === 'mixed' ? "bg-rose-500 text-white" : "bg-gray-50 dark:bg-gray-800 text-gray-400"}`}>نساء</button>
                 </div>
               </div>
               <div className="flex gap-4 pt-4">
