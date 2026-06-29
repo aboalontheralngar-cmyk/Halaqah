@@ -14,7 +14,7 @@ class SupabaseService {
   factory SupabaseService() => instance;
   SupabaseService._internal();
 
-  final SupabaseClient client = Supabase.instance.client;
+  SupabaseClient get client => Supabase.instance.client;
   final DatabaseService _db = DatabaseService();
 
   static Future<void> initialize() async {
