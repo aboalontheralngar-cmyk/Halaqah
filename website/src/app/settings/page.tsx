@@ -94,6 +94,18 @@ export default function SettingsPage() {
                     {centerType === 'women' && <span className="text-[10px] font-bold text-rose-500">النوع النشط حالياً</span>}
                   </div>
                 </button>
+                <button 
+                  onClick={() => setCenterType('mixed')}
+                  className={`p-8 rounded-[2.5rem] border-2 transition-all flex flex-col items-center gap-4 ${centerType === 'mixed' ? "border-amber-500 bg-amber-50 dark:bg-amber-900/20" : "border-gray-100 dark:border-gray-800 hover:border-amber-200"}`}
+                >
+                  <div className={`w-14 h-14 rounded-2xl flex items-center justify-center ${centerType === 'mixed' ? "bg-amber-500 text-white" : "bg-gray-100 dark:bg-gray-800 text-gray-400"}`}>
+                    <Users className="w-8 h-8" />
+                  </div>
+                  <div className="text-center">
+                    <span className={`block font-black text-sm ${centerType === 'mixed' ? "text-amber-900 dark:text-amber-100" : "text-gray-400"}`}>مركز مختلط</span>
+                    {centerType === 'mixed' && <span className="text-[10px] font-bold text-amber-500">النوع النشط حالياً</span>}
+                  </div>
+                </button>
               </div>
             </div>
             {/* Supervision Linking */}
