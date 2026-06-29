@@ -52,8 +52,11 @@ class _StudentsScreenState extends State<StudentsScreen> {
       final students = await _db.getStudents();
       final settings = await _db.getSettings();
       // احتساب النقاط السلبية التلقائية بعد انتهاء دوام الحلقة فقط (idempotent)
+      // مع تخطّي الأيام المعطّلة (إجازة أسبوعية أو تعليق دراسة)
       if (_checkPastEndTime(settings)) {
-        await _db.applyAutomaticNegativePoints();
+        final today = DateTime.now();
+        final suspended = await _db.isDateSuspended(today);
+        await _db.applyAutomaticNegativePoints(isHoliday: suspended);
       }
       final leftOutIds = await _db.getStudentsWhoDidNotReciteLastClass();
       setState(() {
