@@ -366,6 +366,7 @@ CREATE POLICY "Allow select center_members by user or email" ON center_members
 -- =====================================================================
 -- 15) وظيفة آمنة للتحقق من كود دعوة المعلم دون الحاجة لتسجيل دخول مسبق
 -- =====================================================================
+DROP FUNCTION IF EXISTS get_member_by_code(TEXT) CASCADE;
 CREATE OR REPLACE FUNCTION get_member_by_code(code_to_check TEXT)
 RETURNS TABLE (
     id UUID,
@@ -395,6 +396,7 @@ $$ LANGUAGE plpgsql;
 -- =====================================================================
 -- 16) وظيفة لربط حساب مستخدم بكود دعوة المعلم عند تعيين كلمة المرور
 -- =====================================================================
+DROP FUNCTION IF EXISTS activate_member_by_code(TEXT, UUID) CASCADE;
 CREATE OR REPLACE FUNCTION activate_member_by_code(code_to_check TEXT, new_user_id UUID)
 RETURNS BOOLEAN SECURITY DEFINER AS $$
 DECLARE
@@ -415,6 +417,7 @@ $$ LANGUAGE plpgsql;
 -- =====================================================================
 -- 17) تحديد عدد المراكز لـ 4 كحد أقصى لكل مستخدم (حساب مالك)
 -- =====================================================================
+DROP FUNCTION IF EXISTS limit_centers_per_user() CASCADE;
 CREATE OR REPLACE FUNCTION limit_centers_per_user()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -441,6 +444,7 @@ EXECUTE FUNCTION limit_centers_per_user();
 -- =====================================================================
 -- 18) تنظيف المراكز الفارغة المهملة (أكبر من 10 أيام وبدون أي حلقة)
 -- =====================================================================
+DROP FUNCTION IF EXISTS cleanup_empty_centers() CASCADE;
 CREATE OR REPLACE FUNCTION cleanup_empty_centers()
 RETURNS void SECURITY DEFINER AS $$
 BEGIN
