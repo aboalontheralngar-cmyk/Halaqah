@@ -74,6 +74,19 @@ export default function MemorizationPage() {
     return surahs.find(s => s.number === formData.surahNum);
   }, [formData.surahNum, surahs]);
 
+  // إجمالي الآيات المحفوظة لطالب معيّن (من سجل الحفظ الجديد غير الغياب)
+  const getMemorizedAyahCount = (studentId: string) => {
+    return homeworkGrades
+      .filter(g => g.studentId === studentId && !g.isRevision && g.gradeMark !== 'absent')
+      .reduce((sum, g) => sum + Math.max(0, (g.toAyah - g.fromAyah + 1)), 0);
+  };
+
+  // الطالب الذي ختم القرآن (إجمالي محفوظه >= 6236 آية): يُغلق عليه الحفظ الجديد وتبقى المراجعة فقط
+  const selectedStudentFinishedQuran = useMemo(() => {
+    if (!formData.studentId) return false;
+    return getMemorizedAyahCount(formData.studentId) >= 6236;
+  }, [formData.studentId, homeworkGrades]);
+
   const getTemplateText = (type: "assignment" | "grading") => {
     const template = messageTemplates.find(t => t.type === type);
     return template ? template.content : DEFAULT_GRADING_TEMPLATE;
@@ -640,12 +653,14 @@ export default function MemorizationPage() {
                     const studentGrades = homeworkGrades.filter(g => g.studentId === studentId && g.gradeMark !== 'absent');
                     const lastGrade = studentGrades.length > 0 ? studentGrades[studentGrades.length - 1] : undefined;
                     const next = getNextAyahForStudent(student, lastGrade);
+                    const finishedQuran = getMemorizedAyahCount(studentId) >= 6236;
                     setFormData({
                       ...formData,
                       studentId,
                       surahNum: next.surahNum,
                       fromAyah: next.ayahNum,
-                      toAyah: next.ayahNum
+                      toAyah: next.ayahNum,
+                      isRevision: finishedQuran ? true : formData.isRevision
                     });
                   }} 
                   required 
@@ -659,11 +674,20 @@ export default function MemorizationPage() {
               {/* Type Chip selector */}
               <div>
                 <label className="block text-xs font-black text-gray-400 mb-2 mr-1 uppercase tracking-widest">نوع التسميع</label>
+                {selectedStudentFinishedQuran && (
+                  <div className="mb-3 flex items-center gap-2 text-[11px] font-black text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-900 rounded-xl px-4 py-2">
+                    <CheckCircle className="w-4 h-4" />
+                    أتم حفظ القرآن الكريم — المراجعة فقط
+                  </div>
+                )}
                 <div className="grid grid-cols-2 gap-4">
                   <button
                     type="button"
+                    disabled={selectedStudentFinishedQuran}
                     onClick={() => setFormData({ ...formData, isRevision: false })}
                     className={`py-3 rounded-xl font-bold text-xs border transition-all ${
+                      selectedStudentFinishedQuran ? "opacity-40 cursor-not-allowed" : ""
+                    } ${
                       !formData.isRevision 
                         ? "bg-teal-50 border-teal-500 text-teal-800 dark:bg-teal-900/30 dark:border-teal-400 dark:text-teal-400"
                         : "border-gray-200 dark:border-gray-800 text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800"

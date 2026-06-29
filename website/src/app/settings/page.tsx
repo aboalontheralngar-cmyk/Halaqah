@@ -71,27 +71,25 @@ export default function SettingsPage() {
               </h3>
               <div className="grid grid-cols-2 gap-6">
                 <button 
-                  onClick={() => setCenterType('men')}
-                  className={`p-8 rounded-[2.5rem] border-2 transition-all flex flex-col items-center gap-4 ${centerType === 'men' ? "border-teal-600 bg-teal-50 dark:bg-teal-900/20" : "border-gray-100 dark:border-gray-800 hover:border-teal-200"}`}
+                  onClick={() => setCenterType(centerType === 'men' ? 'women' : centerType === 'mixed' ? 'women' : 'mixed')}
+                  className={`p-8 rounded-[2.5rem] border-2 transition-all flex flex-col items-center gap-4 ${centerType === 'men' || centerType === 'mixed' ? "border-teal-600 bg-teal-50 dark:bg-teal-900/20" : "border-gray-100 dark:border-gray-800 hover:border-teal-200"}`}
                 >
-                  <div className={`w-14 h-14 rounded-2xl flex items-center justify-center ${centerType === 'men' ? "bg-teal-600 text-white" : "bg-gray-100 dark:bg-gray-800 text-gray-400"}`}>
+                  <div className={`w-14 h-14 rounded-2xl flex items-center justify-center ${centerType === 'men' || centerType === 'mixed' ? "bg-teal-600 text-white" : "bg-gray-100 dark:bg-gray-800 text-gray-400"}`}>
                     <Users className="w-8 h-8" />
                   </div>
                   <div className="text-center">
-                    <span className={`block font-black text-sm ${centerType === 'men' ? "text-teal-900 dark:text-teal-100" : "text-gray-400"}`}>مركز رجال (بنين)</span>
-                    {centerType === 'men' && <span className="text-[10px] font-bold text-teal-600 dark:text-teal-400">النوع النشط حالياً</span>}
+                    <span className={`block font-black text-sm ${centerType === 'men' || centerType === 'mixed' ? "text-teal-900 dark:text-teal-100" : "text-gray-400"}`}>رجال</span>
                   </div>
                 </button>
                 <button 
-                  onClick={() => setCenterType('women')}
-                  className={`p-8 rounded-[2.5rem] border-2 transition-all flex flex-col items-center gap-4 ${centerType === 'women' ? "border-rose-500 bg-rose-50 dark:bg-rose-900/20" : "border-gray-100 dark:border-gray-800 hover:border-rose-200"}`}
+                  onClick={() => setCenterType(centerType === 'women' ? 'men' : centerType === 'mixed' ? 'men' : 'mixed')}
+                  className={`p-8 rounded-[2.5rem] border-2 transition-all flex flex-col items-center gap-4 ${centerType === 'women' || centerType === 'mixed' ? "border-rose-500 bg-rose-50 dark:bg-rose-900/20" : "border-gray-100 dark:border-gray-800 hover:border-rose-200"}`}
                 >
-                  <div className={`w-14 h-14 rounded-2xl flex items-center justify-center ${centerType === 'women' ? "bg-rose-500 text-white" : "bg-gray-100 dark:bg-gray-800 text-gray-400"}`}>
+                  <div className={`w-14 h-14 rounded-2xl flex items-center justify-center ${centerType === 'women' || centerType === 'mixed' ? "bg-rose-500 text-white" : "bg-gray-100 dark:bg-gray-800 text-gray-400"}`}>
                     <VenetianMask className="w-8 h-8" />
                   </div>
                   <div className="text-center">
-                    <span className={`block font-black text-sm ${centerType === 'women' ? "text-rose-900 dark:text-rose-100" : "text-gray-400"}`}>مركز نساء (بنات)</span>
-                    {centerType === 'women' && <span className="text-[10px] font-bold text-rose-500">النوع النشط حالياً</span>}
+                    <span className={`block font-black text-sm ${centerType === 'women' || centerType === 'mixed' ? "text-rose-900 dark:text-rose-100" : "text-gray-400"}`}>نساء</span>
                   </div>
                 </button>
               </div>

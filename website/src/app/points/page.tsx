@@ -69,6 +69,7 @@ export default function PointsPage() {
       { key: "incomplete_penalty", label: "عدم إتمام المقرر اليومي", defaultVal: -3 },
       { key: "unexcused_absence", label: "الغياب بدون عذر مقبول", defaultVal: -5 },
       { key: "appearance_violation", label: "مخالفة المظهر/الحلاقة", defaultVal: -3 },
+      { key: "no_thobe", label: "عدم لبس الثوب", defaultVal: -3 },
     ];
 
     const standards = isPositive ? positiveStandards : negativeStandards;

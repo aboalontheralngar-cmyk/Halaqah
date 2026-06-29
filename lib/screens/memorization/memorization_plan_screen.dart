@@ -19,13 +19,25 @@ class _MemorizationPlanScreenState extends State<MemorizationPlanScreen>
   double _dailyLines = 2.0;
   int _daysPerWeek = 5;
   
+  Map<String, dynamic>? _weeklyPlan;
   Map<String, dynamic>? _monthlyPlan;
   Map<String, dynamic>? _yearlyPlan;
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 3, vsync: this);
+  }
+
+  void _generateWeeklyPlan() {
+    // الخطة الأسبوعية = خطة لعدد أيام الحفظ في الأسبوع
+    final plan = _quran.generateMonthlyPlan(
+      startSurah: _startSurah,
+      startAyah: _startAyah,
+      dailyLines: _dailyLines,
+      daysInMonth: _daysPerWeek,
+    );
+    setState(() => _weeklyPlan = plan);
   }
 
   @override
@@ -61,7 +73,9 @@ class _MemorizationPlanScreenState extends State<MemorizationPlanScreen>
         title: const Text('خطة الحفظ'),
         bottom: TabBar(
           controller: _tabController,
+          isScrollable: true,
           tabs: const [
+            Tab(text: 'الخطة الأسبوعية'),
             Tab(text: 'الخطة الشهرية'),
             Tab(text: 'الخطة السنوية'),
           ],
@@ -70,6 +84,7 @@ class _MemorizationPlanScreenState extends State<MemorizationPlanScreen>
       body: TabBarView(
         controller: _tabController,
         children: [
+          _buildWeeklyPlanTab(),
           _buildMonthlyPlanTab(),
           _buildYearlyPlanTab(),
         ],
@@ -132,52 +147,199 @@ class _MemorizationPlanScreenState extends State<MemorizationPlanScreen>
             const SizedBox(height: 16),
             Row(
               children: [
-                const Text('المقرر اليومي:'),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Slider(
-                    value: _dailyLines,
-                    min: 0.5,
-                    max: 5.0,
-                    divisions: 9,
-                    label: '${_dailyLines.toStringAsFixed(1)} سطر',
-                    onChanged: (value) {
+                const Expanded(child: Text('المقرر اليومي (أسطر):')),
+                _buildStepperButton(
+                  icon: Icons.remove,
+                  onTap: () {
+                    if (_dailyLines > 0.5) {
                       setState(() {
-                        _dailyLines = value;
+                        _dailyLines -= 0.5;
+                        _weeklyPlan = null;
                         _monthlyPlan = null;
                         _yearlyPlan = null;
                       });
-                    },
+                    }
+                  },
+                ),
+                Container(
+                  width: 56,
+                  alignment: Alignment.center,
+                  child: Text(
+                    _dailyLines.toStringAsFixed(1),
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                   ),
                 ),
-                Text('${_dailyLines.toStringAsFixed(1)} سطر'),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                const Text('أيام الحفظ/أسبوع:'),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Slider(
-                    value: _daysPerWeek.toDouble(),
-                    min: 3,
-                    max: 6,
-                    divisions: 3,
-                    label: '$_daysPerWeek أيام',
-                    onChanged: (value) {
+                _buildStepperButton(
+                  icon: Icons.add,
+                  onTap: () {
+                    if (_dailyLines < 10) {
                       setState(() {
-                        _daysPerWeek = value.round();
+                        _dailyLines += 0.5;
+                        _weeklyPlan = null;
+                        _monthlyPlan = null;
                         _yearlyPlan = null;
                       });
-                    },
+                    }
+                  },
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                const Expanded(child: Text('أيام الحفظ/أسبوع:')),
+                _buildStepperButton(
+                  icon: Icons.remove,
+                  onTap: () {
+                    if (_daysPerWeek > 1) {
+                      setState(() {
+                        _daysPerWeek--;
+                        _weeklyPlan = null;
+                        _yearlyPlan = null;
+                      });
+                    }
+                  },
+                ),
+                Container(
+                  width: 56,
+                  alignment: Alignment.center,
+                  child: Text(
+                    '$_daysPerWeek',
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                   ),
                 ),
-                Text('$_daysPerWeek أيام'),
+                _buildStepperButton(
+                  icon: Icons.add,
+                  onTap: () {
+                    if (_daysPerWeek < 7) {
+                      setState(() {
+                        _daysPerWeek++;
+                        _weeklyPlan = null;
+                        _yearlyPlan = null;
+                      });
+                    }
+                  },
+                ),
               ],
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildStepperButton({required IconData icon, required VoidCallback onTap}) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+          color: icon == Icons.add
+              ? Theme.of(context).primaryColor
+              : Colors.grey[200],
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Icon(
+          icon,
+          size: 20,
+          color: icon == Icons.add ? Colors.white : Colors.grey[700],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildWeeklyPlanTab() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        children: [
+          _buildSettingsCard(),
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: _generateWeeklyPlan,
+              icon: const Icon(Icons.view_week),
+              label: const Text('توليد الخطة الأسبوعية'),
+            ),
+          ),
+          if (_weeklyPlan != null) ...[
+            const SizedBox(height: 16),
+            _buildDailyListView(_weeklyPlan!, 'الخطة الأسبوعية'),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDailyListView(Map<String, dynamic> plan, String title) {
+    final dailyPlan = plan['plan'] as List;
+    return Card(
+      child: Column(
+        children: [
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Theme.of(context).primaryColor,
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(12),
+                topRight: Radius.circular(12),
+              ),
+            ),
+            child: Column(
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'من ${plan['start']} إلى ${plan['end']}',
+                  style: const TextStyle(color: Colors.white70),
+                ),
+                Text(
+                  'المقرر اليومي: ${plan['daily_target']} سطر',
+                  style: const TextStyle(color: Colors.white70, fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+          ListView.separated(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: dailyPlan.length,
+            separatorBuilder: (_, __) => const Divider(height: 1),
+            itemBuilder: (context, index) {
+              final day = dailyPlan[index];
+              return ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: _getDayColor(index),
+                  child: Text(
+                    '${day['day']}',
+                    style: const TextStyle(color: Colors.white, fontSize: 12),
+                  ),
+                ),
+                title: Text(
+                  day['from_surah'] == day['to_surah']
+                      ? '${day['from_surah_name']}: ${day['from_ayah']} - ${day['to_ayah']}'
+                      : '${day['from_surah_name']}:${day['from_ayah']} - ${day['to_surah_name']}:${day['to_ayah']}',
+                  style: const TextStyle(fontWeight: FontWeight.w500),
+                ),
+                trailing: Text(
+                  '${day['lines']} سطر',
+                  style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                ),
+              );
+            },
+          ),
+        ],
       ),
     );
   }

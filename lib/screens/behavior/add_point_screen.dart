@@ -55,6 +55,7 @@ class _AddPointScreenState extends State<AddPointScreen> {
       PointReason('incomplete_memorization', 'عدم إتمام المقرر', _settings.pointsConfig['incomplete_penalty'] ?? -3),
       PointReason('absence_no_excuse', 'الغياب بدون عذر', _settings.pointsConfig['unexcused_absence'] ?? -5),
       PointReason('appearance_violation', 'مخالفة المظهر/الحلاقة', _settings.pointsConfig['appearance_violation'] ?? -3),
+      PointReason('no_thobe', 'عدم لبس الثوب', _settings.pointsConfig['no_thobe'] ?? -3),
     ];
     
     _settings.pointsConfig.forEach((key, val) {
@@ -459,7 +460,9 @@ class _AddPointScreenState extends State<AddPointScreen> {
 
     try {
       final reason = _currentReasons.firstWhere((r) => r.id == _selectedReason);
-      final isAppearanceViolation = _selectedReason == 'appearance_violation';
+      // المخالفات المستمرة (تبقى قائمة حتى يُعدّلها الطالب): المظهر/الحلاقة وعدم لبس الثوب
+      final isAppearanceViolation =
+          _selectedReason == 'appearance_violation' || _selectedReason == 'no_thobe';
 
       final point = BehaviorPoint(
         studentId: _selectedStudent!.id,

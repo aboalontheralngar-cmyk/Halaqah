@@ -1020,26 +1020,40 @@ export const useStore = create<HalaqahStore>((set, get) => ({
 
   addExam: async (exam) => {
     const center = get().currentCenter;
-    if (supabase && center) {
-      const { data, error } = await supabase
-        .from('exams')
-        .insert([{ 
-          title: exam.title, 
-          date: exam.date, 
-          type: exam.type, 
-          max_degree: exam.maxDegree, 
-          center_id: center.id,
-          halaqa_id: center.activeHalaqa?.id 
-        }])
-        .select()
-        .single();
-      if (error) {
-        alert("فشل إضافة الاختبار: " + error.message);
-        return;
-      }
-      if (data) {
-        set((state) => ({ exams: [...state.exams, { ...data, maxDegree: data.max_degree, studentScores: [] } as any] }));
-      }
+    if (!supabase || !center) {
+      alert("تعذّر حفظ الاختبار: لا يوجد مركز محدد أو الاتصال بقاعدة البيانات غير متاح.");
+      return;
+    }
+    const { data, error } = await supabase
+      .from('exams')
+      .insert([{ 
+        title: exam.title, 
+        date: exam.date, 
+        type: exam.type, 
+        max_degree: exam.maxDegree, 
+        center_id: center.id,
+        halaqa_id: center.activeHalaqa?.id 
+      }])
+      .select()
+      .single();
+    if (error) {
+      alert("فشل إضافة الاختبار: " + error.message);
+      return;
+    }
+    if (data) {
+      set((state) => ({
+        exams: [
+          ...state.exams,
+          {
+            id: data.id,
+            title: data.title,
+            date: data.date,
+            type: data.type,
+            maxDegree: data.max_degree,
+            studentScores: [],
+          } as Exam,
+        ],
+      }));
     }
   },
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useEffect } from "react";
+import { useMemo, useEffect, useState } from "react";
 import { 
   BarChart3, 
   Download, 
@@ -16,9 +16,13 @@ import {
   Sparkles,
   Zap,
   Target,
-  AlertCircle
+  AlertCircle,
+  MessageCircle,
+  Copy,
+  Check
 } from "lucide-react";
 import { useStore } from "@/store/useStore";
+import { buildMonthlyReportMessage, buildWhatsAppLink } from "@/lib/monthlyReport";
 
 export default function ReportsPage() {
   const { 
@@ -35,10 +39,44 @@ export default function ReportsPage() {
   } = useStore();
   const isMen = centerType === 'men';
 
+  const currentMonthKey = new Date().toISOString().slice(0, 7);
+  const [reportStudentId, setReportStudentId] = useState<string>("");
+  const [reportMonth, setReportMonth] = useState<string>(currentMonthKey);
+  const [copied, setCopied] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
+
   useEffect(() => {
     fetchCenterData();
     fetchSuspendedDates();
   }, [fetchCenterData, fetchSuspendedDates]);
+
+  const reportMessage = useMemo(() => {
+    const student = students.find(s => s.id === reportStudentId);
+    if (!student) return "";
+    return buildMonthlyReportMessage({
+      student,
+      month: reportMonth,
+      attendance,
+      grades: homeworkGrades,
+      points,
+      suspendedDates,
+      centerType: centerType as "men" | "women" | "mixed",
+    });
+  }, [reportStudentId, reportMonth, students, attendance, homeworkGrades, points, suspendedDates, centerType]);
+
+  const handleSendWhatsApp = () => {
+    const student = students.find(s => s.id === reportStudentId);
+    if (!student || !reportMessage) return;
+    const link = buildWhatsAppLink(student.parentPhone, reportMessage);
+    window.open(link, "_blank");
+  };
+
+  const handleCopyReport = async () => {
+    if (!reportMessage) return;
+    await navigator.clipboard.writeText(reportMessage);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
 
   const stats = useMemo(() => {
     const totalStudents = students.length;
@@ -205,6 +243,69 @@ export default function ReportsPage() {
             <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{item.label}</p>
           </div>
         ))}
+      </div>
+
+      {/* Monthly WhatsApp Report */}
+      <div className="bg-white dark:bg-gray-900 rounded-[3rem] border border-gray-100 dark:border-gray-800 p-8 lg:p-10 shadow-sm">
+        <div className="flex items-center gap-4 mb-8">
+          <div className="w-12 h-12 bg-green-50 dark:bg-green-900/20 rounded-2xl flex items-center justify-center">
+            <MessageCircle className="w-6 h-6 text-green-600" />
+          </div>
+          <div>
+            <h3 className="text-xl font-black text-gray-900 dark:text-white">التقرير الشهري لولي الأمر</h3>
+            <p className="text-xs font-bold text-gray-400">قالب واتساب جاهز بالإيموجي — اختر الطالب والشهر ثم أرسل مباشرة.</p>
+          </div>
+        </div>
+
+        <div className="grid sm:grid-cols-2 gap-4 mb-6">
+          <div>
+            <label className="block text-[10px] font-black text-gray-400 mb-2 mr-1 uppercase tracking-widest">الطالب</label>
+            <select
+              value={reportStudentId}
+              onChange={(e) => { setReportStudentId(e.target.value); setShowPreview(true); }}
+              className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded-2xl px-4 py-3 font-bold text-sm text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500"
+            >
+              <option value="">— اختر الطالب —</option>
+              {students.map(s => (
+                <option key={s.id} value={s.id}>{s.name}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-[10px] font-black text-gray-400 mb-2 mr-1 uppercase tracking-widest">الشهر</label>
+            <input
+              type="month"
+              value={reportMonth}
+              onChange={(e) => setReportMonth(e.target.value)}
+              className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded-2xl px-4 py-3 font-bold text-sm text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500"
+            />
+          </div>
+        </div>
+
+        {reportStudentId && showPreview && (
+          <div className="mb-6">
+            <div className="bg-gray-50 dark:bg-gray-800 rounded-2xl p-5 border border-gray-100 dark:border-gray-700 whitespace-pre-wrap text-sm font-medium text-gray-700 dark:text-gray-200 leading-relaxed max-h-80 overflow-y-auto" dir="rtl">
+              {reportMessage}
+            </div>
+          </div>
+        )}
+
+        <div className="flex flex-col sm:flex-row gap-3">
+          <button
+            onClick={handleSendWhatsApp}
+            disabled={!reportStudentId}
+            className="flex-1 flex items-center justify-center gap-2 bg-green-600 text-white px-6 py-4 rounded-2xl font-black text-sm shadow-lg hover:bg-green-700 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <MessageCircle className="w-5 h-5" /> إرسال عبر واتساب
+          </button>
+          <button
+            onClick={handleCopyReport}
+            disabled={!reportStudentId}
+            className="flex items-center justify-center gap-2 bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 text-gray-700 dark:text-white px-6 py-4 rounded-2xl font-black text-sm hover:bg-gray-50 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {copied ? <><Check className="w-5 h-5 text-green-600" /> تم النسخ</> : <><Copy className="w-5 h-5" /> نسخ النص</>}
+          </button>
+        </div>
       </div>
 
       <div className="grid lg:grid-cols-2 gap-10">

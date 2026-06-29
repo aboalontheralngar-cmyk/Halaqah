@@ -290,12 +290,46 @@ class _MemorizationScreenState extends State<MemorizationScreen>
     );
   }
 
+  Widget _buildAttendanceBadge(DailyRecord? record) {
+    final attendance = record?.attendance;
+    if (attendance == 'absent') {
+      return _attendanceTag('غائب', Icons.cancel, Colors.red);
+    }
+    if (attendance == 'excused') {
+      return _attendanceTag('مستأذن', Icons.event_busy, Colors.orange);
+    }
+    return const SizedBox.shrink();
+  }
+
+  Widget _attendanceTag(String label, IconData icon, Color color) {
+    return Container(
+      margin: const EdgeInsets.only(left: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.4)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 13, color: color),
+          const SizedBox(width: 3),
+          Text(label, style: TextStyle(fontSize: 11, color: color, fontWeight: FontWeight.bold)),
+        ],
+      ),
+    );
+  }
+
   Widget _buildStudentMemorizationCard(Student student, DailyRecord? record) {
     final isDone = record?.memorizationDone == true;
+    final isAbsentOrExcused = record?.attendance == 'absent' || record?.attendance == 'excused';
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
-      child: InkWell(
+      child: Opacity(
+        opacity: isAbsentOrExcused ? 0.55 : 1.0,
+        child: InkWell(
         onTap: () => _navigateToAddMemorization(student),
         borderRadius: BorderRadius.circular(12),
         child: Padding(
@@ -314,9 +348,16 @@ class _MemorizationScreenState extends State<MemorizationScreen>
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      student.name,
-                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            student.name,
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                        _buildAttendanceBadge(record),
+                      ],
                     ),
                     const SizedBox(height: 4),
                     Text(
@@ -365,6 +406,7 @@ class _MemorizationScreenState extends State<MemorizationScreen>
           ),
         ),
       ),
+      ),
     );
   }
 
@@ -392,9 +434,16 @@ class _MemorizationScreenState extends State<MemorizationScreen>
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      student.name,
-                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            student.name,
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                        _buildAttendanceBadge(record),
+                      ],
                     ),
                     const SizedBox(height: 4),
                     Text(

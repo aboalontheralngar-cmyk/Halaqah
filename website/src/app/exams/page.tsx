@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { 
   FileText, 
   Plus, 
@@ -18,21 +18,42 @@ import {
 import { useStore } from "@/store/useStore";
 
 export default function ExamsPage() {
-  const { students, exams, addExam, updateExamScore } = useStore();
+  const { students, exams, addExam, updateExamScore, fetchCenterData } = useStore();
   const [showForm, setShowForm] = useState(false);
   const [showScores, setShowScores] = useState<string | null>(null);
   const [formData, setFormData] = useState({ title: "", type: "oral" as "oral" | "written", maxDegree: 100, date: "" });
   const [scoreData, setScoreData] = useState<{ studentId: string; degree: number; notes: string }[]>([]);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    fetchCenterData();
+  }, [fetchCenterData]);
 
   const handleCreateExam = async (e: React.FormEvent) => {
     e.preventDefault();
-    await addExam({ 
-      ...formData, 
-      date: formData.date || new Date().toISOString().split("T")[0],
-      studentScores: [] 
-    });
-    setShowForm(false);
-    setFormData({ title: "", type: "oral", maxDegree: 100, date: "" });
+    if (saving) return;
+    const title = formData.title.trim();
+    if (!title) {
+      alert("الرجاء إدخال اسم الاختبار");
+      return;
+    }
+    const maxDegree = Number.isFinite(formData.maxDegree) && formData.maxDegree > 0
+      ? formData.maxDegree
+      : 100;
+    setSaving(true);
+    try {
+      await addExam({
+        title,
+        type: formData.type,
+        maxDegree,
+        date: formData.date || new Date().toISOString().split("T")[0],
+        studentScores: [],
+      });
+      setShowForm(false);
+      setFormData({ title: "", type: "oral", maxDegree: 100, date: "" });
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleOpenScores = (examId: string) => {
@@ -201,8 +222,11 @@ export default function ExamsPage() {
                   <label className="block text-xs font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest mb-2">الدرجة القصوى</label>
                   <input 
                     type="number" 
-                    value={formData.maxDegree} 
-                    onChange={(e) => setFormData({ ...formData, maxDegree: parseInt(e.target.value) })} 
+                    value={Number.isFinite(formData.maxDegree) ? formData.maxDegree : ""} 
+                    onChange={(e) => {
+                      const v = parseInt(e.target.value, 10);
+                      setFormData({ ...formData, maxDegree: Number.isNaN(v) ? NaN : v });
+                    }} 
                     min={1}
                     className="w-full bg-gray-50 dark:bg-gray-800 border-none rounded-2xl px-6 py-4 text-sm font-bold text-gray-700 dark:text-gray-200 outline-none" 
                   />
@@ -218,8 +242,8 @@ export default function ExamsPage() {
                   className="w-full bg-gray-50 dark:bg-gray-800 border-none rounded-2xl px-6 py-4 text-sm font-bold text-gray-700 dark:text-gray-200 outline-none" 
                 />
               </div>
-              <button type="submit" className="w-full bg-teal-600 text-white py-5 rounded-[2rem] font-black text-sm hover:bg-teal-700 shadow-xl shadow-teal-100 dark:shadow-none transition-all">
-                إنشاء السجل
+              <button type="submit" disabled={saving} className="w-full bg-teal-600 text-white py-5 rounded-[2rem] font-black text-sm hover:bg-teal-700 shadow-xl shadow-teal-100 dark:shadow-none transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+                {saving ? "جاري الحفظ..." : "إنشاء السجل"}
               </button>
             </form>
           </div>

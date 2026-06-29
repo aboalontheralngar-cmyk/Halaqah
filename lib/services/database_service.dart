@@ -1317,7 +1317,108 @@ class DatabaseService {
   Future<bool> isDateSuspended(DateTime date) async {
     final dateStr = date.toIso8601String().split('T')[0];
     final dates = await getSuspendedDates();
-    return dates.contains(dateStr);
+    if (dates.contains(dateStr)) return true;
+    // أيام العطلة الأسبوعية (مثل الجمعة) تُعتبر معطّلة تلقائياً
+    final settings = await getSettings();
+    return settings.isHolidayWeekday(date);
+  }
+
+  // أسباب/ملاحظات تعليق الدراسة: تُخزَّن كأزواج "تاريخ=السبب" مفصولة بفاصلة منقوطة
+  Future<Map<String, String>> getSuspensionReasons() async {
+    final val = await getSetting('suspension_reasons');
+    if (val == null || val.trim().isEmpty) return {};
+    final map = <String, String>{};
+    for (final entry in val.split(';')) {
+      final idx = entry.indexOf('=');
+      if (idx > 0) {
+        map[entry.substring(0, idx)] = entry.substring(idx + 1);
+      }
+    }
+    return map;
+  }
+
+  Future<void> setSuspensionReason(String dateStr, String? reason) async {
+    final map = await getSuspensionReasons();
+    if (reason == null || reason.trim().isEmpty) {
+      map.remove(dateStr);
+    } else {
+      map[dateStr] = reason.trim().replaceAll(';', ' ').replaceAll('=', ' ');
+    }
+    final encoded = map.entries.map((e) => '${e.key}=${e.value}').join(';');
+    await saveSetting('suspension_reasons', encoded);
+  }
+
+  /// احتساب النقاط السلبية التلقائية لتاريخ معيّن (افتراضياً اليوم) دون تدخل المعلم.
+  /// - الغياب بدون عذر: عقوبة الغياب.
+  /// - الحضور دون تسميع ولا مراجعة: عقوبة عدم إتمام المقرر.
+  /// الدالة idempotent: لا تكرر إضافة نقاط لنفس السبب ونفس التاريخ.
+  /// لا تُحتسب نقاط في الأيام المعطّلة (عطلة). يمرر [isHoliday] من طبقة الأعلى.
+  Future<int> applyAutomaticNegativePoints({
+    DateTime? date,
+    bool isHoliday = false,
+  }) async {
+    if (isHoliday) return 0;
+    final db = await database;
+    final targetDate = date ?? DateTime.now();
+    final dateStr = targetDate.toIso8601String().split('T')[0];
+
+    final settings = await getSettings();
+    final absencePenalty = settings.pointsConfig['unexcused_absence'] ?? -5;
+    final incompletePenalty = settings.pointsConfig['incomplete_penalty'] ?? -3;
+
+    const absenceReason = 'غياب بدون عذر (تلقائي)';
+    const incompleteReason = 'عدم التسميع (تلقائي)';
+
+    final records = await getDailyRecordsForDate(targetDate);
+    int added = 0;
+
+    for (final record in records) {
+      // غياب بدون عذر
+      if (record.attendance == 'absent') {
+        final exists = await db.query(
+          'behavior_points',
+          where: 'student_id = ? AND date = ? AND reason = ?',
+          whereArgs: [record.studentId, dateStr, absenceReason],
+          limit: 1,
+        );
+        if (exists.isEmpty) {
+          await insertBehaviorPoint(BehaviorPoint(
+            studentId: record.studentId,
+            type: 'negative',
+            reason: absenceReason,
+            points: absencePenalty,
+            date: targetDate,
+            resolved: true,
+            notes: 'احتساب تلقائي عند إغلاق اليوم',
+          ));
+          added++;
+        }
+      }
+      // حاضر لكن لم يسمّع ولم يراجع
+      else if ((record.attendance == 'present' || record.attendance == 'late') &&
+          !record.memorizationDone &&
+          !record.revisionDone) {
+        final exists = await db.query(
+          'behavior_points',
+          where: 'student_id = ? AND date = ? AND reason = ?',
+          whereArgs: [record.studentId, dateStr, incompleteReason],
+          limit: 1,
+        );
+        if (exists.isEmpty) {
+          await insertBehaviorPoint(BehaviorPoint(
+            studentId: record.studentId,
+            type: 'negative',
+            reason: incompleteReason,
+            points: incompletePenalty,
+            date: targetDate,
+            resolved: true,
+            notes: 'احتساب تلقائي عند إغلاق اليوم',
+          ));
+          added++;
+        }
+      }
+    }
+    return added;
   }
 
   Future<List<String>> getStudentsWhoDidNotReciteLastClass() async {

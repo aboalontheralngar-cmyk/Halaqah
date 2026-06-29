@@ -322,7 +322,7 @@ ALTER TABLE weekly_competitions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE competition_entries ENABLE ROW LEVEL SECURITY;
 ALTER TABLE center_settings ENABLE ROW LEVEL SECURITY;
 
--- سياسة موحدة: مالك المركز أو عضو فيه
+-- سياسة موحدة: مالك المركز فقط (بدون recursion)
 DO $$
 DECLARE
   t TEXT;
@@ -336,30 +336,21 @@ BEGIN
     EXECUTE format('DROP POLICY IF EXISTS "Access %I by center" ON %I', t, t);
     EXECUTE format($f$
       CREATE POLICY "Access %I by center" ON %I FOR ALL USING (
-        center_id IN (SELECT id FROM centers WHERE owner_id = auth.uid()) OR
-        center_id IN (SELECT center_id FROM center_members WHERE user_id = auth.uid())
+        center_id = ANY(ARRAY(SELECT id FROM centers WHERE owner_id = auth.uid()))
       )
     $f$, t, t);
   END LOOP;
 END $$;
 
--- جداول تابعة بلا center_id مباشر (عبر الأب)
+-- جداول تابعة بلا center_id مباشر (عبر الأب) - بدون recursion
 DROP POLICY IF EXISTS "Access exam_questions via template" ON exam_questions;
 CREATE POLICY "Access exam_questions via template" ON exam_questions FOR ALL USING (
-  template_id IN (
-    SELECT id FROM exam_templates WHERE
-      center_id IN (SELECT id FROM centers WHERE owner_id = auth.uid()) OR
-      center_id IN (SELECT center_id FROM center_members WHERE user_id = auth.uid())
-  )
+  template_id IN (SELECT id FROM exam_templates WHERE center_id = ANY(ARRAY(SELECT id FROM centers WHERE owner_id = auth.uid())))
 );
 
 DROP POLICY IF EXISTS "Access competition_entries via competition" ON competition_entries;
 CREATE POLICY "Access competition_entries via competition" ON competition_entries FOR ALL USING (
-  competition_id IN (
-    SELECT id FROM weekly_competitions WHERE
-      center_id IN (SELECT id FROM centers WHERE owner_id = auth.uid()) OR
-      center_id IN (SELECT center_id FROM center_members WHERE user_id = auth.uid())
-  )
+  competition_id IN (SELECT id FROM weekly_competitions WHERE center_id = ANY(ARRAY(SELECT id FROM centers WHERE owner_id = auth.uid())))
 );
 
 -- =====================================================================
@@ -375,6 +366,7 @@ CREATE POLICY "Allow select center_members by user or email" ON center_members
 -- =====================================================================
 -- 15) وظيفة آمنة للتحقق من كود دعوة المعلم دون الحاجة لتسجيل دخول مسبق
 -- =====================================================================
+DROP FUNCTION IF EXISTS get_member_by_code(TEXT) CASCADE;
 CREATE OR REPLACE FUNCTION get_member_by_code(code_to_check TEXT)
 RETURNS TABLE (
     id UUID,
@@ -404,6 +396,7 @@ $$ LANGUAGE plpgsql;
 -- =====================================================================
 -- 16) وظيفة لربط حساب مستخدم بكود دعوة المعلم عند تعيين كلمة المرور
 -- =====================================================================
+DROP FUNCTION IF EXISTS activate_member_by_code(TEXT, UUID) CASCADE;
 CREATE OR REPLACE FUNCTION activate_member_by_code(code_to_check TEXT, new_user_id UUID)
 RETURNS BOOLEAN SECURITY DEFINER AS $$
 DECLARE
@@ -424,6 +417,7 @@ $$ LANGUAGE plpgsql;
 -- =====================================================================
 -- 17) تحديد عدد المراكز لـ 4 كحد أقصى لكل مستخدم (حساب مالك)
 -- =====================================================================
+DROP FUNCTION IF EXISTS limit_centers_per_user() CASCADE;
 CREATE OR REPLACE FUNCTION limit_centers_per_user()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -450,6 +444,7 @@ EXECUTE FUNCTION limit_centers_per_user();
 -- =====================================================================
 -- 18) تنظيف المراكز الفارغة المهملة (أكبر من 10 أيام وبدون أي حلقة)
 -- =====================================================================
+DROP FUNCTION IF EXISTS cleanup_empty_centers() CASCADE;
 CREATE OR REPLACE FUNCTION cleanup_empty_centers()
 RETURNS void SECURITY DEFINER AS $$
 BEGIN
