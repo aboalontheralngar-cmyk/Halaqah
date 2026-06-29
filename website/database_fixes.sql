@@ -46,11 +46,11 @@ CREATE INDEX IF NOT EXISTS idx_center_members_invitation_code
 -- ---------------------------------------------------------------------
 DROP POLICY IF EXISTS "Manage center members" ON center_members;
 
--- المالك يدير أعضاء مركزه بالكامل (إضافة/تعديل/حذف)
+-- المالك يدير أعضاء مركزه بالكامل (إضافة/تعديل/حذف) - بدون recursion
 CREATE POLICY "Owner manages members" ON center_members FOR ALL USING (
-  center_id IN (SELECT id FROM centers WHERE owner_id = auth.uid())
+  center_id = ANY(ARRAY(SELECT id FROM centers WHERE owner_id = auth.uid()))
 ) WITH CHECK (
-  center_id IN (SELECT id FROM centers WHERE owner_id = auth.uid())
+  center_id = ANY(ARRAY(SELECT id FROM centers WHERE owner_id = auth.uid()))
 );
 
 -- المعلم يرى صفوف عضويته فقط
@@ -111,12 +111,12 @@ GRANT EXECUTE ON FUNCTION public.join_center_with_code(TEXT) TO authenticated;
 
 
 -- ---------------------------------------------------------------------
--- (2-د) تمكين المعلم من قراءة بيانات المركز والحلقة بعد انضمامه
+-- (2-د) تمكين المعلم من قراءة بيانات المركز والحلقة بعد انضمامه - بدون recursion
 -- ---------------------------------------------------------------------
 DROP POLICY IF EXISTS "Members can view their center" ON centers;
 CREATE POLICY "Members can view their center" ON centers FOR SELECT USING (
   auth.uid() = owner_id
-  OR id IN (SELECT center_id FROM center_members WHERE user_id = auth.uid())
+  OR id = ANY(ARRAY(SELECT center_id FROM center_members WHERE user_id = auth.uid()))
 );
 
 

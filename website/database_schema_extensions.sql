@@ -322,7 +322,7 @@ ALTER TABLE weekly_competitions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE competition_entries ENABLE ROW LEVEL SECURITY;
 ALTER TABLE center_settings ENABLE ROW LEVEL SECURITY;
 
--- سياسة موحدة: مالك المركز أو عضو فيه
+-- سياسة موحدة: مالك المركز فقط (بدون recursion)
 DO $$
 DECLARE
   t TEXT;
@@ -336,30 +336,21 @@ BEGIN
     EXECUTE format('DROP POLICY IF EXISTS "Access %I by center" ON %I', t, t);
     EXECUTE format($f$
       CREATE POLICY "Access %I by center" ON %I FOR ALL USING (
-        center_id IN (SELECT id FROM centers WHERE owner_id = auth.uid()) OR
-        center_id IN (SELECT center_id FROM center_members WHERE user_id = auth.uid())
+        center_id = ANY(ARRAY(SELECT id FROM centers WHERE owner_id = auth.uid()))
       )
     $f$, t, t);
   END LOOP;
 END $$;
 
--- جداول تابعة بلا center_id مباشر (عبر الأب)
+-- جداول تابعة بلا center_id مباشر (عبر الأب) - بدون recursion
 DROP POLICY IF EXISTS "Access exam_questions via template" ON exam_questions;
 CREATE POLICY "Access exam_questions via template" ON exam_questions FOR ALL USING (
-  template_id IN (
-    SELECT id FROM exam_templates WHERE
-      center_id IN (SELECT id FROM centers WHERE owner_id = auth.uid()) OR
-      center_id IN (SELECT center_id FROM center_members WHERE user_id = auth.uid())
-  )
+  template_id IN (SELECT id FROM exam_templates WHERE center_id = ANY(ARRAY(SELECT id FROM centers WHERE owner_id = auth.uid())))
 );
 
 DROP POLICY IF EXISTS "Access competition_entries via competition" ON competition_entries;
 CREATE POLICY "Access competition_entries via competition" ON competition_entries FOR ALL USING (
-  competition_id IN (
-    SELECT id FROM weekly_competitions WHERE
-      center_id IN (SELECT id FROM centers WHERE owner_id = auth.uid()) OR
-      center_id IN (SELECT center_id FROM center_members WHERE user_id = auth.uid())
-  )
+  competition_id IN (SELECT id FROM weekly_competitions WHERE center_id = ANY(ARRAY(SELECT id FROM centers WHERE owner_id = auth.uid())))
 );
 
 -- =====================================================================
