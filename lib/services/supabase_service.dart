@@ -81,6 +81,9 @@ class SupabaseService {
 
   Future<void> signOut() async {
     await client.auth.signOut();
+    await _db.saveSetting('sync_center_id', '');
+    await _db.saveSetting('sync_halaqah_id', '');
+    await _db.saveSetting('setup_completed', 'false');
   }
 
   bool get isAuthenticated => client.auth.currentSession != null;
@@ -148,16 +151,26 @@ class SupabaseService {
     if (!isAuthenticated) return;
 
     try {
-      final info = await getTeacherInfo();
-      if (info == null) {
-        throw Exception('لم يتم العثور على عضوية أو مركز نشط لهذا الحساب في قاعدة البيانات.');
+      String? centerId = await _db.getSetting('sync_center_id');
+      String? halaqahId = await _db.getSetting('sync_halaqah_id');
+
+      // Fallback: check if we can get it from teacher info query
+      if (centerId == null || centerId.isEmpty || halaqahId == null || halaqahId.isEmpty) {
+        final info = await getTeacherInfo();
+        if (info != null) {
+          centerId = info['center_id'];
+          halaqahId = info['halaqah_id'];
+          if (centerId != null) {
+            await _db.saveSetting('sync_center_id', centerId);
+          }
+          if (halaqahId != null) {
+            await _db.saveSetting('sync_halaqah_id', halaqahId);
+          }
+        }
       }
 
-      final String centerId = info['center_id'];
-      final String? halaqahId = info['halaqah_id'];
-
-      if (halaqahId == null) {
-        throw Exception('هذا الحساب غير مسند لأي حلقة حالياً. يرجى إسناد الحلقة أولاً عبر لوحة التحكم.');
+      if (centerId == null || centerId.isEmpty || halaqahId == null || halaqahId.isEmpty) {
+        throw Exception('الرجاء اختيار المركز والحلقة أولاً لإجراء المزامنة.');
       }
 
       // Fetch center name from Supabase
@@ -407,6 +420,94 @@ class SupabaseService {
       );
 
       await _db.insertOrUpdateMushafProgress(localProgress);
+    }
+  }
+
+  // Fetch all centers associated with the current user
+  Future<List<Map<String, dynamic>>> fetchUserCenters() async {
+    if (!isAuthenticated) return [];
+    final email = currentUserEmail;
+    final currentUser = client.auth.currentUser;
+    if (email == null || currentUser == null) return [];
+
+    try {
+      final List<Map<String, dynamic>> centersList = [];
+
+      // 1. Fetch centers owned by the user
+      final ownedCenters = await client
+          .from('centers')
+          .select('id, name')
+          .eq('owner_id', currentUser.id);
+      
+      for (final c in ownedCenters as List<dynamic>) {
+        centersList.add({
+          'id': c['id'],
+          'name': c['name'],
+          'role': 'owner',
+        });
+      }
+
+      // 2. Fetch centers where user is a member
+      final memberCenters = await client
+          .from('center_members')
+          .select('center_id, centers(name)')
+          .ilike('email', email.trim());
+      
+      for (final mc in memberCenters as List<dynamic>) {
+        final cId = mc['center_id'];
+        final centersObj = mc['centers'];
+        final String cName = (centersObj != null && centersObj['name'] != null) ? centersObj['name'] : 'مركز غير محدد';
+        if (cId != null) {
+          // Avoid duplicates
+          if (!centersList.any((item) => item['id'] == cId)) {
+            centersList.add({
+              'id': cId,
+              'name': cName,
+              'role': 'teacher',
+            });
+          }
+        }
+      }
+
+      return centersList;
+    } catch (e) {
+      print('Error fetching user centers: $e');
+      return [];
+    }
+  }
+
+  // Fetch all halaqas in a center
+  Future<List<Map<String, dynamic>>> fetchHalaqas(String centerId) async {
+    try {
+      final response = await client
+          .from('halaqat')
+          .select('id, name, teacher_name')
+          .eq('center_id', centerId);
+      
+      return List<Map<String, dynamic>>.from(response as List<dynamic>);
+    } catch (e) {
+      print('Error fetching halaqas: $e');
+      return [];
+    }
+  }
+
+  // Create a new halaqah in Supabase
+  Future<Map<String, dynamic>?> createHalaqah(String centerId, String name, String teacherName) async {
+    try {
+      final response = await client
+          .from('halaqat')
+          .insert({
+            'center_id': centerId,
+            'name': name,
+            'teacher_name': teacherName,
+          })
+          .select()
+          .single();
+      
+      return response as Map<String, dynamic>?;
+    } catch (e) {
+      print('Error creating halaqah: $e');
+      throw Exception('فشل إنشاء الحلقة: $e');
     }
   }
 

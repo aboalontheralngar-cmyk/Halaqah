@@ -96,7 +96,13 @@ class _HomeScreenState extends State<HomeScreen> {
         MaterialPageRoute(builder: (_) => const LoginScreen()),
       );
       if (loggedIn == true) {
-        _loadData();
+        // Trigger center selection directly after login
+        final selected = await _showCenterHalaqahSelectionDialog();
+        if (selected) {
+          _syncWithCloud(); // Start sync after successful selection
+        } else {
+          _loadData();
+        }
       }
     } else {
       // Show action dialog for authenticated user
@@ -128,6 +134,13 @@ class _HomeScreenState extends State<HomeScreen> {
               child: Text(
                 'تسجيل الخروج',
                 style: GoogleFonts.tajawal(color: Colors.red, fontWeight: FontWeight.bold),
+              ),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, 'change'),
+              child: Text(
+                'تغيير النطاق',
+                style: GoogleFonts.tajawal(color: Colors.blue, fontWeight: FontWeight.bold),
               ),
             ),
             TextButton(
@@ -178,7 +191,19 @@ class _HomeScreenState extends State<HomeScreen> {
             );
           }
         }
+      } else if (action == 'change') {
+        final selected = await _showCenterHalaqahSelectionDialog();
+        if (selected && mounted) {
+          _syncWithCloud(); // Start sync after selection
+        }
       } else if (action == 'sync') {
+        final centerId = await _db.getSetting('sync_center_id');
+        final halaqahId = await _db.getSetting('sync_halaqah_id');
+        if (centerId == null || centerId.isEmpty || halaqahId == null || halaqahId.isEmpty) {
+          final selected = await _showCenterHalaqahSelectionDialog();
+          if (!selected) return; // cancelled
+        }
+
         if (!mounted) return;
         showDialog(
           context: context,
@@ -222,6 +247,213 @@ class _HomeScreenState extends State<HomeScreen> {
         }
       }
     }
+  }
+
+  Future<bool> _showCenterHalaqahSelectionDialog() async {
+    final supabase = SupabaseService.instance;
+    
+    // Show loading
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(child: CircularProgressIndicator()),
+    );
+    final centers = await supabase.fetchUserCenters();
+    if (mounted) Navigator.pop(context); // Pop loading
+
+    if (!mounted) return false;
+
+    if (centers.isEmpty) {
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text('خطأ في المزامنة', style: GoogleFonts.tajawal(fontWeight: FontWeight.bold)),
+          content: Text(
+            'لا يوجد أي مركز مرتبط بهذا الحساب في السحابة. يرجى إنشاء مركز أولاً من لوحة تحكم الويب.',
+            style: GoogleFonts.tajawal(),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text('حسناً', style: GoogleFonts.tajawal()),
+            ),
+          ],
+        ),
+      );
+      return false;
+    }
+
+    // 1. Show Center Selection dialog
+    final selectedCenter = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(
+          'اختر المركز للمزامنة',
+          style: GoogleFonts.tajawal(fontWeight: FontWeight.bold),
+        ),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: ListView.builder(
+            shrinkWrap: true,
+            itemCount: centers.length,
+            itemBuilder: (context, index) {
+              final center = centers[index];
+              return ListTile(
+                leading: const Icon(Icons.business, color: Colors.teal),
+                title: Text(center['name'], style: GoogleFonts.tajawal(fontWeight: FontWeight.bold)),
+                subtitle: Text(
+                  center['role'] == 'owner' ? 'مالك المركز' : 'معلم في المركز',
+                  style: GoogleFonts.tajawal(fontSize: 12),
+                ),
+                onTap: () => Navigator.pop(context, center),
+              );
+            },
+          ),
+        ),
+      ),
+    );
+
+    if (selectedCenter == null) return false;
+
+    final centerId = selectedCenter['id'];
+    final centerName = selectedCenter['name'];
+
+    // 2. Fetch halaqat
+    if (!mounted) return false;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(child: CircularProgressIndicator()),
+    );
+    final halaqat = await supabase.fetchHalaqas(centerId);
+    if (mounted) Navigator.pop(context); // Pop loading
+
+    if (!mounted) return false;
+
+    // 3. Show Halaqah Selection dialog
+    final selectedHalaqah = await showDialog<Map<String, dynamic>>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: Text(
+                'اختر الحلقة التابعة لمركز\n$centerName',
+                style: GoogleFonts.tajawal(fontWeight: FontWeight.bold, fontSize: 16),
+              ),
+              content: SizedBox(
+                width: double.maxFinite,
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: halaqat.length + 1,
+                  itemBuilder: (context, index) {
+                    if (index == halaqat.length) {
+                      // Create new option
+                      return ListTile(
+                        leading: const Icon(Icons.add_circle_outline, color: Colors.blue),
+                        title: Text(
+                          '+ إنشاء حلقة جديدة',
+                          style: GoogleFonts.tajawal(color: Colors.blue, fontWeight: FontWeight.bold),
+                        ),
+                        onTap: () async {
+                          final newName = await showDialog<String>(
+                            context: context,
+                            builder: (context) {
+                              final nameController = TextEditingController();
+                              return AlertDialog(
+                                title: Text('اسم الحلقة الجديدة', style: GoogleFonts.tajawal(fontWeight: FontWeight.bold)),
+                                content: TextField(
+                                  controller: nameController,
+                                  decoration: InputDecoration(
+                                    labelText: 'اسم الحلقة',
+                                    labelStyle: GoogleFonts.tajawal(),
+                                  ),
+                                ),
+                                actions: [
+                                  TextButton(
+                                    onPressed: () => Navigator.pop(context),
+                                    child: Text('إلغاء', style: GoogleFonts.tajawal()),
+                                  ),
+                                  TextButton(
+                                    onPressed: () => Navigator.pop(context, nameController.text.trim()),
+                                    child: Text('إنشاء', style: GoogleFonts.tajawal()),
+                                  ),
+                                ],
+                              );
+                            },
+                          );
+
+                          if (newName != null && newName.isNotEmpty) {
+                            // Show loading
+                            showDialog(
+                              context: context,
+                              barrierDismissible: false,
+                              builder: (context) => const Center(child: CircularProgressIndicator()),
+                            );
+
+                            try {
+                              final teacherName = await DatabaseService().getSetting('teacher_name') ?? 'معلم غير محدد';
+                              final newHalaqah = await supabase.createHalaqah(centerId, newName, teacherName);
+                              
+                              if (mounted) Navigator.pop(context); // Pop loading
+                              
+                              if (newHalaqah != null) {
+                                // Close dialog and choose it
+                                Navigator.pop(context, newHalaqah);
+                              }
+                            } catch (e) {
+                              if (mounted) Navigator.pop(context); // Pop loading
+                              if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text('فشل إنشاء الحلقة: $e'), backgroundColor: Colors.red),
+                                );
+                              }
+                            }
+                          }
+                        },
+                      );
+                    }
+
+                    final halaqah = halaqat[index];
+                    return ListTile(
+                      leading: const Icon(Icons.class_, color: Colors.teal),
+                      title: Text(halaqah['name'], style: GoogleFonts.tajawal(fontWeight: FontWeight.bold)),
+                      subtitle: Text(
+                        'المعلم: ${halaqah['teacher_name'] ?? 'غير محدد'}',
+                        style: GoogleFonts.tajawal(fontSize: 12),
+                      ),
+                      onTap: () => Navigator.pop(context, halaqah),
+                    );
+                  },
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context, null),
+                  child: Text('إلغاء', style: GoogleFonts.tajawal(color: Colors.grey)),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    if (selectedHalaqah == null) return false;
+
+    final halaqahId = selectedHalaqah['id'];
+    final halaqahName = selectedHalaqah['name'];
+
+    // 4. Save locally in SQLite
+    final db = DatabaseService();
+    await db.saveSetting('sync_center_id', centerId);
+    await db.saveSetting('sync_halaqah_id', halaqahId);
+    await db.saveSetting('mosque_name', centerName);
+    await db.saveSetting('halaqah_name', halaqahName);
+    await db.saveSetting('setup_completed', 'true');
+
+    return true;
   }
 
   Future<bool?> _showExitConfirmationDialog(BuildContext context) {
