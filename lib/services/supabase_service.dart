@@ -380,7 +380,7 @@ class SupabaseService {
         'hizb_number': progress.hizbNumber,
         'thumun_number': progress.thumunNumber,
         'average_grade': progress.averageGrade,
-        'last_graded_date': progress.lastGradedDate,
+        'last_graded_date': progress.lastGradedDate?.toIso8601String().split('T')[0],
         'is_pre_memorized': progress.isPreMemorized,
       });
     }
@@ -400,7 +400,9 @@ class SupabaseService {
         hizbNumber: remote['hizb_number'],
         thumunNumber: remote['thumun_number'],
         averageGrade: (remote['average_grade'] ?? 0.0).toDouble(),
-        lastGradedDate: remote['last_graded_date'],
+        lastGradedDate: remote['last_graded_date'] != null
+            ? DateTime.parse(remote['last_graded_date'])
+            : null,
         isPreMemorized: remote['is_pre_memorized'] ?? false,
       );
 

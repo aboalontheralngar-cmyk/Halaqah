@@ -99,44 +99,126 @@ class _HomeScreenState extends State<HomeScreen> {
         _loadData();
       }
     } else {
-      showDialog(
+      // Show action dialog for authenticated user
+      final action = await showDialog<String>(
         context: context,
-        barrierDismissible: false,
         builder: (context) => AlertDialog(
-          content: Row(
+          title: Text(
+            'المزامنة السحابية',
+            style: GoogleFonts.tajawal(fontWeight: FontWeight.bold),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const CircularProgressIndicator(),
-              const SizedBox(width: 16),
               Text(
-                'جاري مزامنة البيانات...',
+                'الحساب الحالي:',
+                style: GoogleFonts.tajawal(color: Colors.grey),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                supabase.currentUserEmail ?? '',
                 style: GoogleFonts.tajawal(fontWeight: FontWeight.bold),
               ),
             ],
           ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, 'logout'),
+              child: Text(
+                'تسجيل الخروج',
+                style: GoogleFonts.tajawal(color: Colors.red, fontWeight: FontWeight.bold),
+              ),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, 'sync'),
+              child: Text(
+                'مزامنة الآن',
+                style: GoogleFonts.tajawal(color: Colors.teal, fontWeight: FontWeight.bold),
+              ),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, 'close'),
+              child: Text(
+                'إلغاء',
+                style: GoogleFonts.tajawal(color: Colors.grey),
+              ),
+            ),
+          ],
         ),
       );
 
-      try {
-        await supabase.synchronizeData();
-        if (mounted) Navigator.pop(context);
-        _loadData();
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('تمت المزامنة مع السحابة بنجاح'),
-              backgroundColor: Colors.green,
-            ),
-          );
+      if (action == 'logout') {
+        final confirm = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('تسجيل الخروج'),
+            content: const Text('هل أنت متأكد من رغبتك في تسجيل الخروج وإلغاء ربط الحساب السحابي؟'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('إلغاء'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('تسجيل خروج', style: TextStyle(color: Colors.red)),
+              ),
+            ],
+          ),
+        );
+        if (confirm == true) {
+          await supabase.signOut();
+          _loadData();
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('تم تسجيل الخروج بنجاح'),
+                backgroundColor: Colors.green,
+              ),
+            );
+          }
         }
-      } catch (e) {
-        if (mounted) Navigator.pop(context);
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('فشلت المزامنة: $e'),
-              backgroundColor: Colors.red,
+      } else if (action == 'sync') {
+        if (!mounted) return;
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => AlertDialog(
+            content: Row(
+              children: [
+                const CircularProgressIndicator(),
+                const SizedBox(width: 16),
+                Text(
+                  'جاري مزامنة البيانات...',
+                  style: GoogleFonts.tajawal(fontWeight: FontWeight.bold),
+                ),
+              ],
             ),
-          );
+          ),
+        );
+
+        try {
+          await supabase.synchronizeData();
+          if (mounted) Navigator.pop(context);
+          _loadData();
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('تمت المزامنة مع السحابة بنجاح'),
+                backgroundColor: Colors.green,
+              ),
+            );
+          }
+        } catch (e) {
+          if (mounted) Navigator.pop(context);
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('فشلت المزامنة: $e'),
+                backgroundColor: Colors.red,
+              ),
+            );
+          }
         }
       }
     }
