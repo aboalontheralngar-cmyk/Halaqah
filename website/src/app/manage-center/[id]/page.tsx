@@ -51,6 +51,8 @@ export default function ManageCenterPage() {
           .maybeSingle();
         
         if (centerError || !centerData) {
+          console.error("Fetch center error:", centerError);
+          alert(centerError?.message || "خطأ: لم يتم العثور على المركز أو ليس لديك صلاحية كافية لإدارته.");
           router.push("/select-center");
           return;
         }
