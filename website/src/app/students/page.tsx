@@ -349,7 +349,7 @@ export default function StudentsPage() {
                     مستوى {student.level}
                   </span>
                   <span className="text-[10px] font-black text-gray-400 flex items-center gap-1">
-                    <Target className="w-3 h-3" /> الخطة: {student.planAmount} {student.planType === 'ayahs' ? 'آيات' : 'صفحات'}
+                    <Target className="w-3 h-3" /> الخطة: {student.planAmount} {student.planType === 'ayahs' ? 'آيات' : student.planType === 'lines' ? 'أسطر' : 'صفحات'}
                   </span>
                 </div>
                 {(() => {
@@ -605,9 +605,10 @@ export default function StudentsPage() {
                 </div>
                 <div>
                   <label className="block text-[10px] font-black text-teal-600 uppercase mb-2">نوع الحساب</label>
-                  <select value={formData.planType} onChange={e => setFormData({...formData, planType: e.target.value as 'ayahs' | 'pages'})} className="w-full bg-white dark:bg-gray-800 border-none rounded-xl px-4 py-3 text-xs font-bold outline-none">
+                  <select value={formData.planType} onChange={e => setFormData({...formData, planType: e.target.value as 'ayahs' | 'pages' | 'lines'})} className="w-full bg-white dark:bg-gray-800 border-none rounded-xl px-4 py-3 text-xs font-bold outline-none">
                     <option value="ayahs">بعدد الآيات</option>
                     <option value="pages">بعدد الصفحات</option>
+                    <option value="lines">بعدد الأسطر</option>
                   </select>
                 </div>
                 <div>

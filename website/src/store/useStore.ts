@@ -34,9 +34,9 @@ export interface Student {
   level: string;
   joinDate: string;
   photoUrl?: string;
-  planType: 'ayahs' | 'pages';
+  planType: 'ayahs' | 'pages' | 'lines';
   planAmount: number;
-  status: 'active' | 'inactive';
+  status: 'active' | 'inactive' | 'suspended' | 'expelled' | 'graduated';
   memorizationDirection?: 'asc' | 'desc';
   preMemorizedStartSurah?: number;
   preMemorizedStartAyah?: number;

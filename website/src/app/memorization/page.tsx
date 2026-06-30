@@ -166,11 +166,15 @@ export default function MemorizationPage() {
     };
   };
 
-  const getGradeAmount = (surahNum: number, fromAyah: number, toAyah: number, planType: 'ayahs' | 'pages') => {
+  const getGradeAmount = (surahNum: number, fromAyah: number, toAyah: number, planType: 'ayahs' | 'pages' | 'lines') => {
     const surah = surahs.find(s => s.number === surahNum);
     if (!surah) return 0;
     if (planType === 'ayahs') {
       return toAyah - fromAyah + 1;
+    } else if (planType === 'lines') {
+      const ayahsInRange = surah.ayahs.filter(a => a.number >= fromAyah && a.number <= toAyah);
+      const uniquePages = new Set(ayahsInRange.map(a => a.page));
+      return uniquePages.size * 15; // Approximate 15 lines per page
     } else {
       const ayahsInRange = surah.ayahs.filter(a => a.number >= fromAyah && a.number <= toAyah);
       const uniquePages = new Set(ayahsInRange.map(a => a.page));
