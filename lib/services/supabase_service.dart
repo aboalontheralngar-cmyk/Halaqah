@@ -388,8 +388,9 @@ class SupabaseService {
 
     // 2. Upload to Supabase
     for (final progress in localProgressList) {
+      final uniqueId = '${progress.studentId}_${progress.hizbNumber}_${progress.thumunNumber}';
       await client.from('mushaf_progress').upsert({
-        'id': progress.id,
+        'id': remoteUUID(uniqueId),
         'student_id': progress.studentId,
         'center_id': centerId,
         'hizb_number': progress.hizbNumber,
