@@ -120,7 +120,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     
     if (!user) {
       router.push("/login");
-    } else if (!currentCenter && pathname !== "/select-center") {
+    } else if (!currentCenter && pathname !== "/select-center" && !pathname.startsWith("/manage-center")) {
       router.push("/select-center");
     }
   }, [user, currentCenter, pathname, isAuthPage]);
@@ -132,7 +132,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   // --- RENDER LOGIC STARTS HERE ---
 
-  if (isAuthPage) {
+  if (isAuthPage || pathname.startsWith("/manage-center")) {
     return <div dir="rtl" className="min-h-screen bg-gray-50 dark:bg-gray-950">{children}</div>;
   }
 
