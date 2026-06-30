@@ -170,7 +170,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 <X className="w-5 h-5 text-gray-500 dark:text-gray-400" />
               </button>
             </div>
-            <nav className="space-y-1.5">
+            <nav className="space-y-1.5 overflow-y-auto flex-1 pr-1 -mr-1">
               {navItems.map((item) => (
                 <button
                   key={item.id}
@@ -202,7 +202,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </button>
         </div>
         
-        <nav className="flex-1 space-y-1.5">
+        <nav className="flex-1 space-y-1.5 overflow-y-auto pr-1 -mr-1">
           {navItems.map((item) => (
             <button
               key={item.id}
