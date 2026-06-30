@@ -351,7 +351,7 @@ class SupabaseService {
         'center_id': centerId,
         'date': record.date.toIso8601String().split('T')[0],
         'status': record.attendance,
-        'arrival_time': record.arrivalTime?.toIso8601String(),
+        'arrival_time': record.arrivalTime?.toIso8601String().split('T')[1],
         'absence_reason': record.absenceReason,
         'notes': record.notes,
       });
@@ -371,7 +371,7 @@ class SupabaseService {
         date: DateTime.parse(remote['date']),
         attendance: remote['status'] ?? 'absent',
         arrivalTime: remote['arrival_time'] != null
-            ? DateTime.parse(remote['arrival_time'])
+            ? DateTime.parse('${remote['date']}T${remote['arrival_time']}')
             : null,
         absenceReason: remote['absence_reason'],
         notes: remote['notes'] ?? '',
