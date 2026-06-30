@@ -13,7 +13,8 @@ import {
   ChevronLeft,
   LayoutGrid,
   Search,
-  Loader2
+  Loader2,
+  Settings
 } from "lucide-react";
 import { useStore } from "@/store/useStore";
 import { supabase } from "@/lib/supabase";
@@ -232,23 +233,48 @@ export default function SelectCenterPage() {
               ) : (
                 <div className="md:col-span-2 grid md:grid-cols-2 gap-8">
                   {centers.map((center) => (
-                    <button
+                    <div
                       key={center.id}
-                      onClick={() => handleCenterSelect(center)}
-                      className="group relative bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 p-10 rounded-3xl text-right transition-all hover:shadow-2xl hover:scale-[1.02] overflow-hidden"
+                      className="group relative bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 p-8 rounded-[2rem] text-right transition-all hover:shadow-2xl hover:scale-[1.01] overflow-hidden flex items-center justify-between gap-4"
                     >
-                      <div className={`absolute top-0 right-0 w-2 h-full ${center.type === 'men' ? "bg-teal-600" : "bg-rose-500"}`} />
-                      <div className="flex items-center gap-6">
-                        <div className={`w-16 h-16 rounded-2xl flex items-center justify-center ${center.type === 'men' ? "bg-teal-50 text-teal-600" : "bg-rose-50 text-rose-500"}`}>
-                          {center.type === 'men' ? <Users className="w-8 h-8" /> : <VenetianMask className="w-8 h-8" />}
+                      <div className={`absolute top-0 right-0 w-2 h-full ${center.type === 'men' ? "bg-teal-600" : center.type === 'women' ? "bg-rose-500" : "bg-amber-500"}`} />
+                      
+                      <div 
+                        onClick={() => handleCenterSelect(center)}
+                        className="flex items-center gap-6 flex-1 cursor-pointer"
+                      >
+                        <div className={`w-16 h-16 rounded-2xl flex items-center justify-center ${center.type === 'men' ? "bg-teal-50 text-teal-600" : center.type === 'women' ? "bg-rose-50 text-rose-500" : "bg-amber-50 text-amber-600"}`}>
+                          {center.type === 'men' ? <Users className="w-8 h-8" /> : center.type === 'women' ? <VenetianMask className="w-8 h-8" /> : <Building2 className="w-8 h-8" />}
                         </div>
                         <div className="flex-1">
-                          <h3 className="text-xl font-black text-gray-900 dark:text-white">{center.name}</h3>
-                          <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mt-1">{center.type === 'men' ? "قطاع البنين" : "قطاع البنات"}</p>
+                          <h3 className="text-xl font-black text-gray-900 dark:text-white group-hover:text-teal-600 transition-colors">{center.name}</h3>
+                          <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mt-1">
+                            {center.type === 'men' ? "قطاع البنين" : center.type === 'women' ? "قطاع البنات" : "مركز مختلط"}
+                          </p>
                         </div>
-                        <ChevronLeft className="w-6 h-6 text-gray-300 group-hover:text-teal-600 transition-colors" />
                       </div>
-                    </button>
+
+                      <div className="flex items-center gap-2">
+                        {(profile?.role === 'center_admin' || center.owner_id === user?.id) && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              router.push(`/manage-center/${center.id}`);
+                            }}
+                            className="p-4 bg-gray-50 dark:bg-gray-800 hover:bg-teal-600 text-gray-400 hover:text-white rounded-2xl transition-all"
+                            title="إدارة المركز"
+                          >
+                            <Settings className="w-5 h-5" />
+                          </button>
+                        )}
+                        <button 
+                          onClick={() => handleCenterSelect(center)}
+                          className="p-4 bg-gray-50 dark:bg-gray-800 hover:bg-teal-600 text-gray-400 hover:text-white rounded-2xl transition-all"
+                        >
+                          <ChevronLeft className="w-5 h-5" />
+                        </button>
+                      </div>
+                    </div>
                   ))}
                   <button 
                     onClick={() => setShowCreateCenter(true)}
