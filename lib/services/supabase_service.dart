@@ -219,8 +219,9 @@ class SupabaseService {
     final localStudents = await _db.getStudents();
 
     // 2. Upload/Upsert to Supabase
+    final List<Map<String, dynamic>> studentsPayload = [];
     for (final student in localStudents) {
-      await client.from('students').upsert({
+      studentsPayload.add({
         'id': student.id,
         'center_id': centerId,
         'halaqa_id': halaqahId,
@@ -234,6 +235,10 @@ class SupabaseService {
         'created_at': student.createdAt.toIso8601String(),
         'memorization_direction': student.memorizationDirection,
       });
+    }
+    for (var i = 0; i < studentsPayload.length; i += 500) {
+      final chunk = studentsPayload.sublist(i, i + 500 > studentsPayload.length ? studentsPayload.length : i + 500);
+      await client.from('students').upsert(chunk);
     }
 
     // 3. Download latest from Supabase
@@ -276,9 +281,10 @@ class SupabaseService {
     final localGrades = await _db.getAllHomeworkGrades();
 
     // 2. Upload/Upsert to Supabase
+    final List<Map<String, dynamic>> gradesPayload = [];
     for (final grade in localGrades) {
       final surahName = QuranService.instance.getSurahName(grade.surahId);
-      await client.from('homework_grades').upsert({
+      gradesPayload.add({
         'id': grade.id,
         'student_id': grade.studentId,
         'center_id': centerId,
@@ -293,6 +299,10 @@ class SupabaseService {
         'remark': grade.remark,
         'created_at': grade.createdAt.toIso8601String(),
       });
+    }
+    for (var i = 0; i < gradesPayload.length; i += 500) {
+      final chunk = gradesPayload.sublist(i, i + 500 > gradesPayload.length ? gradesPayload.length : i + 500);
+      await client.from('homework_grades').upsert(chunk);
     }
 
     // 3. Download latest from Supabase
@@ -341,11 +351,12 @@ class SupabaseService {
     final localRecords = await _db.getAllDailyRecords();
 
     // 2. Upload to Supabase
+    final List<Map<String, dynamic>> attendancePayload = [];
     for (final record in localRecords) {
       // Create a unique UUID from studentId and date for Supabase PRIMARY KEY
       final uniqueId = '${record.studentId}_${record.date.toIso8601String().split('T')[0]}';
       
-      await client.from('attendance').upsert({
+      attendancePayload.add({
         'id': remoteUUID(uniqueId),
         'student_id': record.studentId,
         'center_id': centerId,
@@ -355,6 +366,10 @@ class SupabaseService {
         'absence_reason': record.absenceReason,
         'notes': record.notes,
       });
+    }
+    for (var i = 0; i < attendancePayload.length; i += 500) {
+      final chunk = attendancePayload.sublist(i, i + 500 > attendancePayload.length ? attendancePayload.length : i + 500);
+      await client.from('attendance').upsert(chunk);
     }
 
     // 3. Download from Supabase
@@ -387,9 +402,10 @@ class SupabaseService {
     final localProgressList = await _db.getAllMushafProgress();
 
     // 2. Upload to Supabase
+    final List<Map<String, dynamic>> mushafPayload = [];
     for (final progress in localProgressList) {
       final uniqueId = '${progress.studentId}_${progress.hizbNumber}_${progress.thumunNumber}';
-      await client.from('mushaf_progress').upsert({
+      mushafPayload.add({
         'id': remoteUUID(uniqueId),
         'student_id': progress.studentId,
         'center_id': centerId,
@@ -398,7 +414,11 @@ class SupabaseService {
         'average_grade': progress.averageGrade,
         'last_graded_date': progress.lastGradedDate?.toIso8601String().split('T')[0],
         'is_pre_memorized': progress.isPreMemorized,
-      }, onConflict: 'student_id,hizb_number,thumun_number');
+      });
+    }
+    for (var i = 0; i < mushafPayload.length; i += 500) {
+      final chunk = mushafPayload.sublist(i, i + 500 > mushafPayload.length ? mushafPayload.length : i + 500);
+      await client.from('mushaf_progress').upsert(chunk, onConflict: 'student_id,hizb_number,thumun_number');
     }
 
     // 3. Download from Supabase
