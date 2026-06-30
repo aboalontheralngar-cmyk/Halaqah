@@ -149,6 +149,27 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   return (
     <div className={`${darkMode ? "dark" : ""} min-h-screen bg-gray-50 dark:bg-gray-950 flex flex-col lg:flex-row transition-colors duration-500`} dir="rtl">
+      <style dangerouslySetInnerHTML={{__html: `
+        .sidebar-scroll::-webkit-scrollbar {
+          width: 5px;
+          height: 0px;
+        }
+        .sidebar-scroll::-webkit-scrollbar-track {
+          background: transparent;
+        }
+        .sidebar-scroll::-webkit-scrollbar-thumb {
+          background: rgba(13, 148, 136, 0.15);
+          border-radius: 99px;
+        }
+        .sidebar-scroll::-webkit-scrollbar-thumb:hover {
+          background: rgba(13, 148, 136, 0.35);
+        }
+        .sidebar-scroll {
+          -ms-overflow-style: none;
+          scrollbar-width: thin;
+          scrollbar-color: rgba(13, 148, 136, 0.15) transparent;
+        }
+      `}} />
       {/* Mobile Header */}
       <header className="lg:hidden bg-white/80 dark:bg-gray-900/80 backdrop-blur-md border-b border-gray-200 dark:border-gray-800 px-4 py-3 flex items-center justify-between sticky top-0 z-50">
         <button onClick={() => setMobileMenuOpen(true)} className="p-2 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-xl transition-colors">
@@ -170,7 +191,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 <X className="w-5 h-5 text-gray-500 dark:text-gray-400" />
               </button>
             </div>
-            <nav className="space-y-1.5 overflow-y-auto flex-1 pr-1 -mr-1">
+            <nav className="space-y-1.5 overflow-y-auto overflow-x-hidden flex-1 sidebar-scroll">
               {navItems.map((item) => (
                 <button
                   key={item.id}
@@ -202,7 +223,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </button>
         </div>
         
-        <nav className="flex-1 space-y-1.5 overflow-y-auto pr-1 -mr-1">
+        <nav className="flex-1 space-y-1.5 overflow-y-auto overflow-x-hidden sidebar-scroll">
           {navItems.map((item) => (
             <button
               key={item.id}
