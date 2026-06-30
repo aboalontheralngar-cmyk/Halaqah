@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:google_fonts/google_fonts.dart';
 import '../../services/database_service.dart';
 import '../../services/backup_service.dart';
+import '../../services/supabase_service.dart';
 import 'package:share_plus/share_plus.dart';
 import '../../models/settings.dart';
 import '../../app/app.dart';
@@ -921,6 +922,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Widget _buildDataSection() {
+    final supabase = SupabaseService.instance;
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -954,6 +956,48 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 );
               },
             ),
+            if (supabase.isAuthenticated) ...[
+              const Divider(),
+              ListTile(
+                leading: const Icon(Icons.logout, color: Colors.red),
+                title: const Text(
+                  'تسجيل الخروج من السحابة',
+                  style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
+                ),
+                subtitle: Text('الحساب الحالي: ${supabase.currentUserEmail}'),
+                onTap: () async {
+                  final confirm = await showDialog<bool>(
+                    context: context,
+                    builder: (context) => AlertDialog(
+                      title: const Text('تسجيل الخروج'),
+                      content: const Text('هل أنت متأكد من رغبتك في تسجيل الخروج وإلغاء ربط الحساب السحابي؟'),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(context, false),
+                          child: const Text('إلغاء'),
+                        ),
+                        TextButton(
+                          onPressed: () => Navigator.pop(context, true),
+                          child: const Text('تسجيل خروج', style: TextStyle(color: Colors.red)),
+                        ),
+                      ],
+                    ),
+                  );
+                  if (confirm == true) {
+                    await supabase.signOut();
+                    setState(() {});
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('تم تسجيل الخروج بنجاح'),
+                          backgroundColor: Colors.green,
+                        ),
+                      );
+                    }
+                  }
+                },
+              ),
+            ],
           ],
         ),
       ),

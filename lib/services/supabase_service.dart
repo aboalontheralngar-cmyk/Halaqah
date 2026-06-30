@@ -149,14 +149,15 @@ class SupabaseService {
 
     try {
       final info = await getTeacherInfo();
-      if (info == null) return;
+      if (info == null) {
+        throw Exception('لم يتم العثور على عضوية أو مركز نشط لهذا الحساب في قاعدة البيانات.');
+      }
 
       final String centerId = info['center_id'];
       final String? halaqahId = info['halaqah_id'];
 
       if (halaqahId == null) {
-        print('No halaqah assigned to teacher');
-        return;
+        throw Exception('هذا الحساب غير مسند لأي حلقة حالياً. يرجى إسناد الحلقة أولاً عبر لوحة التحكم.');
       }
 
       // Fetch center name from Supabase
@@ -195,11 +196,34 @@ class SupabaseService {
       print('Supabase synchronization completed successfully!');
     } catch (e) {
       print('Error during Supabase synchronization: $e');
+      rethrow;
     }
   }
 
-  // Sync Students: Pull from Supabase and save to local
+  // Sync Students: Push local changes, Pull remote changes
   Future<void> _syncStudents(String centerId, String halaqahId) async {
+    // 1. Fetch local students
+    final localStudents = await _db.getStudents();
+
+    // 2. Upload/Upsert to Supabase
+    for (final student in localStudents) {
+      await client.from('students').upsert({
+        'id': student.id,
+        'center_id': centerId,
+        'halaqa_id': halaqahId,
+        'name': student.name,
+        'phone': student.phone,
+        'parent_phone': student.guardianPhone,
+        'plan_type': student.planType,
+        'plan_amount': student.planAmount,
+        'status': student.status,
+        'join_date': student.joinDate.toIso8601String().split('T')[0],
+        'created_at': student.createdAt.toIso8601String(),
+        'memorization_direction': student.memorizationDirection,
+      });
+    }
+
+    // 3. Download latest from Supabase
     final response = await client
         .from('students')
         .select()
@@ -312,7 +336,6 @@ class SupabaseService {
         'id': remoteUUID(uniqueId),
         'student_id': record.studentId,
         'center_id': centerId,
-        'halaqa_id': halaqahId,
         'date': record.date.toIso8601String().split('T')[0],
         'status': record.attendance,
         'arrival_time': record.arrivalTime,
@@ -325,7 +348,7 @@ class SupabaseService {
     final response = await client
         .from('attendance')
         .select()
-        .eq('halaqa_id', halaqahId);
+        .eq('center_id', centerId);
 
     final List<dynamic> remoteAttendance = response as List<dynamic>;
 
