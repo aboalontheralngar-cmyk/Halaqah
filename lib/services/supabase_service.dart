@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'dart:convert';
 import 'package:crypto/crypto.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -95,20 +94,49 @@ class SupabaseService {
     if (email == null || currentUser == null) return null;
 
     try {
+      // 1. Try to find in center_members (case-insensitive)
       final response = await client
           .from('center_members')
           .select('center_id, halaqah_id, role, user_id')
-          .eq('email', email)
+          .ilike('email', email.trim())
           .maybeSingle();
           
-      if (response != null && response['user_id'] == null) {
-        await client
-            .from('center_members')
-            .update({'user_id': currentUser.id})
-            .eq('email', email);
+      if (response != null) {
+        if (response['user_id'] == null) {
+          await client
+              .from('center_members')
+              .update({'user_id': currentUser.id})
+              .ilike('email', email.trim());
+        }
+        return response;
       }
       
-      return response;
+      // 2. If not found in center_members, check if they own a center (center_admin)
+      final centerResponse = await client
+          .from('centers')
+          .select('id')
+          .eq('owner_id', currentUser.id)
+          .limit(1)
+          .maybeSingle();
+          
+      if (centerResponse != null) {
+        // They own a center! Let's get the first halaqah of this center
+        final halaqahResponse = await client
+            .from('halaqat')
+            .select('id')
+            .eq('center_id', centerResponse['id'])
+            .limit(1)
+            .maybeSingle();
+            
+        return {
+          'center_id': centerResponse['id'],
+          'halaqah_id': halaqahResponse?['id'],
+          'role': 'center_admin',
+          'user_id': currentUser.id,
+        };
+      }
+      
+      return null;
     } catch (e) {
       print('Error getting teacher info: $e');
       return null;
@@ -130,6 +158,34 @@ class SupabaseService {
         print('No halaqah assigned to teacher');
         return;
       }
+
+      // Fetch center name from Supabase
+      String mosqueName = '';
+      final centerRes = await client.from('centers').select('name').eq('id', centerId).maybeSingle();
+      if (centerRes != null) {
+        mosqueName = centerRes['name'] ?? '';
+      }
+
+      // Fetch halaqah name and teacher name from Supabase
+      String halaqahName = '';
+      String teacherName = '';
+      final halaqahRes = await client.from('halaqat').select('name, teacher_name').eq('id', halaqahId).maybeSingle();
+      if (halaqahRes != null) {
+        halaqahName = halaqahRes['name'] ?? '';
+        teacherName = halaqahRes['teacher_name'] ?? '';
+      }
+
+      // Save to local SQLite settings
+      if (mosqueName.isNotEmpty) {
+        await _db.saveSetting('mosque_name', mosqueName);
+      }
+      if (halaqahName.isNotEmpty) {
+        await _db.saveSetting('halaqah_name', halaqahName);
+      }
+      if (teacherName.isNotEmpty) {
+        await _db.saveSetting('teacher_name', teacherName);
+      }
+      await _db.saveSetting('setup_completed', 'true');
 
       await _syncStudents(centerId, halaqahId);
       await _syncHomeworkGrades(centerId, halaqahId);
