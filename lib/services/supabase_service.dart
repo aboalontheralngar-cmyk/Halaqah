@@ -398,7 +398,7 @@ class SupabaseService {
         'average_grade': progress.averageGrade,
         'last_graded_date': progress.lastGradedDate?.toIso8601String().split('T')[0],
         'is_pre_memorized': progress.isPreMemorized,
-      });
+      }, onConflict: 'student_id,hizb_number,thumun_number');
     }
 
     // 3. Download from Supabase
