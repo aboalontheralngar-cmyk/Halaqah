@@ -151,7 +151,7 @@ interface HalaqahStore {
   userCenters: { id: string, name: string, type: 'men' | 'women' | 'mixed' }[];
   currentSupervisor: Supervisor | null;
   teachers: Teacher[];
-  halaqat: { id: string, name: string }[];
+  halaqat: { id: string, name: string, teacher_name?: string }[];
 
   // Actions
   setUser: (user: any) => void;
@@ -175,6 +175,8 @@ interface HalaqahStore {
   updateAttendance: (id: string, status: AttendanceRecord['status'], extra?: Partial<AttendanceRecord>) => Promise<void>;
   clearHalaqaData: () => void;
   fetchAllHalaqat: (centerId: string) => Promise<void>;
+  updateHalaqa: (id: string, name: string) => Promise<void>;
+  deleteHalaqa: (id: string) => Promise<void>;
   assignTeacherToHalaqa: (memberId: string, halaqahId: string | null) => Promise<void>;
   joinWithCode: (code: string) => Promise<boolean>;
   
@@ -771,6 +773,38 @@ export const useStore = create<HalaqahStore>((set, get) => ({
       .eq('center_id', centerId);
     if (!error && data) {
       set({ halaqat: data });
+    }
+  },
+
+  updateHalaqa: async (id: string, name: string) => {
+    if (!supabase) return;
+    const { error } = await supabase
+      .from('halaqat')
+      .update({ name })
+      .eq('id', id);
+    if (!error) {
+      const { currentCenter } = get();
+      if (currentCenter) {
+        get().fetchAllHalaqat(currentCenter.id);
+      }
+    } else {
+      console.error("Error updating halaqah:", error);
+    }
+  },
+
+  deleteHalaqa: async (id: string) => {
+    if (!supabase) return;
+    const { error } = await supabase
+      .from('halaqat')
+      .delete()
+      .eq('id', id);
+    if (!error) {
+      const { currentCenter } = get();
+      if (currentCenter) {
+        get().fetchAllHalaqat(currentCenter.id);
+      }
+    } else {
+      console.error("Error deleting halaqah:", error);
     }
   },
 

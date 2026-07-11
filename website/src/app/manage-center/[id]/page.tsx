@@ -16,7 +16,8 @@ import {
   Check,
   Loader2,
   Trash2,
-  ExternalLink
+  ExternalLink,
+  Edit2
 } from "lucide-react";
 import { useStore } from "@/store/useStore";
 import { supabase } from "@/lib/supabase";
@@ -28,7 +29,7 @@ export default function ManageCenterPage() {
   const { 
     user, profile, fetchProfile, 
     teachers, fetchTeachers, addTeacher, removeTeacher, assignTeacherToHalaqa,
-    halaqat, fetchAllHalaqat 
+    halaqat, fetchAllHalaqat, updateHalaqa, deleteHalaqa 
   } = useStore();
 
   const [loading, setLoading] = useState(true);
@@ -36,6 +37,8 @@ export default function ManageCenterPage() {
   const [showAddTeacherModal, setShowAddTeacherModal] = useState(false);
   const [newTeacherEmail, setNewTeacherEmail] = useState("");
   const [centerInfo, setCenterInfo] = useState<any>(null);
+  const [editingHalaqa, setEditingHalaqa] = useState<{id: string, name: string} | null>(null);
+  const [deletingHalaqa, setDeletingHalaqa] = useState<string | null>(null);
 
   useEffect(() => {
     const init = async () => {
@@ -216,18 +219,32 @@ export default function ManageCenterPage() {
                 <div key={halaqa.id} className="bg-white dark:bg-gray-900 p-6 rounded-3xl border border-gray-100 dark:border-gray-800 flex items-center justify-between group hover:border-teal-500 transition-all">
                   <div className="space-y-1">
                     <h3 className="font-black text-gray-900 dark:text-white">{halaqa.name}</h3>
-                    <p className="text-[10px] text-gray-400 font-bold">المعلم: {teachers.find(t=>t.halaqahId === halaqa.id)?.email || "شاغر"}</p>
+                    <p className="text-[10px] text-gray-400 font-bold">المعلم: {teachers.find(t=>t.halaqahId === halaqa.id)?.email || halaqa.teacher_name || "شاغر"}</p>
                   </div>
-                  <button 
-                    onClick={() => {
-                      useStore.getState().clearHalaqaData();
-                      useStore.getState().setCurrentCenter({ ...centerInfo, activeHalaqa: { id: halaqa.id, name: halaqa.name } });
-                      router.push("/");
-                    }}
-                    className="p-3 bg-gray-50 dark:bg-gray-800 rounded-xl text-gray-400 group-hover:bg-teal-600 group-hover:text-white transition-all"
-                  >
-                    <ExternalLink className="w-5 h-5" />
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button 
+                      onClick={() => setEditingHalaqa(halaqa)}
+                      className="p-3 bg-gray-50 dark:bg-gray-800 rounded-xl text-gray-400 hover:text-teal-600 transition-all"
+                    >
+                      <Edit2 className="w-4 h-4" />
+                    </button>
+                    <button 
+                      onClick={() => setDeletingHalaqa(halaqa.id)}
+                      className="p-3 bg-gray-50 dark:bg-gray-800 rounded-xl text-gray-400 hover:text-rose-500 transition-all"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                    <button 
+                      onClick={() => {
+                        useStore.getState().clearHalaqaData();
+                        useStore.getState().setCurrentCenter({ ...centerInfo, activeHalaqa: { id: halaqa.id, name: halaqa.name } });
+                        router.push("/");
+                      }}
+                      className="p-3 bg-gray-50 dark:bg-gray-800 rounded-xl text-gray-400 hover:bg-teal-600 hover:text-white transition-all"
+                    >
+                      <ExternalLink className="w-5 h-5" />
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>

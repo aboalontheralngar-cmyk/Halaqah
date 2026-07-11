@@ -1091,6 +1091,24 @@ class DatabaseService {
     return List.generate(maps.length, (i) => MushafProgress.fromMap(maps[i]));
   }
 
+  Future<List<MemorizationProgress>> getAllMemorizationProgress() async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.query('memorization_progress');
+    return List.generate(maps.length, (i) => MemorizationProgress.fromMap(maps[i]));
+  }
+
+  Future<List<BehaviorPoint>> getAllBehaviorPoints() async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.query('behavior_points');
+    return List.generate(maps.length, (i) => BehaviorPoint.fromMap(maps[i]));
+  }
+
+  Future<List<Exam>> getAllExams() async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.query('exams');
+    return List.generate(maps.length, (i) => Exam.fromMap(maps[i]));
+  }
+
   Future<void> initializeMushafProgress(String studentId, int initialJuzCount, String direction) async {
     final db = await database;
     await db.transaction((txn) async {

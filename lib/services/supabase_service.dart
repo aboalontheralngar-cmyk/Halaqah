@@ -5,6 +5,13 @@ import '../models/student.dart';
 import '../models/homework_grade.dart';
 import '../models/daily_record.dart';
 import '../models/mushaf_progress.dart';
+import '../models/memorization.dart';
+import '../models/behavior_point.dart';
+import '../models/vacation.dart';
+import '../models/exam.dart';
+import '../models/fund_transaction.dart';
+import '../models/plan.dart';
+import '../models/notification_log.dart';
 import 'database_service.dart';
 import 'quran_service.dart';
 
@@ -205,6 +212,13 @@ class SupabaseService {
       await _syncHomeworkGrades(centerId, halaqahId);
       await _syncAttendance(centerId, halaqahId);
       await _syncMushafProgress(centerId, halaqahId);
+      await _syncMemorizationProgress(centerId);
+      await _syncBehaviorPoints(centerId);
+      await _syncVacations(centerId);
+      await _syncExams(centerId);
+      await _syncFundTransactions(centerId);
+      await _syncPlans(centerId);
+      await _syncNotifications(centerId);
 
       print('Supabase synchronization completed successfully!');
     } catch (e) {
@@ -542,5 +556,178 @@ class SupabaseService {
     final digest = md5.convert(bytes);
     final hex = digest.toString();
     return '${hex.substring(0, 8)}-${hex.substring(8, 12)}-${hex.substring(12, 16)}-${hex.substring(16, 20)}-${hex.substring(20, 32)}';
+  }
+
+  Future<void> _syncMemorizationProgress(String centerId) async {
+    final localData = await _db.getAllMemorizationProgress();
+    if (localData.isEmpty) return;
+    final payload = localData.map((e) => {
+      'id': e.id,
+      'student_id': e.studentId,
+      'center_id': centerId,
+      'surah': QuranService.instance.getSurahName(e.surahId),
+      'from_ayah': e.fromAyah,
+      'to_ayah': e.toAyah,
+      'degree': e.qualityRating,
+      'date': e.date.toIso8601String().split('T')[0],
+      'notes': e.notes,
+    }).toList();
+    for (var i = 0; i < payload.length; i += 100) {
+      final chunk = payload.sublist(i, i + 100 > payload.length ? payload.length : i + 100);
+      try {
+        await client.from('memorization').upsert(chunk);
+      } catch (e) {
+        print('Error syncing memorization chunk: $e');
+      }
+    }
+  }
+
+  Future<void> _syncBehaviorPoints(String centerId) async {
+    final localData = await _db.getAllBehaviorPoints();
+    if (localData.isEmpty) return;
+    final payload = localData.map((e) => {
+      'id': e.id,
+      'student_id': e.studentId,
+      'center_id': centerId,
+      'type': e.type,
+      'amount': e.points.abs(),
+      'reason': e.reason,
+      'date': e.date.toIso8601String().split('T')[0],
+      'resolved': e.resolved,
+    }).toList();
+    for (var i = 0; i < payload.length; i += 100) {
+      final chunk = payload.sublist(i, i + 100 > payload.length ? payload.length : i + 100);
+      try {
+        await client.from('points').upsert(chunk);
+      } catch (e) {
+        print('Error syncing points chunk: $e');
+      }
+    }
+  }
+
+  Future<void> _syncVacations(String centerId) async {
+    final localData = await _db.getAllVacations();
+    if (localData.isEmpty) return;
+    final payload = localData.map((e) => {
+      'id': e.id,
+      'student_id': e.studentId,
+      'center_id': centerId,
+      'start_date': e.startDate.toIso8601String().split('T')[0],
+      'end_date': e.endDate.toIso8601String().split('T')[0],
+      'reason': [e.reason, e.notes].where((element) => element != null && element.isNotEmpty).join(' - '),
+      'approved': e.approved,
+    }).toList();
+    for (var i = 0; i < payload.length; i += 100) {
+      final chunk = payload.sublist(i, i + 100 > payload.length ? payload.length : i + 100);
+      try {
+        await client.from('vacations').upsert(chunk);
+      } catch (e) {
+        print('Error syncing vacations chunk: $e');
+      }
+    }
+  }
+
+  Future<void> _syncExams(String centerId) async {
+    final localData = await _db.getAllExams();
+    if (localData.isEmpty) return;
+    
+    final examsPayload = localData.map((e) => {
+      'id': e.id,
+      'center_id': centerId,
+      'title': 'اختبار محلي',
+      'date': e.date.toIso8601String().split('T')[0],
+      'type': e.type,
+      'max_degree': 100,
+    }).toList();
+
+    final scoresPayload = localData.map((e) => {
+      'id': e.id,
+      'exam_id': e.id,
+      'student_id': e.studentId,
+      'degree': e.score,
+      'notes': e.notes,
+    }).toList();
+
+    for (var i = 0; i < examsPayload.length; i += 100) {
+      final chunkExams = examsPayload.sublist(i, i + 100 > examsPayload.length ? examsPayload.length : i + 100);
+      final chunkScores = scoresPayload.sublist(i, i + 100 > scoresPayload.length ? scoresPayload.length : i + 100);
+      try {
+        await client.from('exams').upsert(chunkExams);
+        await client.from('exam_scores').upsert(chunkScores);
+      } catch (e) {
+        print('Error syncing exams chunk: $e');
+      }
+    }
+  }
+
+  Future<void> _syncFundTransactions(String centerId) async {
+    final localData = await _db.getFundTransactions();
+    if (localData.isEmpty) return;
+    final payload = localData.map((e) => {
+      'id': e.id,
+      'center_id': centerId,
+      'student_id': e.studentId,
+      'type': e.type,
+      'amount': e.amount,
+      'note': e.note,
+      'date': e.date.toIso8601String().split('T')[0],
+    }).toList();
+    for (var i = 0; i < payload.length; i += 100) {
+      final chunk = payload.sublist(i, i + 100 > payload.length ? payload.length : i + 100);
+      try {
+        await client.from('fund_transactions').upsert(chunk);
+      } catch (e) {
+        print('Error syncing fund tx chunk: $e');
+      }
+    }
+  }
+
+  Future<void> _syncPlans(String centerId) async {
+    final localData = await _db.getSmartPlans();
+    if (localData.isEmpty) return;
+    final payload = localData.map((e) => {
+      'id': e.id,
+      'center_id': centerId,
+      'student_id': e.studentId,
+      'period': e.period,
+      'start_date': e.startDate.toIso8601String().split('T')[0],
+      'end_date': e.endDate.toIso8601String().split('T')[0],
+      'unit': e.unit,
+      'new_amount': e.newAmount,
+      'review_amount': e.reviewAmount,
+      'status': e.status,
+      'notes': e.notes,
+    }).toList();
+    for (var i = 0; i < payload.length; i += 100) {
+      final chunk = payload.sublist(i, i + 100 > payload.length ? payload.length : i + 100);
+      try {
+        await client.from('plans').upsert(chunk);
+      } catch (e) {
+        print('Error syncing plans chunk: $e');
+      }
+    }
+  }
+
+  Future<void> _syncNotifications(String centerId) async {
+    final localData = await _db.getNotifications();
+    if (localData.isEmpty) return;
+    final payload = localData.map((e) => {
+      'id': e.id,
+      'center_id': centerId,
+      'student_id': e.studentId,
+      'type': e.type,
+      'title': e.title,
+      'body': e.body,
+      'read': e.read,
+      'sent_via': 'none',
+    }).toList();
+    for (var i = 0; i < payload.length; i += 100) {
+      final chunk = payload.sublist(i, i + 100 > payload.length ? payload.length : i + 100);
+      try {
+        await client.from('notifications').upsert(chunk);
+      } catch (e) {
+        print('Error syncing notifications chunk: $e');
+      }
+    }
   }
 }
