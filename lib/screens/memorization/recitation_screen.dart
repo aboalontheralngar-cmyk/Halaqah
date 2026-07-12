@@ -8,6 +8,9 @@ import 'package:share_plus/share_plus.dart';
 import '../../services/quran_service.dart';
 import '../../services/database_service.dart';
 import '../../services/mushaf_service.dart';
+import '../../services/memorization_measure_service.dart';
+import '../../services/memorization_progression_service.dart';
+import '../../services/recitation_boundary_service.dart';
 import '../../models/student.dart';
 import '../../models/memorization.dart';
 import '../../models/daily_record.dart';
@@ -16,6 +19,7 @@ import '../../models/homework_grade.dart';
 import '../../models/behavior_point.dart';
 import '../../models/settings.dart';
 import '../../widgets/surah_picker.dart';
+import '../../widgets/ayah_range_picker.dart';
 import '../../utils/helpers.dart';
 
 class RecitationScreen extends StatefulWidget {
@@ -39,6 +43,7 @@ class _RecitationScreenState extends State<RecitationScreen> {
   bool _isSaving = false;
   List<Ayah> _ayahs = [];
   Map<int, int> _ayahRatings = {};
+  bool _openEnded = true;
 
   // New Grading State Fields
   bool _isRevision = false;
@@ -72,164 +77,13 @@ class _RecitationScreenState extends State<RecitationScreen> {
     }
   }
 
-  int _calculateToAyah({
-    required Surah surah,
-    required int fromAyah,
-    required String planType,
-    required int planAmount,
-  }) {
-    if (planType == 'ayahs') {
-      return (fromAyah + planAmount - 1).clamp(1, surah.totalAyahs);
-    }
-    
-    if (planType == 'pages') {
-      final startAyahObj = surah.getAyah(fromAyah);
-      if (startAyahObj == null) return surah.totalAyahs;
-      final startPage = startAyahObj.page;
-      final targetEndPage = startPage + planAmount - 1;
-      
-      int targetToAyah = fromAyah;
-      for (int i = fromAyah; i <= surah.totalAyahs; i++) {
-        final a = surah.getAyah(i);
-        if (a != null && a.page <= targetEndPage) {
-          targetToAyah = i;
-        } else {
-          break;
-        }
-      }
-      return targetToAyah;
-    }
-    
-    if (planType == 'lines') {
-      double linesSum = 0;
-      int targetToAyah = fromAyah;
-      for (int i = fromAyah; i <= surah.totalAyahs; i++) {
-        final a = surah.getAyah(i);
-        if (a != null) {
-          linesSum += a.lines;
-          targetToAyah = i;
-          if (linesSum >= planAmount) {
-            break;
-          }
-        }
-      }
-      return targetToAyah;
-    }
-    
-    return surah.totalAyahs;
-  }
-
   Future<Map<String, int>?> _getNextMemorizationStartingPoint(Student student) async {
     final allProgress = await _db.getStudentMemorization(student.id);
-    final memorizations = allProgress.where((p) => !p.isRevision).toList();
-
-    if (memorizations.isNotEmpty) {
-      // نختار أبعد نقطة وصل إليها الطالب (الجبهة الأمامية للحفظ) وليس آخر سجل بالتاريخ،
-      // حتى لا يرجع المؤشر للخلف عند إعادة تسميع مقطع سابق.
-      final isDesc = student.memorizationDirection == 'desc';
-      memorizations.sort((a, b) {
-        // في الاتجاه التنازلي: الأبعد هو الأصغر رقم سورة ثم الأكبر آية
-        // في الاتجاه التصاعدي: الأبعد هو الأكبر رقم سورة ثم الأكبر آية
-        if (a.surahId != b.surahId) {
-          return isDesc
-              ? a.surahId.compareTo(b.surahId) // الأصغر أولاً (سنأخذ first)
-              : b.surahId.compareTo(a.surahId); // الأكبر أولاً
-        }
-        return b.toAyah.compareTo(a.toAyah); // الأكبر آية أولاً
-      });
-      final last = memorizations.first;
-      final surah = _quran.getSurah(last.surahId);
-      if (surah != null) {
-        if (last.toAyah < surah.totalAyahs) {
-          final nextFrom = last.toAyah + 1;
-          return {
-            'surahId': last.surahId,
-            'fromAyah': nextFrom,
-            'toAyah': _calculateToAyah(
-              surah: surah,
-              fromAyah: nextFrom,
-              planType: student.planType,
-              planAmount: student.planAmount,
-            ),
-          };
-        } else {
-          int nextSurahId = student.memorizationDirection == 'desc' 
-              ? last.surahId - 1 
-              : last.surahId + 1;
-          
-          if (nextSurahId >= 1 && nextSurahId <= 114) {
-            final nextSurah = _quran.getSurah(nextSurahId);
-            if (nextSurah != null) {
-              return {
-                'surahId': nextSurahId,
-                'fromAyah': 1,
-                'toAyah': _calculateToAyah(
-                  surah: nextSurah,
-                  fromAyah: 1,
-                  planType: student.planType,
-                  planAmount: student.planAmount,
-                ),
-              };
-            }
-          }
-        }
-      }
-    }
-
-    if (student.preMemorizedEndSurah != null) {
-      int nextSurahId = student.preMemorizedEndSurah!;
-      int nextFromAyah = (student.preMemorizedEndAyah ?? 1) + 1;
-      final currentSurah = _quran.getSurah(nextSurahId);
-      
-      if (currentSurah != null && nextFromAyah <= currentSurah.totalAyahs) {
-        return {
-          'surahId': nextSurahId,
-          'fromAyah': nextFromAyah,
-          'toAyah': _calculateToAyah(
-            surah: currentSurah,
-            fromAyah: nextFromAyah,
-            planType: student.planType,
-            planAmount: student.planAmount,
-          ),
-        };
-      } else {
-        nextSurahId = student.memorizationDirection == 'desc'
-            ? student.preMemorizedEndSurah! - 1
-            : student.preMemorizedEndSurah! + 1;
-            
-        if (nextSurahId >= 1 && nextSurahId <= 114) {
-          final nextSurah = _quran.getSurah(nextSurahId);
-          if (nextSurah != null) {
-            return {
-              'surahId': nextSurahId,
-              'fromAyah': 1,
-              'toAyah': _calculateToAyah(
-                surah: nextSurah,
-                fromAyah: 1,
-                planType: student.planType,
-                planAmount: student.planAmount,
-              ),
-            };
-          }
-        }
-      }
-    }
-
-    int defaultSurahId = student.memorizationDirection == 'desc' ? 114 : 1;
-    final defaultSurah = _quran.getSurah(defaultSurahId);
-    if (defaultSurah != null) {
-      return {
-        'surahId': defaultSurahId,
-        'fromAyah': 1,
-        'toAyah': _calculateToAyah(
-          surah: defaultSurah,
-          fromAyah: 1,
-          planType: student.planType,
-          planAmount: student.planAmount,
-        ),
-      };
-    }
-    return null;
+    return MemorizationProgressionService.nextStartingPoint(
+      student: student,
+      progress: allProgress,
+      getSurah: _quran.getSurah,
+    );
   }
 
   @override
@@ -261,8 +115,22 @@ class _RecitationScreenState extends State<RecitationScreen> {
 
   void _loadAyahs() {
     if (_selectedSurahId == null) return;
-    final ayahs = _quran.getAyahRange(_selectedSurahId!, _fromAyah, _toAyah);
+    final effectiveTo = _openEnded
+        ? (_selectedSurah?.totalAyahs ?? _toAyah)
+        : _toAyah;
+    final ayahs = _quran.getAyahRange(
+      _selectedSurahId!,
+      _fromAyah,
+      effectiveTo,
+    );
+    if (ayahs.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('تعذر بدء التسميع من النطاق المحدد')),
+      );
+      return;
+    }
     setState(() {
+      _toAyah = effectiveTo;
       _ayahs = ayahs;
       _currentAyahIndex = 0;
       _ayahRatings = {};
@@ -412,34 +280,58 @@ class _RecitationScreenState extends State<RecitationScreen> {
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text('نطاق الآيات', style: TextStyle(fontWeight: FontWeight.bold)),
-                Text('${_toAyah - _fromAyah + 1} آية', style: const TextStyle(color: Colors.blue)),
-              ],
-            ),
-            const SizedBox(height: 16),
-            RangeSlider(
-              values: RangeValues(_fromAyah.toDouble(), _toAyah.toDouble()),
-              min: 1,
-              max: maxAyahs.toDouble(),
-              divisions: maxAyahs > 1 ? maxAyahs - 1 : 1,
-              labels: RangeLabels('$_fromAyah', '$_toAyah'),
-              onChanged: (values) {
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text(
+                'تسميع مفتوح',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              subtitle: const Text(
+                'ابدأ من آية محددة، ثم اضغط «التوقف هنا» عند انتهاء الطالب.',
+              ),
+              value: _openEnded,
+              onChanged: (value) {
                 setState(() {
-                  _fromAyah = values.start.round();
-                  _toAyah = values.end.round();
+                  _openEnded = value;
+                  if (value) _toAyah = _fromAyah;
                 });
               },
             ),
+            const Divider(),
+            AyahRangePicker(
+              key: ValueKey(
+                '${_selectedSurahId}_$_openEnded',
+              ),
+              maxAyahs: maxAyahs,
+              initialFrom: _fromAyah,
+              initialTo: _openEnded ? _fromAyah : _toAyah,
+              singleValue: _openEnded,
+              onRangeChanged: (from, to) {
+                setState(() {
+                  _fromAyah = from;
+                  _toAyah = _openEnded ? from : to;
+                });
+              },
+            ),
+            const SizedBox(height: 12),
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text('من: $_fromAyah', style: TextStyle(color: Colors.grey[600])),
-                Text('إلى: $_toAyah', style: TextStyle(color: Colors.grey[600])),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _setEndOfCurrentPage,
+                    icon: const Icon(Icons.menu_book_outlined),
+                    label: const Text('نهاية الصفحة'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _setEndOfCurrentHizb,
+                    icon: const Icon(Icons.bookmark_outline),
+                    label: const Text('نهاية الحزب'),
+                  ),
+                ),
               ],
             ),
           ],
@@ -448,7 +340,39 @@ class _RecitationScreenState extends State<RecitationScreen> {
     );
   }
 
+  void _setEndOfCurrentPage() {
+    final surah = _selectedSurah;
+    if (surah == null) return;
+    final end = RecitationBoundaryService.endOfPage(surah, _fromAyah);
+    setState(() {
+      _openEnded = false;
+      _toAyah = end;
+    });
+  }
+
+  void _setEndOfCurrentHizb() {
+    final surah = _selectedSurah;
+    if (surah == null) return;
+    final end = RecitationBoundaryService.endOfHizb(surah, _fromAyah);
+    setState(() {
+      _openEnded = false;
+      _toAyah = end;
+    });
+  }
+
   Widget _buildSummaryCard() {
+    if (_openEnded) {
+      return Card(
+        color: Colors.teal.shade50,
+        child: ListTile(
+          leading: const Icon(Icons.play_circle_outline, color: Colors.teal),
+          title: Text('يبدأ التسميع من الآية $_fromAyah'),
+          subtitle: const Text(
+            'لا توجد نهاية مسبقة؛ يعتمد المعلم آخر آية عند التوقف.',
+          ),
+        ),
+      );
+    }
     final lines = _quran.calculateLines(_selectedSurahId!, _fromAyah, _toAyah);
     return Card(
       color: Colors.blue.shade50,
@@ -482,7 +406,7 @@ class _RecitationScreenState extends State<RecitationScreen> {
       child: ElevatedButton.icon(
         onPressed: _loadAyahs,
         icon: const Icon(Icons.play_arrow),
-        label: const Text('بدء التسميع'),
+        label: Text(_openEnded ? 'بدء التسميع المفتوح' : 'بدء التسميع'),
       ),
     );
   }
@@ -510,7 +434,14 @@ class _RecitationScreenState extends State<RecitationScreen> {
   }
 
   Widget _buildTimerRow() {
-    final lines = _quran.calculateLines(_selectedSurahId!, _fromAyah, _toAyah);
+    final measuredTo = _openEnded && _ayahs.isNotEmpty
+        ? _ayahs[_currentAyahIndex].number
+        : _toAyah;
+    final lines = _quran.calculateLines(
+      _selectedSurahId!,
+      _fromAyah,
+      measuredTo,
+    );
     final pages = lines / 15.0;
     final min = (pages * 1.5).round().clamp(1, 999);
     final max = (pages * 2.0).round().clamp(min + 1, 999);
@@ -576,21 +507,26 @@ class _RecitationScreenState extends State<RecitationScreen> {
       child: Row(
         children: [
           Text(
-            'الآية ${_currentAyahIndex + 1} من ${_ayahs.length}',
+            _openEnded
+                ? 'تسميع مفتوح · الآية ${_ayahs[_currentAyahIndex].number}'
+                : 'الآية ${_currentAyahIndex + 1} من ${_ayahs.length}',
             style: const TextStyle(fontWeight: FontWeight.bold),
           ),
           const SizedBox(width: 12),
           Expanded(
             child: LinearProgressIndicator(
-              value: (_currentAyahIndex + 1) / _ayahs.length,
+              value: _openEnded
+                  ? null
+                  : (_currentAyahIndex + 1) / _ayahs.length,
               backgroundColor: Colors.grey[300],
             ),
           ),
           const SizedBox(width: 12),
-          Text(
-            '${((_currentAyahIndex + 1) / _ayahs.length * 100).round()}%',
-            style: TextStyle(color: Colors.grey[600]),
-          ),
+          if (!_openEnded)
+            Text(
+              '${((_currentAyahIndex + 1) / _ayahs.length * 100).round()}%',
+              style: TextStyle(color: Colors.grey[600]),
+            ),
         ],
       ),
     );
@@ -784,7 +720,7 @@ class _RecitationScreenState extends State<RecitationScreen> {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: Theme.of(context).colorScheme.surface,
         boxShadow: [
           BoxShadow(
             color: Colors.grey.shade300,
@@ -806,14 +742,26 @@ class _RecitationScreenState extends State<RecitationScreen> {
           Expanded(
             flex: 2,
             child: ElevatedButton(
-              onPressed: isLast ? (_isSaving ? null : _showGradingSheet) : _goToNext,
+              onPressed: _isSaving
+                  ? null
+                  : _openEnded
+                      ? _stopHere
+                      : isLast
+                          ? _showGradingSheet
+                          : _goToNext,
               child: _isSaving
                   ? const SizedBox(
                       width: 20,
                       height: 20,
                       child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
                     )
-                  : Text(isLast ? 'إنهاء التسميع' : 'التالي'),
+                  : Text(
+                      _openEnded
+                          ? (isLast ? 'إنهاء السورة هنا' : 'التوقف هنا')
+                          : isLast
+                              ? 'إنهاء التسميع'
+                              : 'التالي',
+                    ),
             ),
           ),
         ],
@@ -829,6 +777,23 @@ class _RecitationScreenState extends State<RecitationScreen> {
       return;
     }
     setState(() => _currentAyahIndex++);
+  }
+
+  void _stopHere() {
+    if (_ayahRatings[_currentAyahIndex] == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('قيّم آية التوقف أولًا ثم اعتمد النهاية')),
+      );
+      return;
+    }
+    final lastAyah = _ayahs[_currentAyahIndex].number;
+    setState(() {
+      _toAyah = lastAyah;
+      _ayahs = _ayahs.take(_currentAyahIndex + 1).toList();
+      _ayahRatings.removeWhere((index, _) => index > _currentAyahIndex);
+      _currentAyahIndex = _ayahs.length - 1;
+    });
+    _showGradingSheet();
   }
 
   void _showGradingSheet() {
@@ -1106,11 +1071,29 @@ class _RecitationScreenState extends State<RecitationScreen> {
   }
 
   Future<void> _saveRecitation({bool sendToParent = false, bool sendAsImage = false}) async {
+    if (!_isRevision && widget.student.totalMemorized >= 6236) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('هذا الطالب أتم حفظ القرآن؛ اختر المراجعة بدل الحفظ الجديد'),
+        ),
+      );
+      return;
+    }
     _timer?.cancel();
     setState(() => _isSaving = true);
 
     try {
       final avgRating = _ayahRatings.values.reduce((a, b) => a + b) ~/ _ayahRatings.length;
+      final currentStudent =
+          await _db.getStudent(widget.student.id) ?? widget.student;
+      final newlyMemorizedAyahs = !_isRevision && _selectedGrade != 'absent'
+          ? await _db.countNewMemorizedAyahs(
+              student: currentStudent,
+              surahId: _selectedSurahId!,
+              fromAyah: _fromAyah,
+              toAyah: _toAyah,
+            )
+          : 0;
 
       // 1. Save MemorizationProgress (for backward compatibility)
       final progress = MemorizationProgress(
@@ -1157,16 +1140,20 @@ class _RecitationScreenState extends State<RecitationScreen> {
         arrivalTime: existingRecord?.arrivalTime ?? DateTime.now(),
         memorizationDone: !_isRevision ? true : (existingRecord?.memorizationDone ?? false),
         revisionDone: _isRevision ? true : (existingRecord?.revisionDone ?? false),
-        memorizationAmount: !_isRevision ? _ayahs.length : (existingRecord?.memorizationAmount ?? 0),
-        revisionAmount: _isRevision ? _ayahs.length : (existingRecord?.revisionAmount ?? 0),
+        memorizationAmount: !_isRevision
+            ? (existingRecord?.memorizationAmount ?? 0) + newlyMemorizedAyahs
+            : (existingRecord?.memorizationAmount ?? 0),
+        revisionAmount: _isRevision
+            ? (existingRecord?.revisionAmount ?? 0) + _ayahs.length
+            : (existingRecord?.revisionAmount ?? 0),
       );
       await _db.saveDailyRecord(record);
 
       // 4.b تحديث إجمالي المحفوظ للطالب عند الحفظ الجديد (غير المراجعة)
       // حتى تعمل آلية اكتشاف ختم القرآن وإحصائيات التقدم.
       if (!_isRevision && _selectedGrade != 'absent') {
-        final newTotal = widget.student.totalMemorized + _ayahs.length;
-        final updatedStudent = widget.student.copyWith(totalMemorized: newTotal);
+        final newTotal = currentStudent.totalMemorized + newlyMemorizedAyahs;
+        final updatedStudent = currentStudent.copyWith(totalMemorized: newTotal);
         await _db.updateStudent(updatedStudent);
       }
 
@@ -1213,14 +1200,30 @@ class _RecitationScreenState extends State<RecitationScreen> {
       // Check for extra memorization bonus points
       bool addedExtraPoints = false;
       int extraPoints = 0;
-      if (!_isRevision && widget.student.planType == 'ayahs' && _ayahs.length > widget.student.planAmount) {
+      const bonusReason = 'زيادة عن المقرر اليومي';
+      final exceedsPlan = !_isRevision &&
+          _selectedSurah != null &&
+          MemorizationMeasureService.exceedsPlan(
+            surah: _selectedSurah!,
+            fromAyah: _fromAyah,
+            toAyah: _toAyah,
+            planType: widget.student.planType,
+            planAmount: widget.student.planAmount,
+          );
+      final bonusAlreadyAdded = exceedsPlan &&
+          await _db.hasBehaviorPointForDate(
+            widget.student.id,
+            bonusReason,
+            DateTime.now(),
+          );
+      if (exceedsPlan && !bonusAlreadyAdded) {
         final settings = await _db.getSettings();
         extraPoints = settings.pointsConfig['extra_memorization'] ?? 2;
         if (extraPoints > 0) {
           final point = BehaviorPoint(
             studentId: widget.student.id,
             type: 'positive',
-            reason: 'زيادة عن المقرر اليومي',
+            reason: bonusReason,
             points: extraPoints,
             date: DateTime.now(),
           );
@@ -1229,12 +1232,25 @@ class _RecitationScreenState extends State<RecitationScreen> {
         }
       }
 
+      final requiresSurahRevision = !_isRevision &&
+          newlyMemorizedAyahs > 0 &&
+          _selectedSurah != null &&
+          await _db.isSurahFullyMemorized(
+            student: currentStudent,
+            surahId: _selectedSurahId!,
+            totalAyahs: _selectedSurah!.totalAyahs,
+          );
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(addedExtraPoints 
-                ? 'تم حفظ التقييم بنجاح، وإضافة $extraPoints نقاط مكافأة للزيادة 🎉'
-                : 'تم حفظ التقييم بنجاح'),
+            content: Text(
+              requiresSurahRevision
+                  ? 'تم إتمام السورة، وأضيفت تلقائيًا إلى المراجعة الإلزامية'
+                  : addedExtraPoints
+                      ? 'تم حفظ التقييم بنجاح، وإضافة $extraPoints نقاط مكافأة للزيادة 🎉'
+                      : 'تم حفظ التقييم بنجاح',
+            ),
             backgroundColor: Colors.green,
           ),
         );

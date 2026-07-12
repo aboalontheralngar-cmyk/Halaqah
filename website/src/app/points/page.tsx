@@ -4,27 +4,31 @@ import { useState, useMemo, useEffect } from "react";
 import { 
   Plus, 
   Trophy, 
-  Star, 
-  History as HistoryIcon,
-  Sparkles,
-  ArrowUpRight,
   X,
-  Target,
-  ShieldCheck,
   Filter,
-  Flame,
-  Award,
-  Zap,
   HelpCircle,
-  Clock,
-  AlertTriangle,
-  LogOut
+  Trash2,
+  UserRoundSearch,
 } from "lucide-react";
 import { useStore } from "@/store/useStore";
 
 export default function PointsPage() {
-  const { students, points, activities, addPoints, centerType, pointsConfig, fetchPointsConfig } = useStore();
+  const {
+    students,
+    points,
+    addPoints,
+    reassignPoint,
+    deletePointWithAudit,
+    pointsConfig,
+    fetchPointsConfig,
+  } = useStore();
   const [showForm, setShowForm] = useState(false);
+  const [confirmingPoint, setConfirmingPoint] = useState(false);
+  const [studentFilter, setStudentFilter] = useState('all');
+  const [correctionPoint, setCorrectionPoint] = useState<(typeof points)[number] | null>(null);
+  const [correctionAction, setCorrectionAction] = useState<'reassign' | 'delete'>('reassign');
+  const [correctedStudentId, setCorrectedStudentId] = useState('');
+  const [correctionReason, setCorrectionReason] = useState('');
   
   useEffect(() => {
     fetchPointsConfig();
@@ -32,6 +36,7 @@ export default function PointsPage() {
 
   const topStudents = useMemo(() => {
     return students
+      .filter(student => student.status === 'active' || student.status === 'suspended')
       .map(student => {
         const studentPoints = points
           .filter(p => p.studentId === student.id)
@@ -43,6 +48,20 @@ export default function PointsPage() {
       .sort((a, b) => b.totalPoints - a.totalPoints)
       .slice(0, 3);
   }, [students, points]);
+
+  const activeStudents = useMemo(
+    () => students
+      .filter(student => student.status === 'active' || student.status === 'suspended')
+      .sort((a, b) => a.name.localeCompare(b.name, 'ar', { sensitivity: 'base' })),
+    [students]
+  );
+
+  const visiblePoints = useMemo(
+    () => points
+      .filter(point => studentFilter === 'all' || point.studentId === studentFilter)
+      .sort((a, b) => b.date.localeCompare(a.date)),
+    [points, studentFilter]
+  );
 
   const [formData, setFormData] = useState({
     studentId: "",
@@ -100,6 +119,11 @@ export default function PointsPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!formData.studentId || !formData.reason.trim() || formData.amount <= 0) return;
+    setConfirmingPoint(true);
+  };
+
+  const confirmPointRegistration = async () => {
     await addPoints({
       studentId: formData.studentId,
       amount: formData.type === "positive" ? formData.amount : -formData.amount,
@@ -107,7 +131,30 @@ export default function PointsPage() {
       date: new Date().toISOString().split("T")[0],
       type: formData.type
     });
+    setConfirmingPoint(false);
     setShowForm(false);
+    setFormData({ studentId: '', amount: 5, reason: '', type: 'positive' });
+  };
+
+  const openCorrection = (
+    point: (typeof points)[number],
+    action: 'reassign' | 'delete'
+  ) => {
+    setCorrectionPoint(point);
+    setCorrectionAction(action);
+    setCorrectedStudentId('');
+    setCorrectionReason('');
+  };
+
+  const submitCorrection = async () => {
+    if (!correctionPoint || !correctionReason.trim()) return;
+    if (correctionAction === 'reassign') {
+      if (!correctedStudentId) return;
+      await reassignPoint(correctionPoint.id, correctedStudentId, correctionReason.trim());
+    } else {
+      await deletePointWithAudit(correctionPoint.id, correctionReason.trim());
+    }
+    setCorrectionPoint(null);
   };
 
   return (
@@ -198,16 +245,57 @@ export default function PointsPage() {
         <div className="lg:col-span-2 space-y-6">
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-black text-gray-900 dark:text-white">سجل النشاطات</h2>
-            <div className="flex items-center gap-3 bg-white dark:bg-gray-900 px-4 py-2 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm">
-              <Filter className="w-4 h-4 text-gray-400" />
-              <select className="text-xs font-bold text-gray-600 outline-none bg-transparent">
-                <option>كل الطلاب</option>
-              </select>
+          </div>
+          <div className="flex items-center gap-3 bg-white dark:bg-gray-900 px-4 py-3 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm">
+            <Filter className="w-4 h-4 text-gray-400" />
+            <select
+              value={studentFilter}
+              onChange={e => setStudentFilter(e.target.value)}
+              className="w-full text-xs font-bold text-gray-600 dark:text-gray-300 outline-none bg-transparent"
+            >
+              <option value="all">كل الطلاب</option>
+              {activeStudents.map(student => <option key={student.id} value={student.id}>{student.name}</option>)}
+            </select>
+          </div>
+          {visiblePoints.length === 0 ? (
+            <div className="bg-white/40 dark:bg-gray-900/40 rounded-[3.5rem] border-2 border-dashed border-gray-200 dark:border-gray-800 p-16 text-center">
+              <p className="text-sm font-bold text-gray-400">لا توجد سجلات مطابقة</p>
             </div>
-          </div>
-          <div className="bg-white/40 dark:bg-gray-900/40 backdrop-blur-md rounded-[3.5rem] border-2 border-dashed border-gray-200 dark:border-gray-800 p-20 text-center flex flex-col items-center justify-center">
-            <p className="text-sm font-bold text-gray-400">لا يوجد سجلات حالياً</p>
-          </div>
+          ) : (
+            <div className="space-y-3">
+              {visiblePoints.map(point => {
+                const student = students.find(item => item.id === point.studentId);
+                const positive = point.amount > 0;
+                return (
+                  <div key={point.id} className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-3xl p-5 flex flex-col md:flex-row md:items-center gap-4">
+                    <div className={`w-11 h-11 rounded-2xl flex items-center justify-center font-black ${positive ? 'bg-green-50 text-green-600' : 'bg-rose-50 text-rose-600'}`}>
+                      {positive ? '+' : ''}{point.amount}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-black text-gray-900 dark:text-white truncate">{student?.name || 'طالب غير معروف'}</div>
+                      <div className="text-xs font-bold text-gray-500 mt-1">{point.reason} — {point.date}</div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => openCorrection(point, 'reassign')}
+                        className="p-3 rounded-xl bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white transition-colors"
+                        title="تصحيح الطالب المسند إليه"
+                      >
+                        <UserRoundSearch className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => openCorrection(point, 'delete')}
+                        className="p-3 rounded-xl bg-rose-50 text-rose-600 hover:bg-rose-600 hover:text-white transition-colors"
+                        title="حذف سجل خاطئ مع توثيق السبب"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
 
@@ -225,7 +313,11 @@ export default function PointsPage() {
                 className="w-full bg-gray-50 dark:bg-gray-800 border-none rounded-2xl px-6 py-4 text-sm font-bold outline-none"
               >
                 <option value="">اختر الطالب</option>
-                {students.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                {activeStudents.map(s => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}{s.parentPhone ? ` — ولي الأمر ••••${s.parentPhone.replace(/\s/g, '').slice(-4)}` : ''}
+                  </option>
+                ))}
               </select>
               <div className="grid grid-cols-2 gap-4">
                 <button type="button" onClick={() => setFormData({...formData, type: 'positive', amount: 5, reason: ''})} className={`py-4 rounded-xl font-black text-xs ${formData.type === 'positive' ? "bg-green-600 text-white" : "bg-gray-50 dark:bg-gray-850 text-gray-400"}`}>نقاط إيجابية</button>
@@ -268,6 +360,84 @@ export default function PointsPage() {
               </div>
               <button type="submit" className="w-full py-5 bg-purple-600 text-white rounded-2xl font-black text-sm shadow-xl hover:bg-purple-700 transition-colors">تأكيد التسجيل</button>
             </form>
+          </div>
+        </div>
+      )}
+
+      {confirmingPoint && (
+        <div className="fixed inset-0 bg-gray-950/60 backdrop-blur-sm flex items-center justify-center z-[60] p-4">
+          <div className="bg-white dark:bg-gray-900 rounded-[2.5rem] p-8 w-full max-w-md shadow-2xl">
+            <h3 className="text-2xl font-black text-gray-900 dark:text-white mb-6">تأكيد هوية الطالب</h3>
+            {(() => {
+              const student = activeStudents.find(item => item.id === formData.studentId);
+              return (
+                <div className="space-y-3 bg-gray-50 dark:bg-gray-800 rounded-2xl p-5 text-sm font-bold">
+                  <div>الطالب: <span className="font-black">{student?.name}</span></div>
+                  <div>ولي الأمر: {student?.parentPhone ? `••••${student.parentPhone.replace(/\s/g, '').slice(-4)}` : 'غير مسجل'}</div>
+                  <div>السبب: {formData.reason}</div>
+                  <div className={formData.type === 'positive' ? 'text-green-600' : 'text-rose-600'}>
+                    القيمة: {formData.type === 'positive' ? '+' : '-'}{formData.amount} نقطة
+                  </div>
+                </div>
+              );
+            })()}
+            <p className="text-xs font-bold text-amber-700 dark:text-amber-300 mt-4">راجع الاسم ورقم ولي الأمر قبل الحفظ لتجنب الإسناد لطالب متشابه الاسم.</p>
+            <div className="grid grid-cols-2 gap-3 mt-6">
+              <button onClick={() => setConfirmingPoint(false)} className="py-4 rounded-2xl bg-gray-100 dark:bg-gray-800 font-black">رجوع</button>
+              <button onClick={confirmPointRegistration} className="py-4 rounded-2xl bg-purple-600 text-white font-black">تأكيد وحفظ</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {correctionPoint && (
+        <div className="fixed inset-0 bg-gray-950/60 backdrop-blur-sm flex items-center justify-center z-[60] p-4">
+          <div className="bg-white dark:bg-gray-900 rounded-[2.5rem] p-8 w-full max-w-lg shadow-2xl">
+            <div className="flex items-start justify-between gap-4 mb-6">
+              <div>
+                <h3 className="text-2xl font-black text-gray-900 dark:text-white">
+                  {correctionAction === 'reassign' ? 'تصحيح إسناد السجل' : 'حذف سجل خاطئ'}
+                </h3>
+                <p className="text-xs font-bold text-gray-500 mt-2">
+                  {students.find(student => student.id === correctionPoint.studentId)?.name} — {correctionPoint.reason}
+                </p>
+              </div>
+              <button onClick={() => setCorrectionPoint(null)} className="p-2 text-gray-400"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="space-y-5">
+              {correctionAction === 'reassign' && (
+                <select
+                  value={correctedStudentId}
+                  onChange={e => setCorrectedStudentId(e.target.value)}
+                  className="w-full bg-gray-50 dark:bg-gray-800 rounded-2xl px-5 py-4 font-bold outline-none"
+                >
+                  <option value="">اختر الطالب الصحيح</option>
+                  {activeStudents.filter(student => student.id !== correctionPoint.studentId).map(student => (
+                    <option key={student.id} value={student.id}>
+                      {student.name}{student.parentPhone ? ` — ولي الأمر ••••${student.parentPhone.replace(/\s/g, '').slice(-4)}` : ''}
+                    </option>
+                  ))}
+                </select>
+              )}
+              <textarea
+                value={correctionReason}
+                onChange={e => setCorrectionReason(e.target.value)}
+                placeholder="سبب التصحيح (إلزامي)"
+                rows={3}
+                className="w-full bg-gray-50 dark:bg-gray-800 rounded-2xl px-5 py-4 font-bold outline-none resize-none"
+              />
+              <div className="bg-amber-50 dark:bg-amber-950/20 rounded-2xl p-4 text-xs font-bold text-amber-800 dark:text-amber-300">
+                سيُحفظ السجل الأصلي والقيمة والطالب السابق وسبب التصحيح في سجل التدقيق.
+              </div>
+              <button
+                type="button"
+                disabled={!correctionReason.trim() || (correctionAction === 'reassign' && !correctedStudentId)}
+                onClick={submitCorrection}
+                className={`w-full py-4 text-white rounded-2xl font-black disabled:opacity-40 ${correctionAction === 'delete' ? 'bg-rose-600' : 'bg-blue-600'}`}
+              >
+                {correctionAction === 'delete' ? 'تأكيد الحذف الموثق' : 'تأكيد نقل السجل'}
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -71,6 +71,7 @@ CREATE TABLE IF NOT EXISTS fund_transactions (
 CREATE TABLE IF NOT EXISTS plans (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     center_id UUID REFERENCES centers(id) ON DELETE CASCADE,
+    halaqa_id UUID REFERENCES halaqat(id) ON DELETE CASCADE,
     student_id UUID REFERENCES students(id) ON DELETE CASCADE,
     period TEXT CHECK (period IN ('weekly', 'monthly')) NOT NULL,
     start_date DATE NOT NULL,
@@ -83,9 +84,13 @@ CREATE TABLE IF NOT EXISTS plans (
     auto_increase BOOLEAN DEFAULT FALSE,          -- زيادة المقرر تلقائياً مع التقدم
     auto_increase_step INTEGER DEFAULT 1,
     status TEXT CHECK (status IN ('active', 'completed', 'cancelled')) DEFAULT 'active',
+    test_status TEXT CHECK (test_status IN ('not_required', 'pending', 'passed', 'failed')) DEFAULT 'not_required',
+    completion_exam_id UUID REFERENCES exams(id) ON DELETE SET NULL,
     completed_at TIMESTAMP WITH TIME ZONE,
+    deleted_at TIMESTAMP WITH TIME ZONE,
     notes TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 -- ---------------------------------------------------------------------
@@ -256,6 +261,7 @@ CREATE TABLE IF NOT EXISTS center_settings (
     penalty_reduction_percent INTEGER DEFAULT 50 CHECK (penalty_reduction_percent BETWEEN 0 AND 100),
     dismissal_absence_days INTEGER DEFAULT 0,     -- فصل تلقائي بعد كذا يوم غياب (0 = معطل)
     subscription_amount NUMERIC(10, 2) DEFAULT 0, -- قيمة الاشتراك الشهري للصندوق
+    currency_symbol TEXT NOT NULL DEFAULT 'ر.س',  -- رمز العملة المعروض في الصندوق والتقارير
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -463,5 +469,3 @@ SELECT cron.schedule(
   '0 0 * * *',
   'SELECT cleanup_empty_centers()'
 );
-
-

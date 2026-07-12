@@ -5,6 +5,11 @@ import 'package:printing/printing.dart';
 import '../models/student.dart';
 import '../models/daily_record.dart';
 import '../models/exam.dart';
+import '../models/plan.dart';
+import '../models/behavior_point.dart';
+import '../models/student_period_report.dart';
+import '../models/vacation.dart';
+import '../services/quran_service.dart';
 import '../utils/helpers.dart';
 import '../utils/quran_data.dart';
 
@@ -69,6 +74,356 @@ class PdfService {
     );
 
     return pdf.save();
+  }
+
+  Future<Uint8List> generateStudentPeriodReport({
+    required StudentPeriodReport report,
+    required PdfPageFormat pageFormat,
+    required String halaqahName,
+    String mosqueName = '',
+  }) async {
+    await _loadFonts();
+    final pdf = pw.Document();
+    pdf.addPage(
+      pw.MultiPage(
+        pageFormat: pageFormat,
+        margin: const pw.EdgeInsets.all(22),
+        textDirection: pw.TextDirection.rtl,
+        build: (context) => [
+          _buildHeader(halaqahName, 'تقرير أداء الطالب خلال فترة'),
+          if (mosqueName.isNotEmpty)
+            pw.Text('مسجد $mosqueName', style: _textStyle(fontSize: 9)),
+          pw.SizedBox(height: 8),
+          pw.Container(
+            padding: const pw.EdgeInsets.all(8),
+            decoration: pw.BoxDecoration(
+              color: PdfColors.blue50,
+              borderRadius: pw.BorderRadius.circular(6),
+            ),
+            child: pw.Column(
+              children: [
+                pw.Text(
+                  report.student.name,
+                  style: _textStyle(fontSize: 15, fontWeight: pw.FontWeight.bold),
+                ),
+                pw.Text(
+                  'من ${_reportDate(report.startDate)} إلى ${_reportDate(report.endDate)}',
+                  style: _textStyle(fontSize: 9),
+                ),
+              ],
+            ),
+          ),
+          pw.SizedBox(height: 12),
+          pw.Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              _periodStat('الحفظ', '${report.memorizedAyahs} آية', PdfColors.green),
+              _periodStat('المراجعة', '${report.revisedAyahs} آية', PdfColors.blue),
+              _periodStat('صفحات منجزة', report.memorizedPages.toStringAsFixed(1), PdfColors.purple),
+              _periodStat('الحضور', '${report.attendanceRate}%', PdfColors.teal),
+              _periodStat('لم يسمّع', '${report.noRecitationDays}', PdfColors.orange),
+              _periodStat('الأداء العام', '${report.performanceScore}%', PdfColors.indigo),
+              _periodStat('الإيجابيات', '+${report.positivePoints}', PdfColors.green),
+              _periodStat('السلبيات', '-${report.negativePoints}', PdfColors.red),
+            ],
+          ),
+          pw.SizedBox(height: 12),
+          pw.Text('مؤشر الأداء اليومي', style: _textStyle(fontSize: 11, fontWeight: pw.FontWeight.bold)),
+          pw.SizedBox(height: 5),
+          ...report.days
+              .where((day) => day.isRecitationRequiredDay && day.record != null)
+              .map(
+                (day) => pw.Padding(
+                  padding: const pw.EdgeInsets.only(bottom: 3),
+                  child: pw.Row(
+                    children: [
+                      pw.SizedBox(width: 52, child: pw.Text(_reportDate(day.date), style: _textStyle(fontSize: 7))),
+                      pw.Container(
+                        width: 120,
+                        height: 7,
+                        alignment: pw.Alignment.centerRight,
+                        decoration: pw.BoxDecoration(
+                          color: PdfColors.grey200,
+                          borderRadius: pw.BorderRadius.circular(3),
+                        ),
+                        child: pw.Container(
+                          width: 1.2 * day.performanceScore,
+                          decoration: pw.BoxDecoration(
+                            color: _scorePdfColor(day.performanceScore),
+                            borderRadius: pw.BorderRadius.circular(3),
+                          ),
+                        ),
+                      ),
+                      pw.SizedBox(width: 28, child: pw.Text('${day.performanceScore}%', style: _textStyle(fontSize: 7), textAlign: pw.TextAlign.left)),
+                    ],
+                  ),
+                ),
+              ),
+          pw.SizedBox(height: 12),
+          pw.Text('التفاصيل اليومية', style: _textStyle(fontSize: 11, fontWeight: pw.FontWeight.bold)),
+          pw.SizedBox(height: 5),
+          pw.Table(
+            border: pw.TableBorder.all(color: PdfColors.grey400, width: 0.4),
+            columnWidths: const {
+              0: pw.FixedColumnWidth(45),
+              1: pw.FixedColumnWidth(43),
+              2: pw.FlexColumnWidth(2.4),
+              3: pw.FlexColumnWidth(2.4),
+              4: pw.FixedColumnWidth(35),
+              5: pw.FlexColumnWidth(2),
+            },
+            children: [
+              pw.TableRow(
+                decoration: const pw.BoxDecoration(color: PdfColors.grey200),
+                children: ['التاريخ', 'الحالة', 'الحفظ', 'المراجعة', 'النقاط', 'الملاحظة']
+                    .map((text) => _periodCell(text, bold: true))
+                    .toList(),
+              ),
+              ...report.days.map((day) => pw.TableRow(children: [
+                    _periodCell(_reportDate(day.date)),
+                    _periodCell(_periodAttendance(day)),
+                    _periodCell(_progressText(day.memorization)),
+                    _periodCell(_progressText(day.revision)),
+                    _periodCell('${day.positivePoints - day.negativePoints}'),
+                    _periodCell(_periodNote(day)),
+                  ])),
+            ],
+          ),
+          pw.SizedBox(height: 10),
+          pw.Text(
+            'الإنجاز التقريبي: ${report.memorizedPages.toStringAsFixed(1)} صفحة، '
+            '${report.memorizedJuz.toStringAsFixed(2)} جزء. متوسط جودة التسميع: '
+            '${report.averageQuality.toStringAsFixed(1)} من 5.',
+            style: _textStyle(fontSize: 8),
+          ),
+          pw.SizedBox(height: 12),
+          _buildFooter(),
+        ],
+      ),
+    );
+    return pdf.save();
+  }
+
+  Future<Uint8List> generateSmartPlan({
+    required Student student,
+    required SmartPlan plan,
+    required String halaqahName,
+    String mosqueName = '',
+    bool cashier = false,
+    List<int> holidayWeekdays = const [5],
+  }) async {
+    await _loadFonts();
+    final pdf = pw.Document();
+    final format = cashier
+        ? PdfPageFormat(
+            80 * PdfPageFormat.mm,
+            297 * PdfPageFormat.mm,
+            marginAll: 4 * PdfPageFormat.mm,
+          )
+        : PdfPageFormat.a4;
+    final days = <DateTime>[];
+    var date = DateTime(plan.startDate.year, plan.startDate.month, plan.startDate.day);
+    final end = DateTime(plan.endDate.year, plan.endDate.month, plan.endDate.day);
+    while (!date.isAfter(end)) {
+      if (!holidayWeekdays.contains(date.weekday)) days.add(date);
+      date = date.add(const Duration(days: 1));
+    }
+    final unit = _getPlanLabel(plan.unit);
+    pdf.addPage(
+      pw.MultiPage(
+        pageFormat: format,
+        margin: pw.EdgeInsets.all(cashier ? 8 : 24),
+        textDirection: pw.TextDirection.rtl,
+        build: (context) => [
+          pw.Text(
+            'خطة الحفظ ${plan.period == 'weekly' ? 'الأسبوعية' : 'الشهرية'}',
+            style: _textStyle(
+              fontSize: cashier ? 14 : 20,
+              fontWeight: pw.FontWeight.bold,
+            ),
+            textAlign: pw.TextAlign.center,
+          ),
+          pw.SizedBox(height: 4),
+          pw.Text(
+            'حلقة $halaqahName${mosqueName.isEmpty ? '' : ' — مسجد $mosqueName'}',
+            style: _textStyle(fontSize: cashier ? 8 : 11),
+            textAlign: pw.TextAlign.center,
+          ),
+          pw.SizedBox(height: 8),
+          pw.Container(
+            width: double.infinity,
+            padding: const pw.EdgeInsets.all(7),
+            color: PdfColors.teal50,
+            child: pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                pw.Text(student.name, style: _textStyle(fontWeight: pw.FontWeight.bold)),
+                pw.Text(
+                  'من ${_reportDate(plan.startDate)} إلى ${_reportDate(plan.endDate)}',
+                  style: _textStyle(fontSize: cashier ? 7 : 10),
+                ),
+                pw.Text(
+                  'الحفظ: ${plan.newAmount} $unit — المراجعة: ${plan.reviewAmount} $unit يوميًا',
+                  style: _textStyle(fontSize: cashier ? 7 : 10),
+                ),
+              ],
+            ),
+          ),
+          pw.SizedBox(height: 8),
+          pw.Table(
+            border: pw.TableBorder.all(color: PdfColors.grey500, width: 0.5),
+            columnWidths: cashier
+                ? const {
+                    0: pw.FlexColumnWidth(1.3),
+                    1: pw.FlexColumnWidth(1),
+                    2: pw.FlexColumnWidth(1),
+                    3: pw.FlexColumnWidth(0.7),
+                  }
+                : const {
+                    0: pw.FlexColumnWidth(1.5),
+                    1: pw.FlexColumnWidth(1),
+                    2: pw.FlexColumnWidth(1),
+                    3: pw.FlexColumnWidth(1),
+                  },
+            children: [
+              pw.TableRow(
+                decoration: const pw.BoxDecoration(color: PdfColors.teal100),
+                children: ['اليوم', 'الحفظ', 'المراجعة', 'تم'].map((label) =>
+                    pw.Padding(
+                      padding: pw.EdgeInsets.all(cashier ? 3 : 6),
+                      child: pw.Text(
+                        label,
+                        style: _textStyle(
+                          fontSize: cashier ? 7 : 9,
+                          fontWeight: pw.FontWeight.bold,
+                        ),
+                        textAlign: pw.TextAlign.center,
+                      ),
+                    )).toList(),
+              ),
+              ...days.map(
+                (day) => pw.TableRow(
+                  children: [
+                    _planCell(_reportDate(day), cashier),
+                    _planCell('${plan.newAmount} $unit', cashier),
+                    _planCell('${plan.reviewAmount} $unit', cashier),
+                    _planCell('□', cashier),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          if (plan.notes?.isNotEmpty ?? false) ...[
+            pw.SizedBox(height: 8),
+            pw.Text('ملاحظات: ${plan.notes}', style: _textStyle(fontSize: cashier ? 7 : 10)),
+          ],
+          pw.SizedBox(height: 14),
+          pw.Row(
+            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+            children: [
+              pw.Text('المعلم: __________', style: _textStyle(fontSize: cashier ? 7 : 10)),
+              pw.Text('ولي الأمر: __________', style: _textStyle(fontSize: cashier ? 7 : 10)),
+            ],
+          ),
+        ],
+      ),
+    );
+    return pdf.save();
+  }
+
+  pw.Widget _planCell(String value, bool cashier) => pw.Padding(
+        padding: pw.EdgeInsets.all(cashier ? 3 : 6),
+        child: pw.Text(
+          value,
+          style: _textStyle(fontSize: cashier ? 6.5 : 9),
+          textAlign: pw.TextAlign.center,
+        ),
+      );
+
+  pw.Widget _periodStat(String label, String value, PdfColor color) {
+    return pw.Container(
+      width: 105,
+      padding: const pw.EdgeInsets.all(6),
+      decoration: pw.BoxDecoration(
+        border: pw.Border.all(color: color, width: 0.6),
+        borderRadius: pw.BorderRadius.circular(5),
+      ),
+      child: pw.Column(children: [
+        pw.Text(value, style: _textStyle(fontSize: 11, fontWeight: pw.FontWeight.bold, color: color)),
+        pw.Text(label, style: _textStyle(fontSize: 7)),
+      ]),
+    );
+  }
+
+  pw.Widget _periodCell(String text, {bool bold = false}) => pw.Padding(
+        padding: const pw.EdgeInsets.all(4),
+        child: pw.Text(
+          text,
+          style: _textStyle(fontSize: 6.5, fontWeight: bold ? pw.FontWeight.bold : null),
+          textAlign: pw.TextAlign.center,
+        ),
+      );
+
+  String _reportDate(DateTime date) =>
+      '${date.year}/${date.month.toString().padLeft(2, '0')}/${date.day.toString().padLeft(2, '0')}';
+
+  String _periodAttendance(StudentPeriodDay day) {
+    if (day.isSuspended) return 'معلّق';
+    if (day.isWeeklyHoliday) return 'إجازة أسبوعية';
+    if (day.hold != null) return 'حاضر — التسميع موقوف';
+    switch (day.record?.attendance) {
+      case 'present':
+        return 'حاضر';
+      case 'late':
+        return 'متأخر';
+      case 'absent':
+        return 'غائب';
+      case 'excused':
+        return 'مستأذن';
+      default:
+        return 'لا يوجد سجل';
+    }
+  }
+
+  String _progressText(List<dynamic> items) {
+    if (items.isEmpty) return '—';
+    return items.map((dynamic item) {
+      final surah = QuranService.instance.getSurahName(item.surahId as int);
+      return '$surah ${item.fromAyah}-${item.toAyah}';
+    }).join('، ');
+  }
+
+  String _periodNote(StudentPeriodDay day) {
+    if (day.isSuspended) return day.suspensionReason ?? 'تعليق الدراسة';
+    if (day.isWeeklyHoliday) return 'الإجازة الأسبوعية';
+    if (day.hold != null) {
+      final note = day.hold!.notes?.trim();
+      return 'إيقاف التسميع: ${day.hold!.reason}'
+          '${note == null || note.isEmpty ? '' : ' — $note'}';
+    }
+    if (day.vacation != null) {
+      final vacation = day.vacation!;
+      final note = vacation.notes?.trim();
+      return '${VacationReason.getLabel(vacation.reason)}${note == null || note.isEmpty ? '' : ': $note'}';
+    }
+    final pointReasons = day.points
+        .map((point) => BehaviorReason.getLabel(point.reason))
+        .toList();
+    final notes = [
+      day.record?.absenceNote,
+      day.record?.memorizationNote,
+      day.record?.revisionNote,
+      day.record?.notes,
+      ...pointReasons,
+    ].where((item) => item != null && item.toString().trim().isNotEmpty);
+    return notes.join('، ');
+  }
+
+  PdfColor _scorePdfColor(int score) {
+    if (score >= 80) return PdfColors.green;
+    if (score >= 60) return PdfColors.orange;
+    return PdfColors.red;
   }
 
   Future<Uint8List> generateWeeklyReport(
@@ -852,6 +1207,128 @@ class PdfService {
       ),
     );
 
+    return pdf.save();
+  }
+
+  Future<Uint8List> generateExamPaper({
+    required Student student,
+    required String category,
+    required List<Map<String, dynamic>> questions,
+    required PdfPageFormat pageFormat,
+    String halaqahName = 'حلقتي',
+  }) async {
+    await _loadFonts();
+    final pdf = pw.Document();
+
+    pdf.addPage(
+      pw.MultiPage(
+        pageFormat: pageFormat,
+        margin: const pw.EdgeInsets.all(24),
+        textDirection: pw.TextDirection.rtl,
+        build: (context) => [
+          pw.Row(
+            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+            children: [
+              pw.Text('حلقة $halaqahName', style: _textStyle(fontSize: 11)),
+              pw.Text(
+                'نموذج اختبار القرآن الكريم',
+                style: _textStyle(fontSize: 17, fontWeight: pw.FontWeight.bold),
+              ),
+              pw.Text('التاريخ:    /    /', style: _textStyle(fontSize: 10)),
+            ],
+          ),
+          pw.SizedBox(height: 10),
+          pw.Container(
+            padding: const pw.EdgeInsets.all(8),
+            decoration: pw.BoxDecoration(
+              border: pw.Border.all(color: PdfColors.grey500),
+            ),
+            child: pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              children: [
+                pw.Text('اسم الطالب: ${student.name}', style: _textStyle(fontSize: 11)),
+                pw.Text('الفئة: $category', style: _textStyle(fontSize: 10)),
+                pw.Text('النموذج: ........', style: _textStyle(fontSize: 10)),
+              ],
+            ),
+          ),
+          pw.SizedBox(height: 10),
+          pw.Table(
+            border: pw.TableBorder.all(color: PdfColors.grey600, width: 0.6),
+            columnWidths: const {
+              0: pw.FixedColumnWidth(24),
+              1: pw.FlexColumnWidth(4),
+              2: pw.FixedColumnWidth(32),
+              3: pw.FixedColumnWidth(32),
+              4: pw.FixedColumnWidth(32),
+              5: pw.FixedColumnWidth(32),
+              6: pw.FixedColumnWidth(34),
+            },
+            children: [
+              pw.TableRow(
+                decoration: const pw.BoxDecoration(color: PdfColors.blue50),
+                children: ['م', 'السؤال', 'الحفظ', 'التشكيل', 'التلاوة', 'التنبيه', 'الدرجة']
+                    .map((text) => pw.Padding(
+                          padding: const pw.EdgeInsets.all(5),
+                          child: pw.Text(
+                            text,
+                            textAlign: pw.TextAlign.center,
+                            style: _textStyle(fontSize: 8, fontWeight: pw.FontWeight.bold),
+                          ),
+                        ))
+                    .toList(),
+              ),
+              ...questions.asMap().entries.map((entry) {
+                final question = entry.value;
+                final questionType = question['question_type'] as String?;
+                final instruction = switch (questionType) {
+                  'complete_ayah' => 'أكمل الآية من قوله تعالى',
+                  'ayah_location' => 'اذكر السورة وموضع قوله تعالى',
+                  _ => 'اقرأ من قوله تعالى في سورة ${question['surah_name']}',
+                };
+                final prompt = '$instruction: «${question['start_text']} ...»';
+                return pw.TableRow(
+                  children: [
+                    '${entry.key + 1}',
+                    prompt,
+                    '',
+                    '',
+                    '',
+                    '',
+                    '',
+                  ].map((text) => pw.Container(
+                        constraints: const pw.BoxConstraints(minHeight: 42),
+                        padding: const pw.EdgeInsets.all(5),
+                        alignment: pw.Alignment.center,
+                        child: pw.Text(
+                          text,
+                          textAlign: pw.TextAlign.center,
+                          style: _textStyle(fontSize: 8),
+                        ),
+                      )).toList(),
+                );
+              }),
+            ],
+          ),
+          pw.SizedBox(height: 14),
+          pw.Text(
+            'النتيجة: ........ / ........    التقدير: ....................',
+            style: _textStyle(fontSize: 10),
+          ),
+          pw.SizedBox(height: 12),
+          pw.Text('ملاحظة: ................................................................................', style: _textStyle(fontSize: 9)),
+          pw.SizedBox(height: 30),
+          pw.Row(
+            mainAxisAlignment: pw.MainAxisAlignment.spaceAround,
+            children: [
+              pw.Text('مدرس الحلقة\n................', textAlign: pw.TextAlign.center, style: _textStyle(fontSize: 9)),
+              pw.Text('لجنة الاختبار\n................', textAlign: pw.TextAlign.center, style: _textStyle(fontSize: 9)),
+              pw.Text('المشرف\n................', textAlign: pw.TextAlign.center, style: _textStyle(fontSize: 9)),
+            ],
+          ),
+        ],
+      ),
+    );
     return pdf.save();
   }
 

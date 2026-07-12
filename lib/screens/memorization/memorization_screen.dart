@@ -2,12 +2,14 @@ import 'package:flutter/material.dart';
 import '../../services/database_service.dart';
 import '../../models/student.dart';
 import '../../models/daily_record.dart';
+import '../../models/student_hold.dart';
 import '../../utils/helpers.dart';
 import 'add_memorization_screen.dart';
 import 'revision_screen.dart';
 import 'student_memorization_view.dart';
 import 'memorization_plan_screen.dart';
 import 'recitation_screen.dart';
+import 'recitation_history_screen.dart';
 
 class MemorizationScreen extends StatefulWidget {
   const MemorizationScreen({super.key});
@@ -22,6 +24,7 @@ class _MemorizationScreenState extends State<MemorizationScreen>
   late TabController _tabController;
   List<Student> _students = [];
   Map<String, DailyRecord> _todayRecords = {};
+  Map<String, StudentHold> _activeHolds = {};
   bool _isLoading = true;
   String _filter = 'all';
   String _sortBy = 'name';
@@ -44,6 +47,7 @@ class _MemorizationScreenState extends State<MemorizationScreen>
     try {
       final students = await _db.getStudents(status: 'active');
       final records = await _db.getDailyRecordsForDate(DateTime.now());
+      final holds = await _db.getActiveStudentHolds();
 
       final recordsMap = <String, DailyRecord>{};
       for (final record in records) {
@@ -53,6 +57,7 @@ class _MemorizationScreenState extends State<MemorizationScreen>
       setState(() {
         _students = students;
         _todayRecords = recordsMap;
+        _activeHolds = {for (final hold in holds) hold.studentId: hold};
         _isLoading = false;
       });
     } catch (e) {
@@ -60,7 +65,7 @@ class _MemorizationScreenState extends State<MemorizationScreen>
     }
   }
 
-  List<Student> get _filteredStudents {
+  List<Student> _filteredStudentsFor({required bool revision}) {
     List<Student> list;
     if (_filter == 'all') {
       list = List<Student>.from(_students);
@@ -68,9 +73,13 @@ class _MemorizationScreenState extends State<MemorizationScreen>
       list = _students.where((student) {
         final record = _todayRecords[student.id];
         if (_filter == 'completed') {
-          return record?.memorizationDone == true;
+          return revision
+              ? record?.revisionDone == true
+              : record?.memorizationDone == true;
         } else {
-          return record?.memorizationDone != true;
+          return revision
+              ? record?.revisionDone != true
+              : record?.memorizationDone != true;
         }
       }).toList();
     }
@@ -96,6 +105,19 @@ class _MemorizationScreenState extends State<MemorizationScreen>
           ],
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.history),
+            onPressed: () async {
+              await Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const RecitationHistoryScreen(),
+                ),
+              );
+              await _loadData();
+            },
+            tooltip: 'سجل التسميع والتعديل',
+          ),
           IconButton(
             icon: const Icon(Icons.calendar_month),
             onPressed: () {
@@ -144,8 +166,8 @@ class _MemorizationScreenState extends State<MemorizationScreen>
             },
             itemBuilder: (context) => [
               const PopupMenuItem(value: 'all', child: Text('الكل')),
-              const PopupMenuItem(value: 'completed', child: Text('مكتمل')),
-              const PopupMenuItem(value: 'pending', child: Text('غير مكتمل')),
+              const PopupMenuItem(value: 'completed', child: Text('سمّع اليوم')),
+              const PopupMenuItem(value: 'pending', child: Text('لم يسمّع اليوم')),
             ],
           ),
         ],
@@ -249,7 +271,8 @@ class _MemorizationScreenState extends State<MemorizationScreen>
       return const Center(child: CircularProgressIndicator());
     }
 
-    if (_filteredStudents.isEmpty) {
+    final filteredStudents = _filteredStudentsFor(revision: false);
+    if (filteredStudents.isEmpty) {
       return _buildEmptyState('لا يوجد طلاب');
     }
 
@@ -257,9 +280,9 @@ class _MemorizationScreenState extends State<MemorizationScreen>
       onRefresh: _loadData,
       child: ListView.builder(
         padding: const EdgeInsets.all(16),
-        itemCount: _filteredStudents.length,
+        itemCount: filteredStudents.length,
         itemBuilder: (context, index) {
-          final student = _filteredStudents[index];
+          final student = filteredStudents[index];
           final record = _todayRecords[student.id];
           return _buildStudentMemorizationCard(student, record);
         },
@@ -272,7 +295,8 @@ class _MemorizationScreenState extends State<MemorizationScreen>
       return const Center(child: CircularProgressIndicator());
     }
 
-    if (_students.isEmpty) {
+    final filteredStudents = _filteredStudentsFor(revision: true);
+    if (filteredStudents.isEmpty) {
       return _buildEmptyState('لا يوجد طلاب');
     }
 
@@ -280,9 +304,9 @@ class _MemorizationScreenState extends State<MemorizationScreen>
       onRefresh: _loadData,
       child: ListView.builder(
         padding: const EdgeInsets.all(16),
-        itemCount: _students.length,
+        itemCount: filteredStudents.length,
         itemBuilder: (context, index) {
-          final student = _students[index];
+          final student = filteredStudents[index];
           final record = _todayRecords[student.id];
           return _buildStudentRevisionCard(student, record);
         },
@@ -299,6 +323,15 @@ class _MemorizationScreenState extends State<MemorizationScreen>
       return _attendanceTag('مستأذن', Icons.event_busy, Colors.orange);
     }
     return const SizedBox.shrink();
+  }
+
+  Widget _buildHoldBadge(String studentId) {
+    if (!_activeHolds.containsKey(studentId)) return const SizedBox.shrink();
+    return _attendanceTag(
+      'موقوف مؤقتًا',
+      Icons.pause_circle_outline,
+      Colors.deepOrange,
+    );
   }
 
   Widget _attendanceTag(String label, IconData icon, Color color) {
@@ -324,13 +357,19 @@ class _MemorizationScreenState extends State<MemorizationScreen>
   Widget _buildStudentMemorizationCard(Student student, DailyRecord? record) {
     final isDone = record?.memorizationDone == true;
     final isAbsentOrExcused = record?.attendance == 'absent' || record?.attendance == 'excused';
+    final hasFinishedQuran = student.totalMemorized >= 6236;
+    final isHeld = _activeHolds.containsKey(student.id);
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       child: Opacity(
-        opacity: isAbsentOrExcused ? 0.55 : 1.0,
+        opacity: isAbsentOrExcused || isHeld ? 0.55 : 1.0,
         child: InkWell(
-        onTap: () => _navigateToAddMemorization(student),
+        onTap: isHeld
+            ? () => _showHoldMessage(student)
+            : hasFinishedQuran
+                ? () => _navigateToRevision(student)
+                : () => _navigateToAddMemorization(student),
         borderRadius: BorderRadius.circular(12),
         child: Padding(
           padding: const EdgeInsets.all(16),
@@ -357,6 +396,7 @@ class _MemorizationScreenState extends State<MemorizationScreen>
                           ),
                         ),
                         _buildAttendanceBadge(record),
+                        _buildHoldBadge(student.id),
                       ],
                     ),
                     const SizedBox(height: 4),
@@ -370,22 +410,50 @@ class _MemorizationScreenState extends State<MemorizationScreen>
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 decoration: BoxDecoration(
-                  color: isDone ? Colors.green.withOpacity(0.1) : Colors.orange.withOpacity(0.1),
+                  color: hasFinishedQuran
+                      ? Colors.amber.withOpacity(0.15)
+                      : isDone
+                          ? Colors.green.withOpacity(0.1)
+                          : Colors.orange.withOpacity(0.1),
                   borderRadius: BorderRadius.circular(16),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Icon(
-                      isDone ? Icons.check_circle : Icons.pending,
+                      isHeld
+                          ? Icons.pause_circle
+                          : hasFinishedQuran
+                          ? Icons.verified
+                          : isDone
+                              ? Icons.check_circle
+                              : Icons.pending,
                       size: 16,
-                      color: isDone ? Colors.green : Colors.orange,
+                      color: isHeld
+                          ? Colors.deepOrange
+                          : hasFinishedQuran
+                          ? Colors.amber[800]
+                          : isDone
+                              ? Colors.green
+                              : Colors.orange,
                     ),
                     const SizedBox(width: 4),
                     Text(
-                      isDone ? 'مكتمل' : 'متبقي',
+                      isHeld
+                          ? 'موقوف مؤقتًا'
+                          : hasFinishedQuran
+                          ? 'خاتم — مراجعة فقط'
+                          : isDone
+                              ? 'مكتمل'
+                              : 'متبقي',
                       style: TextStyle(
-                        color: isDone ? Colors.green : Colors.orange,
+                        color: isHeld
+                            ? Colors.deepOrange
+                            : hasFinishedQuran
+                            ? Colors.amber[800]
+                            : isDone
+                                ? Colors.green
+                                : Colors.orange,
                         fontSize: 12,
                       ),
                     ),
@@ -394,8 +462,14 @@ class _MemorizationScreenState extends State<MemorizationScreen>
               ),
               IconButton(
                 icon: const Icon(Icons.mic),
-                onPressed: () => _navigateToRecitation(student),
-                tooltip: 'تسميع',
+                onPressed: hasFinishedQuran || isHeld
+                    ? null
+                    : () => _navigateToRecitation(student),
+                tooltip: isHeld
+                    ? 'التسميع موقوف مؤقتًا'
+                    : hasFinishedQuran
+                        ? 'الحفظ مكتمل'
+                        : 'تسميع',
               ),
               IconButton(
                 icon: const Icon(Icons.visibility),
@@ -412,11 +486,16 @@ class _MemorizationScreenState extends State<MemorizationScreen>
 
   Widget _buildStudentRevisionCard(Student student, DailyRecord? record) {
     final isDone = record?.revisionDone == true;
+    final isHeld = _activeHolds.containsKey(student.id);
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
-      child: InkWell(
-        onTap: () => _navigateToRevision(student),
+      child: Opacity(
+        opacity: isHeld ? 0.55 : 1,
+        child: InkWell(
+        onTap: isHeld
+            ? () => _showHoldMessage(student)
+            : () => _navigateToRevision(student),
         borderRadius: BorderRadius.circular(12),
         child: Padding(
           padding: const EdgeInsets.all(16),
@@ -443,6 +522,7 @@ class _MemorizationScreenState extends State<MemorizationScreen>
                           ),
                         ),
                         _buildAttendanceBadge(record),
+                        _buildHoldBadge(student.id),
                       ],
                     ),
                     const SizedBox(height: 4),
@@ -456,22 +536,38 @@ class _MemorizationScreenState extends State<MemorizationScreen>
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 decoration: BoxDecoration(
-                  color: isDone ? Colors.green.withOpacity(0.1) : Colors.grey.withOpacity(0.1),
+                  color: isHeld
+                      ? Colors.deepOrange.withOpacity(0.1)
+                      : isDone
+                          ? Colors.green.withOpacity(0.1)
+                          : Colors.grey.withOpacity(0.1),
                   borderRadius: BorderRadius.circular(16),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Icon(
-                      isDone ? Icons.check_circle : Icons.replay,
+                      isHeld
+                          ? Icons.pause_circle
+                          : isDone
+                              ? Icons.check_circle
+                              : Icons.replay,
                       size: 16,
-                      color: isDone ? Colors.green : Colors.grey,
+                      color: isHeld
+                          ? Colors.deepOrange
+                          : isDone
+                              ? Colors.green
+                              : Colors.grey,
                     ),
                     const SizedBox(width: 4),
                     Text(
-                      isDone ? 'تمت' : 'مراجعة',
+                      isHeld ? 'موقوفة' : isDone ? 'تمت' : 'مراجعة',
                       style: TextStyle(
-                        color: isDone ? Colors.green : Colors.grey[700],
+                        color: isHeld
+                            ? Colors.deepOrange
+                            : isDone
+                                ? Colors.green
+                                : Colors.grey[700],
                         fontSize: 12,
                       ),
                     ),
@@ -481,6 +577,21 @@ class _MemorizationScreenState extends State<MemorizationScreen>
             ],
           ),
         ),
+      ),
+      ),
+    );
+  }
+
+  void _showHoldMessage(Student student) {
+    final hold = _activeHolds[student.id];
+    if (hold == null) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'التسميع موقوف مؤقتًا حتى '
+          '${Helpers.formatHijriDate(hold.endDate)} — ${hold.reason}',
+        ),
+        backgroundColor: Colors.deepOrange,
       ),
     );
   }

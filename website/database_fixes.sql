@@ -1,3 +1,6 @@
+-- LEGACY ONLY: superseded by
+-- supabase/migrations/20260711000200_p0_security_qr_attendance.sql.
+-- Do not apply this file to production after adopting the migration chain.
 -- =====================================================================
 --  ملف إصلاحات قاعدة البيانات — حلقتي
 --  شغّل هذا الملف كاملاً في Supabase SQL Editor (بعد database_schema.sql)

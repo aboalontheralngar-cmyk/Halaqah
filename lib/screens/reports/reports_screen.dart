@@ -3,9 +3,11 @@ import 'package:printing/printing.dart';
 import 'package:share_plus/share_plus.dart';
 import '../../services/database_service.dart';
 import '../../services/pdf_service.dart';
+import '../../services/qr_service.dart';
 import '../../models/student.dart';
 import '../../models/daily_record.dart';
 import '../../utils/helpers.dart';
+import 'student_period_report_screen.dart';
 
 class ReportsScreen extends StatefulWidget {
   const ReportsScreen({super.key});
@@ -99,6 +101,17 @@ class _ReportsScreenState extends State<ReportsScreen> {
               Colors.purple,
               () => _showHalaqahStats(),
             ),
+            _buildReportCard(
+              'تقرير طالب لفترة',
+              Icons.assessment_outlined,
+              Colors.teal,
+              () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const StudentPeriodReportScreen(),
+                ),
+              ),
+            ),
           ],
         ),
       ],
@@ -169,6 +182,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
                   trailing: PopupMenuButton<String>(
                     onSelected: (value) => _handleStudentReport(student, value),
                     itemBuilder: (context) => [
+                      const PopupMenuItem(
+                        value: 'period',
+                        child: Text('تقرير أسبوعي/شهري/فترة'),
+                      ),
                       const PopupMenuItem(
                         value: 'whatsapp',
                         child: Row(
@@ -260,8 +277,26 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
   void _handleStudentReport(Student student, String type) {
     switch (type) {
+      case 'period':
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => StudentPeriodReportScreen(
+              initialStudent: student,
+            ),
+          ),
+        );
+        break;
       case 'whatsapp':
-        _showWhatsAppMonthlyReport(student);
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => StudentPeriodReportScreen(
+              initialStudent: student,
+              initialPeriod: 'month',
+            ),
+          ),
+        );
         break;
       case 'full':
         _showStudentFullReport(student);
@@ -647,7 +682,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
   Future<void> _printStudentReceipt(Student student) async {
     try {
       final stats = await _db.getStudentStatistics(student.id);
-      final qrData = student.qrCode;
+      final qrData = QrService.generateQrData(student.qrCode);
       final pdfBytes = await _pdf.generateStudentReceipt(student, stats, 'حلقتي', 'المسجد', qrData);
       await Printing.layoutPdf(onLayout: (_) => pdfBytes);
     } catch (e) {

@@ -1,3 +1,6 @@
+-- LEGACY ONLY: superseded by
+-- supabase/migrations/20260711000200_p0_security_qr_attendance.sql.
+-- Do not apply this file to production after adopting the migration chain.
 -- =====================================================================
 --  إصلاح مشكلة Infinite Recursion في سياسات RLS لجدول centers
 --  المشكلة: centers تتحقق من center_members، و center_members تتحقق من centers

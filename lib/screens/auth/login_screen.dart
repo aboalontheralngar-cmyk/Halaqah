@@ -17,6 +17,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final _passwordController = TextEditingController();
   
   final _codeController = TextEditingController();
+  final _activationEmailController = TextEditingController();
   final _newPasswordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
   
@@ -34,6 +35,7 @@ class _LoginScreenState extends State<LoginScreen> {
     _emailController.dispose();
     _passwordController.dispose();
     _codeController.dispose();
+    _activationEmailController.dispose();
     _newPasswordController.dispose();
     _confirmPasswordController.dispose();
     super.dispose();
@@ -91,23 +93,17 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => _isLoading = true);
 
     try {
-      final member = await _supabase.verifyInvitationCode(code);
+      final email = _activationEmailController.text.trim().toLowerCase();
+      final member = await _supabase.verifyInvitationCode(code, email);
       if (member == null) {
-        throw Exception('كود المعلم غير صحيح أو غير مسجل بالنظام السحابي');
-      }
-
-      // Check if user is already linked
-      if (member['user_id'] != null) {
-        throw Exception('هذا الكود تم تفعيله مسبقاً للبريد: ${member['email']}. يرجى تسجيل الدخول بالبريد.');
-      }
-
-      // Check if email already exists in auth.users
-      if (member['is_registered'] == true) {
-        throw Exception('البريد (${member['email']}) مسجل مسبقاً في النظام. يرجى تسجيل الدخول مباشرة بتبويب البريد الإلكتروني لتفعيل حسابك.');
+        throw Exception('الكود غير صحيح أو منتهي، أو البريد لا يطابق الدعوة');
       }
 
       setState(() {
-        _verifiedMemberInfo = member;
+        _verifiedMemberInfo = {
+          ...member,
+          'email': email,
+        };
         _codeVerified = true;
       });
       
@@ -139,22 +135,25 @@ class _LoginScreenState extends State<LoginScreen> {
     if (!_codeFormKey.currentState!.validate()) return;
     if (_verifiedMemberInfo == null) return;
     
-    final email = _verifiedMemberInfo!['email'];
+    final email = _activationEmailController.text.trim().toLowerCase();
     final code = _codeController.text.trim();
     final password = _newPasswordController.text;
 
     setState(() => _isLoading = true);
 
     try {
-      // 1. Sign up and link code using RPC
-      await _supabase.signUpAndLinkCode(
-        email: email,
-        password: password,
-        code: code,
-      );
-
-      // 2. Log in automatically after registration
-      await _supabase.signIn(email, password);
+      final isRegistered = _verifiedMemberInfo!['is_registered'] == true;
+      if (isRegistered) {
+        await _supabase.signIn(email, password);
+        await _supabase.activateInvitationCode(code);
+      } else {
+        await _supabase.signUpAndLinkCode(
+          email: email,
+          password: password,
+          code: code,
+        );
+        await _supabase.signIn(email, password);
+      }
 
       // 3. Sync data
       try {
@@ -407,6 +406,27 @@ class _LoginScreenState extends State<LoginScreen> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           if (!_codeVerified) ...[
+            TextFormField(
+              controller: _activationEmailController,
+              keyboardType: TextInputType.emailAddress,
+              decoration: InputDecoration(
+                labelText: 'البريد الإلكتروني الموجود في الدعوة',
+                prefixIcon: const Icon(Icons.email_outlined),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+              ),
+              validator: (value) {
+                final email = value?.trim() ?? '';
+                if (email.isEmpty) return 'يرجى إدخال بريد الدعوة';
+                if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,}$')
+                    .hasMatch(email)) {
+                  return 'يرجى إدخال بريد إلكتروني صالح';
+                }
+                return null;
+              },
+            ),
+            const SizedBox(height: 16),
             // Enter Code
             TextFormField(
               controller: _codeController,
@@ -499,7 +519,9 @@ class _LoginScreenState extends State<LoginScreen> {
               controller: _newPasswordController,
               obscureText: _isObscure,
               decoration: InputDecoration(
-                labelText: 'تعيين كلمة مرور جديدة',
+                labelText: _verifiedMemberInfo!['is_registered'] == true
+                    ? 'كلمة مرور حسابك الحالي'
+                    : 'تعيين كلمة مرور جديدة',
                 prefixIcon: const Icon(Icons.lock_outline),
                 suffixIcon: IconButton(
                   icon: Icon(_isObscure ? Icons.visibility_off : Icons.visibility),
@@ -519,26 +541,26 @@ class _LoginScreenState extends State<LoginScreen> {
                 return null;
               },
             ),
-            const SizedBox(height: 16),
-
-            // Confirm Password field
-            TextFormField(
-              controller: _confirmPasswordController,
-              obscureText: _isObscure,
-              decoration: InputDecoration(
-                labelText: 'تأكيد كلمة المرور',
-                prefixIcon: const Icon(Icons.lock_reset_outlined),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(16),
+            if (_verifiedMemberInfo!['is_registered'] != true) ...[
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _confirmPasswordController,
+                obscureText: _isObscure,
+                decoration: InputDecoration(
+                  labelText: 'تأكيد كلمة المرور',
+                  prefixIcon: const Icon(Icons.lock_reset_outlined),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
                 ),
+                validator: (value) {
+                  if (value != _newPasswordController.text) {
+                    return 'كلمتا المرور غير متطابقتين';
+                  }
+                  return null;
+                },
               ),
-              validator: (value) {
-                if (value != _newPasswordController.text) {
-                  return 'كلمتا المرور غير متطابقتين';
-                }
-                return null;
-              },
-            ),
+            ],
             const SizedBox(height: 24),
 
             ElevatedButton(

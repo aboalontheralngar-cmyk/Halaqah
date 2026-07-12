@@ -7,6 +7,7 @@ import '../../utils/helpers.dart';
 import 'add_exam_screen.dart';
 import 'exam_result_screen.dart';
 import 'exam_generator_screen.dart';
+import 'exam_templates_screen.dart';
 
 class ExamsScreen extends StatefulWidget {
   const ExamsScreen({super.key});
@@ -80,6 +81,18 @@ class _ExamsScreenState extends State<ExamsScreen> {
       appBar: AppBar(
         title: const Text('الامتحانات'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.folder_copy_outlined),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const ExamTemplatesScreen(),
+                ),
+              );
+            },
+            tooltip: 'سجل نماذج الاختبارات',
+          ),
           IconButton(
             icon: const Icon(Icons.auto_awesome),
             onPressed: () {

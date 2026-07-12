@@ -12,6 +12,7 @@ import '../models/exam.dart';
 import '../models/fund_transaction.dart';
 import '../models/plan.dart';
 import '../models/notification_log.dart';
+import 'backup_service.dart';
 import 'database_service.dart';
 import 'quran_service.dart';
 
@@ -36,14 +37,23 @@ class SupabaseService {
   }
 
   // Verify invitation code
-  Future<Map<String, dynamic>?> verifyInvitationCode(String code) async {
+  Future<Map<String, dynamic>?> verifyInvitationCode(
+    String code,
+    String email,
+  ) async {
     try {
       final response = await client.rpc(
-        'get_member_by_code',
-        params: {'code_to_check': code},
-      ) as List<dynamic>;
-      if (response.isNotEmpty) {
-        return response.first as Map<String, dynamic>;
+        'inspect_invitation_code',
+        params: {
+          'p_code': code.trim().toUpperCase(),
+          'p_email': email.trim().toLowerCase(),
+        },
+      );
+      if (response is Map<String, dynamic> && response['valid'] == true) {
+        return response;
+      }
+      if (response is Map && response['valid'] == true) {
+        return Map<String, dynamic>.from(response);
       }
       return null;
     } catch (e) {
@@ -64,25 +74,46 @@ class SupabaseService {
         password: password,
       );
       
-      final String? newUserId = response.user?.id;
-      if (newUserId == null) {
+      if (response.user?.id == null) {
         throw Exception('فشل إنشاء حساب المستخدم');
       }
 
-      final bool linked = await client.rpc(
-        'activate_member_by_code',
-        params: {
-          'code_to_check': code,
-          'new_user_id': newUserId,
-        },
-      );
-
-      if (!linked) {
-        throw Exception('فشل ربط كود المعلم بالحساب الجديد');
+      if (response.session == null) {
+        throw Exception(
+          'تم إنشاء الحساب، لكن يلزم تأكيد البريد أولاً. بعد التأكيد سجّل الدخول ثم فعّل كود الدعوة.',
+        );
       }
+
+      await activateInvitationCode(code);
     } catch (e) {
       print('Error in sign up & link: $e');
       throw Exception(e.toString().replaceAll('Exception: ', ''));
+    }
+  }
+
+  Future<void> activateInvitationCode(String code) async {
+    final result = await client.rpc(
+      'join_center_with_code',
+      params: {'p_code': code.trim().toUpperCase()},
+    );
+    if (result is! Map || result['success'] != true) {
+      final reason = result is Map ? result['error'] : null;
+      throw Exception(_invitationErrorMessage(reason?.toString()));
+    }
+  }
+
+  String _invitationErrorMessage(String? reason) {
+    switch (reason) {
+      case 'expired_code':
+        return 'انتهت صلاحية كود الدعوة؛ اطلب كودًا جديدًا من مدير المركز';
+      case 'already_used':
+        return 'تم استخدام كود الدعوة من قبل';
+      case 'email_mismatch':
+        return 'البريد لا يطابق البريد المحدد في الدعوة';
+      case 'not_authenticated':
+        return 'يلزم تسجيل الدخول قبل تفعيل الدعوة';
+      default:
+        return 'كود الدعوة غير صحيح أو غير متاح';
     }
   }
 
@@ -108,16 +139,10 @@ class SupabaseService {
       final response = await client
           .from('center_members')
           .select('center_id, halaqah_id, role, user_id')
-          .ilike('email', email.trim())
+          .eq('user_id', currentUser.id)
           .maybeSingle();
           
       if (response != null) {
-        if (response['user_id'] == null) {
-          await client
-              .from('center_members')
-              .update({'user_id': currentUser.id})
-              .ilike('email', email.trim());
-        }
         return response;
       }
       
@@ -158,6 +183,8 @@ class SupabaseService {
     if (!isAuthenticated) return;
 
     try {
+      await _createDailyPreSyncBackup();
+
       String? centerId = await _db.getSetting('sync_center_id');
       String? halaqahId = await _db.getSetting('sync_halaqah_id');
 
@@ -213,9 +240,12 @@ class SupabaseService {
       await _syncAttendance(centerId, halaqahId);
       await _syncMushafProgress(centerId, halaqahId);
       await _syncMemorizationProgress(centerId);
-      await _syncBehaviorPoints(centerId);
+      await _syncBehaviorPoints(centerId, halaqahId);
+      await _syncBehaviorPointCorrections(centerId, halaqahId);
       await _syncVacations(centerId);
+      await _syncStudentHolds(centerId, halaqahId);
       await _syncExams(centerId);
+      await _syncExamTemplates(centerId, halaqahId);
       await _syncFundTransactions(centerId);
       await _syncPlans(centerId);
       await _syncNotifications(centerId);
@@ -224,6 +254,21 @@ class SupabaseService {
     } catch (e) {
       print('Error during Supabase synchronization: $e');
       rethrow;
+    }
+  }
+
+  Future<void> _createDailyPreSyncBackup() async {
+    final today = DateTime.now().toIso8601String().split('T')[0];
+    final lastBackupDate = await _db.getSetting('last_pre_sync_backup_date');
+    if (lastBackupDate == today) return;
+
+    try {
+      await BackupService().exportBackup();
+      await _db.saveSetting('last_pre_sync_backup_date', today);
+    } catch (error) {
+      throw Exception(
+        'تعذر إنشاء نسخة احتياطية قبل المزامنة. تم إيقاف المزامنة لحماية بيانات الطلاب: $error',
+      );
     }
   }
 
@@ -242,17 +287,48 @@ class SupabaseService {
         'name': student.name,
         'phone': student.phone,
         'parent_phone': student.guardianPhone,
+        'qr_code': student.qrCode,
         'plan_type': student.planType,
         'plan_amount': student.planAmount,
+        'total_memorized': student.totalMemorized,
         'status': student.status,
+        'notes': student.notes,
         'join_date': student.joinDate.toIso8601String().split('T')[0],
         'created_at': student.createdAt.toIso8601String(),
+        'updated_at': student.updatedAt.toIso8601String(),
         'memorization_direction': student.memorizationDirection,
+        'pre_memorized_start_surah': student.preMemorizedStartSurah,
+        'pre_memorized_start_ayah': student.preMemorizedStartAyah,
+        'pre_memorized_end_surah': student.preMemorizedEndSurah,
+        'pre_memorized_end_ayah': student.preMemorizedEndAyah,
       });
     }
     for (var i = 0; i < studentsPayload.length; i += 500) {
       final chunk = studentsPayload.sublist(i, i + 500 > studentsPayload.length ? studentsPayload.length : i + 500);
-      await client.from('students').upsert(chunk);
+      try {
+        await client.from('students').upsert(chunk);
+      } on PostgrestException catch (error) {
+        // Keep older installations working until the P0 migration is applied.
+        // Most importantly, the pull below now preserves local progress instead
+        // of replacing it with zero/null values.
+        if (error.code != 'PGRST204' && error.code != '42703') rethrow;
+
+        const progressColumns = {
+          'qr_code',
+          'total_memorized',
+          'notes',
+          'updated_at',
+          'pre_memorized_start_surah',
+          'pre_memorized_start_ayah',
+          'pre_memorized_end_surah',
+          'pre_memorized_end_ayah',
+        };
+        final legacyChunk = chunk
+            .map((row) => Map<String, dynamic>.from(row)
+              ..removeWhere((key, _) => progressColumns.contains(key)))
+            .toList();
+        await client.from('students').upsert(legacyChunk);
+      }
     }
 
     // 3. Download latest from Supabase
@@ -264,23 +340,48 @@ class SupabaseService {
     final List<dynamic> remoteStudents = response as List<dynamic>;
 
     for (final remote in remoteStudents) {
+      final existing = await _db.getStudent(remote['id']);
+      final remoteTotalMemorized =
+          (remote['total_memorized'] as num?)?.toInt();
+      final protectedTotalMemorized = existing != null &&
+              existing.totalMemorized > (remoteTotalMemorized ?? 0)
+          ? existing.totalMemorized
+          : remoteTotalMemorized ?? 0;
       final localStudent = Student(
         id: remote['id'],
         name: remote['name'],
-        phone: remote['phone'] ?? '',
-        guardianPhone: remote['parent_phone'] ?? '',
-        qrCode: remote['id'], // QR code maps to student ID
-        planType: remote['plan_type'] ?? 'ayahs',
-        planAmount: remote['plan_amount'] ?? 5,
-        status: remote['status'] ?? 'active',
-        memorizationDirection: remote['memorization_direction'] ?? 'desc',
-        joinDate: remote['join_date'] != null ? DateTime.parse(remote['join_date']) : DateTime.now(),
-        createdAt: remote['created_at'] != null ? DateTime.parse(remote['created_at']) : DateTime.now(),
-        updatedAt: DateTime.now(),
+        phone: remote['phone'] ?? existing?.phone ?? '',
+        guardianPhone: remote['parent_phone'] ?? existing?.guardianPhone ?? '',
+        qrCode: remote['qr_code'] ?? existing?.qrCode ?? remote['id'],
+        planType: remote['plan_type'] ?? existing?.planType ?? 'ayahs',
+        planAmount: (remote['plan_amount'] as num?)?.toInt() ?? existing?.planAmount ?? 5,
+        // A zero introduced by a schema migration must not erase a larger
+        // local total. Explicit progress resets will use a dedicated workflow.
+        totalMemorized: protectedTotalMemorized,
+        status: remote['status'] ?? existing?.status ?? 'active',
+        photoPath: existing?.photoPath,
+        notes: remote['notes'] ?? existing?.notes,
+        memorizationDirection:
+            remote['memorization_direction'] ?? existing?.memorizationDirection ?? 'desc',
+        preMemorizedStartSurah:
+            (remote['pre_memorized_start_surah'] as num?)?.toInt() ?? existing?.preMemorizedStartSurah,
+        preMemorizedStartAyah:
+            (remote['pre_memorized_start_ayah'] as num?)?.toInt() ?? existing?.preMemorizedStartAyah,
+        preMemorizedEndSurah:
+            (remote['pre_memorized_end_surah'] as num?)?.toInt() ?? existing?.preMemorizedEndSurah,
+        preMemorizedEndAyah:
+            (remote['pre_memorized_end_ayah'] as num?)?.toInt() ?? existing?.preMemorizedEndAyah,
+        joinDate: remote['join_date'] != null
+            ? DateTime.parse(remote['join_date'])
+            : existing?.joinDate ?? DateTime.now(),
+        createdAt: remote['created_at'] != null
+            ? DateTime.parse(remote['created_at'])
+            : existing?.createdAt ?? DateTime.now(),
+        updatedAt: remote['updated_at'] != null
+            ? DateTime.parse(remote['updated_at'])
+            : existing?.updatedAt ?? DateTime.now(),
       );
 
-      // Check if student exists locally
-      final existing = await _db.getStudent(localStudent.id);
       if (existing == null) {
         await _db.insertStudent(localStudent);
       } else {
@@ -291,6 +392,10 @@ class SupabaseService {
 
   // Sync Grades: Push local changes, Pull remote changes
   Future<void> _syncHomeworkGrades(String centerId, String halaqahId) async {
+    await _syncDeletedRows(
+      table: 'homework_grades',
+      settingKey: 'deleted_homework_grade_ids',
+    );
     // 1. Fetch local grades
     final localGrades = await _db.getAllHomeworkGrades();
 
@@ -559,6 +664,10 @@ class SupabaseService {
   }
 
   Future<void> _syncMemorizationProgress(String centerId) async {
+    await _syncDeletedRows(
+      table: 'memorization',
+      settingKey: 'deleted_memorization_progress_ids',
+    );
     final localData = await _db.getAllMemorizationProgress();
     if (localData.isEmpty) return;
     final payload = localData.map((e) => {
@@ -569,6 +678,7 @@ class SupabaseService {
       'from_ayah': e.fromAyah,
       'to_ayah': e.toAyah,
       'degree': e.qualityRating,
+      'session_type': e.isRevision ? 'review' : 'new',
       'date': e.date.toIso8601String().split('T')[0],
       'notes': e.notes,
     }).toList();
@@ -582,15 +692,45 @@ class SupabaseService {
     }
   }
 
-  Future<void> _syncBehaviorPoints(String centerId) async {
+  Future<void> _syncDeletedRows({
+    required String table,
+    required String settingKey,
+  }) async {
+    final raw = await _db.getSetting(settingKey);
+    if (raw == null || raw.isEmpty) return;
+    dynamic decoded;
+    try {
+      decoded = jsonDecode(raw);
+    } catch (_) {
+      return;
+    }
+    if (decoded is! List) return;
+    final remaining = decoded.map((id) => id.toString()).toList();
+    for (final id in List<String>.from(remaining)) {
+      try {
+        await client.from(table).delete().eq('id', id);
+        remaining.remove(id);
+      } catch (error) {
+        print('Error syncing deletion $table/$id: $error');
+      }
+    }
+    await _db.saveSetting(settingKey, jsonEncode(remaining));
+  }
+
+  Future<void> _syncBehaviorPoints(String centerId, String halaqahId) async {
+    await _syncDeletedRows(
+      table: 'points',
+      settingKey: 'deleted_behavior_point_ids',
+    );
     final localData = await _db.getAllBehaviorPoints();
     if (localData.isEmpty) return;
     final payload = localData.map((e) => {
       'id': e.id,
       'student_id': e.studentId,
       'center_id': centerId,
+      'halaqa_id': halaqahId,
       'type': e.type,
-      'amount': e.points.abs(),
+      'amount': e.points,
       'reason': e.reason,
       'date': e.date.toIso8601String().split('T')[0],
       'resolved': e.resolved,
@@ -601,6 +741,39 @@ class SupabaseService {
         await client.from('points').upsert(chunk);
       } catch (e) {
         print('Error syncing points chunk: $e');
+      }
+    }
+  }
+
+  Future<void> _syncBehaviorPointCorrections(
+    String centerId,
+    String halaqahId,
+  ) async {
+    final localData = await _db.getAllBehaviorPointCorrections();
+    if (localData.isEmpty) return;
+    final payload = localData
+        .map((correction) => {
+              'id': correction.id,
+              'point_id': correction.pointId,
+              'original_student_id': correction.originalStudentId,
+              'corrected_student_id': correction.correctedStudentId,
+              'center_id': centerId,
+              'halaqa_id': halaqahId,
+              'action': correction.action,
+              'reason': correction.reason,
+              'point_reason_snapshot': correction.pointReasonSnapshot,
+              'points_snapshot': correction.pointsSnapshot,
+              'created_at': correction.createdAt.toIso8601String(),
+            })
+        .toList();
+    for (var i = 0; i < payload.length; i += 100) {
+      final end = i + 100 > payload.length ? payload.length : i + 100;
+      try {
+        await client
+            .from('behavior_point_corrections')
+            .upsert(payload.sublist(i, end));
+      } catch (error) {
+        print('Error syncing behavior corrections: $error');
       }
     }
   }
@@ -623,6 +796,34 @@ class SupabaseService {
         await client.from('vacations').upsert(chunk);
       } catch (e) {
         print('Error syncing vacations chunk: $e');
+      }
+    }
+  }
+
+  Future<void> _syncStudentHolds(String centerId, String halaqahId) async {
+    final holds = await _db.getAllStudentHolds();
+    if (holds.isEmpty) return;
+    final payload = holds.map((hold) => {
+      'id': hold.id,
+      'student_id': hold.studentId,
+      'center_id': centerId,
+      'halaqa_id': halaqahId,
+      'start_date': hold.startDate.toIso8601String().split('T')[0],
+      'end_date': hold.endDate.toIso8601String().split('T')[0],
+      'reason': hold.reason,
+      'notes': hold.notes,
+      'ended_at': hold.endedAt?.toIso8601String(),
+      'created_at': hold.createdAt.toIso8601String(),
+    }).toList();
+    for (var i = 0; i < payload.length; i += 100) {
+      final chunk = payload.sublist(
+        i,
+        i + 100 > payload.length ? payload.length : i + 100,
+      );
+      try {
+        await client.from('student_holds').upsert(chunk);
+      } catch (e) {
+        print('Error syncing student holds chunk: $e');
       }
     }
   }
@@ -660,6 +861,110 @@ class SupabaseService {
     }
   }
 
+  Future<void> _syncExamTemplates(String centerId, String halaqahId) async {
+    await _syncDeletedExamTemplates();
+    final templates = await _db.getExamTemplates();
+    if (templates.isEmpty) return;
+
+    for (var i = 0; i < templates.length; i += 100) {
+      final chunk = templates.sublist(
+        i,
+        i + 100 > templates.length ? templates.length : i + 100,
+      );
+      final payload = chunk.map((template) => {
+        'id': template.id,
+        'center_id': centerId,
+        'halaqa_id': halaqahId,
+        'student_id': template.studentId,
+        'title': template.title,
+        'type': 'custom',
+        'category': template.category,
+        'criteria_json': _decodeJsonObject(template.criteriaJson),
+        'questions_count': template.questionsCount,
+        'created_at': template.createdAt.toIso8601String(),
+        'updated_at': template.updatedAt.toIso8601String(),
+      }).toList();
+      try {
+        await client.from('exam_templates').upsert(payload);
+      } catch (e) {
+        print('Error syncing exam templates chunk: $e');
+        continue;
+      }
+
+      for (final template in chunk) {
+        final questions = await _db.getExamTemplateQuestions(template.id);
+        try {
+          await client
+              .from('exam_questions')
+              .delete()
+              .eq('template_id', template.id);
+        } catch (e) {
+          print('Error clearing old questions for template ${template.id}: $e');
+          continue;
+        }
+        if (questions.isEmpty) continue;
+        final questionsPayload = questions.map((question) => {
+          'id': question.id,
+          'template_id': template.id,
+          'question_order': question.questionOrder,
+          'surah': question.surahId,
+          'from_ayah': question.fromAyah,
+          'to_ayah': question.toAyah,
+          'question_type': question.questionType,
+          'prompt_text': question.promptText,
+          'answer_text': question.answerText,
+          'page': question.page,
+          'juz': question.juz,
+          'hizb': question.hizb,
+          'difficulty': question.difficulty,
+          'lines': question.lines,
+          'created_at': question.createdAt.toIso8601String(),
+        }).toList();
+        try {
+          await client.from('exam_questions').upsert(questionsPayload);
+        } catch (e) {
+          print('Error syncing questions for template ${template.id}: $e');
+        }
+      }
+    }
+  }
+
+  Future<void> _syncDeletedExamTemplates() async {
+    final raw = await _db.getSetting('deleted_exam_template_ids');
+    if (raw == null || raw.isEmpty) return;
+    dynamic decoded;
+    try {
+      decoded = jsonDecode(raw);
+    } catch (_) {
+      return;
+    }
+    if (decoded is! List) return;
+    final remaining = decoded.map((id) => id.toString()).toList();
+    for (final templateId in List<String>.from(remaining)) {
+      try {
+        await client.from('exam_templates').delete().eq('id', templateId);
+        remaining.remove(templateId);
+      } catch (e) {
+        print('Error syncing deleted exam template $templateId: $e');
+      }
+    }
+    await _db.saveSetting(
+      'deleted_exam_template_ids',
+      jsonEncode(remaining),
+    );
+  }
+
+  Map<String, dynamic> _decodeJsonObject(String value) {
+    try {
+      final decoded = jsonDecode(value);
+      return decoded is Map<String, dynamic>
+          ? decoded
+          : <String, dynamic>{};
+    } catch (_) {
+      return <String, dynamic>{};
+    }
+  }
+
   Future<void> _syncFundTransactions(String centerId) async {
     final localData = await _db.getFundTransactions();
     if (localData.isEmpty) return;
@@ -683,9 +988,29 @@ class SupabaseService {
   }
 
   Future<void> _syncPlans(String centerId) async {
+    await _syncDeletedRows(
+      table: 'plans',
+      settingKey: 'deleted_plan_ids',
+    );
     final localData = await _db.getSmartPlans();
-    if (localData.isEmpty) return;
-    final payload = localData.map((e) => {
+    final response = await client
+        .from('plans')
+        .select()
+        .eq('center_id', centerId);
+    final remoteRows = (response as List<dynamic>)
+        .map((row) => row as Map<String, dynamic>)
+        .toList();
+    final remoteById = {
+      for (final row in remoteRows) row['id'].toString(): row,
+    };
+    final payload = localData.where((plan) {
+      final remote = remoteById[plan.id];
+      if (remote == null) return true;
+      final remoteUpdated = DateTime.tryParse(
+        remote['updated_at']?.toString() ?? '',
+      );
+      return remoteUpdated == null || plan.updatedAt.isAfter(remoteUpdated);
+    }).map((e) => {
       'id': e.id,
       'center_id': centerId,
       'student_id': e.studentId,
@@ -696,7 +1021,12 @@ class SupabaseService {
       'new_amount': e.newAmount,
       'review_amount': e.reviewAmount,
       'status': e.status,
+      'test_status': e.testStatus,
+      'completion_exam_id': e.completionExamId,
+      'completed_at': e.completedAt?.toIso8601String(),
       'notes': e.notes,
+      'created_at': e.createdAt.toIso8601String(),
+      'updated_at': e.updatedAt.toIso8601String(),
     }).toList();
     for (var i = 0; i < payload.length; i += 100) {
       final chunk = payload.sublist(i, i + 100 > payload.length ? payload.length : i + 100);
@@ -705,6 +1035,45 @@ class SupabaseService {
       } catch (e) {
         print('Error syncing plans chunk: $e');
       }
+    }
+
+    final localById = {for (final plan in localData) plan.id: plan};
+    for (final remote in remoteRows) {
+      final createdAt = DateTime.tryParse(
+            remote['created_at']?.toString() ?? '',
+          ) ??
+          DateTime.now();
+      final updatedAt = DateTime.tryParse(
+            remote['updated_at']?.toString() ?? '',
+          ) ??
+          createdAt;
+      final existing = localById[remote['id']];
+      if (existing != null && !updatedAt.isAfter(existing.updatedAt)) continue;
+      if (remote['deleted_at'] != null) {
+        await _db.deleteSmartPlanFromSync(remote['id']);
+        continue;
+      }
+      await _db.upsertSmartPlanFromSync(
+        SmartPlan(
+          id: remote['id'],
+          studentId: remote['student_id'],
+          period: remote['period'] ?? 'weekly',
+          startDate: DateTime.parse(remote['start_date']),
+          endDate: DateTime.parse(remote['end_date']),
+          unit: remote['unit'] ?? 'ayahs',
+          newAmount: (remote['new_amount'] as num?)?.toInt() ?? 5,
+          reviewAmount: (remote['review_amount'] as num?)?.toInt() ?? 10,
+          status: remote['status'] ?? 'active',
+          testStatus: remote['test_status'] ?? 'not_required',
+          completionExamId: remote['completion_exam_id'],
+          completedAt: DateTime.tryParse(
+            remote['completed_at']?.toString() ?? '',
+          ),
+          notes: remote['notes'],
+          createdAt: createdAt,
+          updatedAt: updatedAt,
+        ),
+      );
     }
   }
 

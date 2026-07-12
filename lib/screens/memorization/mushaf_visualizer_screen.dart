@@ -33,6 +33,21 @@ class _MushafVisualizerScreenState extends State<MushafVisualizerScreen> {
   Future<void> _loadProgress() async {
     setState(() => _isLoading = true);
     try {
+      final student = widget.student;
+      if (student.preMemorizedStartSurah != null &&
+          student.preMemorizedStartAyah != null &&
+          student.preMemorizedEndSurah != null &&
+          student.preMemorizedEndAyah != null) {
+        // Repair missing map cells from the preserved assigned range. The
+        // database method only inserts missing cells and keeps graded entries.
+        await _db.initializeMushafProgressForRange(
+          student.id,
+          student.preMemorizedStartSurah!,
+          student.preMemorizedStartAyah!,
+          student.preMemorizedEndSurah!,
+          student.preMemorizedEndAyah!,
+        );
+      }
       final list = await _db.getStudentMushafProgress(widget.student.id);
       setState(() {
         _progressList = list;

@@ -3,6 +3,22 @@ import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import 'package:intl/intl.dart';
 import 'database_service.dart';
+import 'backup_policy_service.dart';
+import '../models/settings.dart';
+
+class AutomaticBackupResult {
+  final bool attempted;
+  final bool succeeded;
+  final String? path;
+  final String? error;
+
+  const AutomaticBackupResult({
+    required this.attempted,
+    required this.succeeded,
+    this.path,
+    this.error,
+  });
+}
 
 class BackupService {
   static final BackupService _instance = BackupService._internal();
@@ -11,56 +27,107 @@ class BackupService {
 
   final DatabaseService _db = DatabaseService();
 
-  Future<String> exportBackup() async {
-    final students = await _db.getStudents();
-    final settings = await _db.getSettings();
-    
-    final allRecords = <Map<String, dynamic>>[];
-    final allMemorizations = <Map<String, dynamic>>[];
-    final allBehaviorPoints = <Map<String, dynamic>>[];
-    final allExams = <Map<String, dynamic>>[];
-    final allVacations = <Map<String, dynamic>>[];
-    
-    for (final student in students) {
-      final records = await _db.getStudentRecords(student.id, limit: 100000);
-      allRecords.addAll(records.map((r) => r.toMap()));
-
-      final memorizations = await _db.getStudentMemorization(student.id);
-      allMemorizations.addAll(memorizations.map((m) => m.toMap()));
-
-      
-      final points = await _db.getStudentBehaviorPoints(student.id);
-      allBehaviorPoints.addAll(points.map((p) => p.toMap()));
-      
-      final exams = await _db.getStudentExams(student.id);
-      allExams.addAll(exams.map((e) => e.toMap()));
-      
-      final vacations = await _db.getStudentVacations(student.id);
-      allVacations.addAll(vacations.map((v) => v.toMap()));
-    }
+  Future<String> exportBackup({bool automatic = false}) async {
+    final tables = await _db.exportBackupTables();
     
     final backup = {
-      'version': '1.0',
+      'version': '2.0',
       'date': DateTime.now().toIso8601String(),
-      'students': students.map((s) => s.toMap()).toList(),
-      'records': allRecords,
-      'memorizations': allMemorizations,
-      'behavior_points': allBehaviorPoints,
-      'exams': allExams,
-      'vacations': allVacations,
-      'settings': settings.toMap(),
+      'tables': tables,
     };
     
     final jsonString = const JsonEncoder.withIndent('  ').convert(backup);
     
     final directory = await getApplicationDocumentsDirectory();
-    final timestamp = DateFormat('yyyy-MM-dd_HH-mm').format(DateTime.now());
-    final filePath = '${directory.path}/halaqah_backup_$timestamp.json';
+    final timestamp = DateFormat('yyyy-MM-dd_HH-mm-ss').format(DateTime.now());
+    final kind = automatic ? 'auto_' : '';
+    final filePath = '${directory.path}/halaqah_backup_${kind}$timestamp.json';
     
     final file = File(filePath);
     await file.writeAsString(jsonString);
+    final now = DateTime.now().toIso8601String();
+    await _db.saveSetting('last_backup_at', now);
+    if (automatic) await _db.saveSetting('last_automatic_backup_at', now);
     
     return filePath;
+  }
+
+  Future<AutomaticBackupResult> performAutomaticBackupIfDue({
+    HalaqahSettings? settings,
+    DateTime? now,
+  }) async {
+    final currentSettings = settings ?? await _db.getSettings();
+    final currentTime = now ?? DateTime.now();
+    final lastRaw = await _db.getSetting('last_automatic_backup_at');
+    final last = DateTime.tryParse(lastRaw ?? '');
+    final due = BackupPolicyService.isAutomaticBackupDue(
+      enabled: currentSettings.automaticBackupEnabled,
+      scheduledHour: currentSettings.automaticBackupHour,
+      now: currentTime,
+      lastAutomaticBackup: last,
+    );
+    if (!due) {
+      return const AutomaticBackupResult(attempted: false, succeeded: false);
+    }
+    try {
+      final path = await exportBackup(automatic: true);
+      await _pruneAutomaticBackups(
+        currentSettings.automaticBackupRetentionCount,
+      );
+      await _db.saveSetting('last_automatic_backup_error', '');
+      return AutomaticBackupResult(
+        attempted: true,
+        succeeded: true,
+        path: path,
+      );
+    } catch (error) {
+      await _db.saveSetting('last_automatic_backup_error', error.toString());
+      return AutomaticBackupResult(
+        attempted: true,
+        succeeded: false,
+        error: error.toString(),
+      );
+    }
+  }
+
+  Future<bool> shouldShowReminder({
+    HalaqahSettings? settings,
+    DateTime? now,
+  }) async {
+    final currentSettings = settings ?? await _db.getSettings();
+    final currentTime = now ?? DateTime.now();
+    final lastBackup = DateTime.tryParse(
+      await _db.getSetting('last_backup_at') ?? '',
+    );
+    final lastReminder = DateTime.tryParse(
+      await _db.getSetting('last_backup_reminder_at') ?? '',
+    );
+    return BackupPolicyService.isReminderDue(
+      enabled: currentSettings.backupReminderEnabled,
+      intervalDays: currentSettings.backupReminderIntervalDays,
+      now: currentTime,
+      lastBackup: lastBackup,
+      lastReminder: lastReminder,
+    );
+  }
+
+  Future<void> markReminderShown({DateTime? now}) => _db.saveSetting(
+        'last_backup_reminder_at',
+        (now ?? DateTime.now()).toIso8601String(),
+      );
+
+  Future<void> _pruneAutomaticBackups(int retentionCount) async {
+    final keep = retentionCount.clamp(1, 90).toInt();
+    final directory = await getApplicationDocumentsDirectory();
+    final files = directory
+        .listSync()
+        .whereType<File>()
+        .where((file) => file.path.contains('halaqah_backup_auto_'))
+        .toList()
+      ..sort((a, b) => b.path.compareTo(a.path));
+    for (final file in files.skip(keep)) {
+      await file.delete();
+    }
   }
 
   Future<bool> importBackup(String filePath) async {
@@ -72,7 +139,9 @@ class BackupService {
       final backup = json.decode(jsonString) as Map<String, dynamic>;
 
       // Validate backup structure before touching the database
-      if (backup['version'] == null || backup['students'] is! List) {
+      final isVersion2 = backup['version'] == '2.0' && backup['tables'] is Map;
+      final isLegacyVersion = backup['version'] != null && backup['students'] is List;
+      if (!isVersion2 && !isLegacyVersion) {
         return false;
       }
 

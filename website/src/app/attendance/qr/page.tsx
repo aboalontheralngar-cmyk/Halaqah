@@ -1,25 +1,101 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Html5QrcodeScanner } from "html5-qrcode";
-import { 
-  X, 
-  Camera, 
+import {
+  Camera,
   CheckCircle, 
   UserCheck, 
   ArrowRight,
   AlertCircle
 } from "lucide-react";
 import { useStore } from "@/store/useStore";
+import { decodeStudentQr } from "@/lib/studentQr";
+
+function localDateKey(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
 
 export default function QRScannerPage() {
   const router = useRouter();
-  const { students, addAttendance, attendance } = useStore();
+  const { fetchStudents, fetchAttendance } = useStore();
   const [lastScanned, setLastScanned] = useState<string | null>(null);
   const [status, setStatus] = useState<"idle" | "success" | "error">("idle");
   const [errorMsg, setErrorMsg] = useState("");
   const scannerRef = useRef<Html5QrcodeScanner | null>(null);
+  const processingRef = useRef(false);
+  const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const scheduleReset = useCallback(() => {
+    if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
+    resetTimerRef.current = setTimeout(() => {
+      processingRef.current = false;
+      setStatus("idle");
+    }, 3000);
+  }, []);
+
+  const onScanSuccess = useCallback(async (decodedText: string) => {
+    if (processingRef.current) return;
+    processingRef.current = true;
+
+    const decoded = decodeStudentQr(decodedText);
+    if (!decoded) {
+      setStatus("error");
+      setErrorMsg("الكود غير تابع لنظام حلقتي أو أن تنسيقه غير صالح.");
+      scheduleReset();
+      return;
+    }
+
+    const state = useStore.getState();
+    const student = state.students.find(student =>
+      decoded.legacyStudentId
+        ? student.id === decoded.token
+        : student.qrCode === decoded.token ||
+          (!student.qrCode && student.id === decoded.token)
+    );
+
+    if (!student) {
+      setStatus("error");
+      setErrorMsg("لم يتم العثور على الطالب داخل الحلقة الحالية.");
+      scheduleReset();
+      return;
+    }
+
+    const today = localDateKey(new Date());
+    const existing = state.attendance.find(record =>
+      record.studentId === student.id && record.date === today
+    );
+
+    if (existing?.status === "present" || existing?.status === "late") {
+      setLastScanned(`${student.name} — مسجل مسبقًا`);
+      setStatus("success");
+      scheduleReset();
+      return;
+    }
+
+    await state.addAttendance({
+      studentId: student.id,
+      date: today,
+      status: "present",
+      arrivalTime: new Date().toTimeString().slice(0, 8),
+    });
+
+    setLastScanned(student.name);
+    setStatus("success");
+    scheduleReset();
+  }, [scheduleReset]);
+
+  const onScanFailure = useCallback(() => {
+    // Frame misses are normal while the camera is searching for a QR code.
+  }, []);
+
+  useEffect(() => {
+    void Promise.all([fetchStudents(), fetchAttendance()]);
+  }, [fetchAttendance, fetchStudents]);
 
   useEffect(() => {
     scannerRef.current = new Html5QrcodeScanner(
@@ -34,40 +110,9 @@ export default function QRScannerPage() {
       if (scannerRef.current) {
         scannerRef.current.clear().catch(err => console.error("Failed to clear scanner", err));
       }
+      if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
     };
-  }, []);
-
-  async function onScanSuccess(decodedText: string) {
-    if (status === "success" && lastScanned === decodedText) return;
-
-    const student = students.find(s => s.id === decodedText || s.phone === decodedText);
-    
-    if (student) {
-      setLastScanned(student.name);
-      setStatus("success");
-      
-      // Mark as present
-      const today = new Date().toISOString().split("T")[0];
-      await addAttendance({
-        studentId: student.id,
-        date: today,
-        status: "present"
-      });
-
-      // Reset after 3 seconds to allow next scan
-      setTimeout(() => {
-        setStatus("idle");
-      }, 3000);
-    } else {
-      setStatus("error");
-      setErrorMsg("عذراً، لم يتم العثور على هذا الطالب في النظام.");
-      setTimeout(() => setStatus("idle"), 3000);
-    }
-  }
-
-  function onScanFailure(error: any) {
-    // Silent fail is fine for normal scanning flow
-  }
+  }, [onScanFailure, onScanSuccess]);
 
   return (
     <div className="min-h-[80vh] flex flex-col items-center justify-center space-y-8 animate-in fade-in duration-700">
@@ -104,9 +149,9 @@ export default function QRScannerPage() {
         >
           <ArrowRight className="w-5 h-5" /> العودة للخلف
         </button>
-        <button className="px-8 py-4 bg-teal-600 text-white rounded-3xl font-black text-sm shadow-xl shadow-teal-100 dark:shadow-none flex items-center gap-2">
-          <Camera className="w-5 h-5" /> تشغيل الكاميرا
-        </button>
+        <div className="px-8 py-4 bg-teal-600 text-white rounded-3xl font-black text-sm shadow-xl shadow-teal-100 dark:shadow-none flex items-center gap-2">
+          <Camera className="w-5 h-5" /> الكاميرا تعمل تلقائيًا
+        </div>
       </div>
 
       <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-800 p-6 rounded-[2rem] max-w-md w-full">

@@ -54,6 +54,30 @@ class MemorizationProgress {
         notes: map['notes'],
         createdAt: DateTime.parse(map['created_at']),
       );
+
+  MemorizationProgress copyWith({
+    int? surahId,
+    int? fromAyah,
+    int? toAyah,
+    DateTime? date,
+    int? qualityRating,
+    bool? isRevision,
+    String? notes,
+    bool clearNotes = false,
+  }) {
+    return MemorizationProgress(
+      id: id,
+      studentId: studentId,
+      surahId: surahId ?? this.surahId,
+      fromAyah: fromAyah ?? this.fromAyah,
+      toAyah: toAyah ?? this.toAyah,
+      date: date ?? this.date,
+      qualityRating: qualityRating ?? this.qualityRating,
+      isRevision: isRevision ?? this.isRevision,
+      notes: clearNotes ? null : (notes ?? this.notes),
+      createdAt: createdAt,
+    );
+  }
 }
 
 class StudentMemorization {

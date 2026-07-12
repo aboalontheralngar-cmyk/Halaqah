@@ -8,9 +8,13 @@ import '../../models/daily_record.dart';
 import '../../models/behavior_point.dart';
 import '../../models/settings.dart';
 import '../../models/homework_grade.dart';
+import '../../models/student_hold.dart';
 import '../../utils/helpers.dart';
 import '../../utils/quran_data.dart';
+import '../memorization/mushaf_visualizer_screen.dart';
+import '../memorization/recitation_history_screen.dart';
 import 'student_form_screen.dart';
+import '../behavior/add_point_screen.dart';
 
 class StudentDetailScreen extends StatefulWidget {
   final Student student;
@@ -35,6 +39,7 @@ class _StudentDetailScreenState extends State<StudentDetailScreen>
   int _uniquePagesCount = 0;
   int _uniqueAyahsCount = 0;
   HalaqahSettings _settings = HalaqahSettings();
+  StudentHold? _activeHold;
   bool _isLoading = true;
 
   @override
@@ -60,6 +65,7 @@ class _StudentDetailScreenState extends State<StudentDetailScreen>
       final stats = await _db.getStudentStatistics(_student.id);
       final grades = await _db.getStudentHomeworkGrades(_student.id);
       final settings = await _db.getSettings();
+      final activeHold = await _db.getActiveStudentHold(_student.id);
       
       await QuranService.instance.initialize();
       
@@ -87,6 +93,7 @@ class _StudentDetailScreenState extends State<StudentDetailScreen>
         _uniquePagesCount = uniquePages.length;
         _uniqueAyahsCount = uniqueAyahs.length;
         _settings = settings;
+        _activeHold = activeHold;
         _isLoading = false;
       });
     } catch (e) {
@@ -118,12 +125,55 @@ class _StudentDetailScreenState extends State<StudentDetailScreen>
                 ),
               ),
               PopupMenuItem(
-                value: 'delete',
+                value: 'recitation_history',
+                child: const Row(
+                  children: [
+                    Icon(Icons.history),
+                    SizedBox(width: 8),
+                    Text('سجل التسميع والتعديل'),
+                  ],
+                ),
+              ),
+              PopupMenuItem(
+                value: _activeHold == null ? 'hold' : 'end_hold',
                 child: Row(
                   children: [
-                    const Icon(Icons.delete, color: Colors.red),
+                    Icon(
+                      _activeHold == null
+                          ? Icons.pause_circle_outline
+                          : Icons.play_circle_outline,
+                      color: Colors.orange,
+                    ),
                     const SizedBox(width: 8),
-                    Text('حذف ${GenderHelper.student(_settings.gender)}', style: const TextStyle(color: Colors.red)),
+                    Text(
+                      _activeHold == null
+                          ? 'إيقاف التسميع مؤقتًا'
+                          : 'إنهاء إيقاف التسميع',
+                    ),
+                  ],
+                ),
+              ),
+              PopupMenuItem(
+                value: const {'expelled', 'graduated', 'inactive'}
+                        .contains(_student.status)
+                    ? 'restore_student'
+                    : 'archive_student',
+                child: Row(
+                  children: [
+                    Icon(
+                      const {'expelled', 'graduated', 'inactive'}
+                              .contains(_student.status)
+                          ? Icons.restore
+                          : Icons.inventory_2_outlined,
+                      color: Colors.orange,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      const {'expelled', 'graduated', 'inactive'}
+                              .contains(_student.status)
+                          ? 'إعادة تفعيل الطالب'
+                          : 'نقل الطالب إلى الأرشيف',
+                    ),
                   ],
                 ),
               ),
@@ -208,6 +258,54 @@ class _StudentDetailScreenState extends State<StudentDetailScreen>
                   color: _getStatusColor(_student.status),
                   fontWeight: FontWeight.bold,
                 ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            if (_activeHold != null) ...[
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.orange.withOpacity(0.1),
+                  border: Border.all(color: Colors.orange.withOpacity(0.4)),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Row(
+                      children: [
+                        Icon(Icons.pause_circle, color: Colors.orange),
+                        SizedBox(width: 8),
+                        Text(
+                          'التسميع موقوف مؤقتًا',
+                          style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text('السبب: ${_activeHold!.reason}'),
+                    Text(
+                      'حتى: ${Helpers.getFullHijriDate(_activeHold!.endDate)}',
+                    ),
+                    if (_activeHold!.notes?.isNotEmpty ?? false)
+                      Text('ملاحظة: ${_activeHold!.notes}'),
+                    const SizedBox(height: 4),
+                    const Text(
+                      'يبقى تسجيل الحضور متاحًا خلال الإيقاف.',
+                      style: TextStyle(fontSize: 11, color: Colors.grey),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: _openMushafMap,
+                icon: const Icon(Icons.grid_view_rounded),
+                label: const Text('فتح خريطة الأحزاب والأثمان'),
               ),
             ),
             const SizedBox(height: 16),
@@ -665,7 +763,9 @@ class _StudentDetailScreenState extends State<StudentDetailScreen>
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
             TextButton.icon(
-              onPressed: _addBehaviorPoint,
+              onPressed: const {'active', 'suspended'}.contains(_student.status)
+                  ? _addBehaviorPoint
+                  : null,
               icon: const Icon(Icons.add),
               label: const Text('إضافة'),
             ),
@@ -718,19 +818,191 @@ class _StudentDetailScreenState extends State<StudentDetailScreen>
     }
   }
 
+  Future<void> _openMushafMap() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => MushafVisualizerScreen(student: _student),
+      ),
+    );
+    if (mounted) await _loadData();
+  }
+
   void _handleMenuAction(String action) {
     switch (action) {
       case 'qr':
         _showQrCode();
         break;
-      case 'delete':
-        _confirmDelete();
+      case 'hold':
+        _showStudentHoldDialog();
+        break;
+      case 'recitation_history':
+        _openRecitationHistory();
+        break;
+      case 'end_hold':
+        _endActiveHold();
+        break;
+      case 'archive_student':
+        _showArchiveStudentDialog();
+        break;
+      case 'restore_student':
+        _showRestoreStudentDialog();
         break;
     }
   }
 
+  Future<void> _openRecitationHistory() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => RecitationHistoryScreen(
+          initialStudent: _student,
+        ),
+      ),
+    );
+    if (mounted) await _loadData();
+  }
+
+  Future<void> _showStudentHoldDialog() async {
+    final reasonController = TextEditingController();
+    final notesController = TextEditingController();
+    var startDate = DateTime.now();
+    var endDate = DateTime.now().add(const Duration(days: 1));
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('إيقاف التسميع مؤقتًا'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'سيظل الطالب ظاهرًا في الحضور، ويُمنع فقط من تسجيل الحفظ والمراجعة خلال المدة.',
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: reasonController,
+                  decoration: const InputDecoration(
+                    labelText: 'سبب الإيقاف (إلزامي)',
+                    prefixIcon: Icon(Icons.gavel_outlined),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                InkWell(
+                  onTap: () async {
+                    final range = await showDateRangePicker(
+                      context: context,
+                      firstDate: DateTime.now(),
+                      lastDate: DateTime.now().add(const Duration(days: 365)),
+                      initialDateRange: DateTimeRange(
+                        start: startDate,
+                        end: endDate,
+                      ),
+                    );
+                    if (range != null) {
+                      setDialogState(() {
+                        startDate = range.start;
+                        endDate = range.end;
+                      });
+                    }
+                  },
+                  child: InputDecorator(
+                    decoration: const InputDecoration(
+                      labelText: 'مدة الإيقاف',
+                      prefixIcon: Icon(Icons.date_range),
+                    ),
+                    child: Text(
+                      '${Helpers.formatHijriDate(startDate)} — '
+                      '${Helpers.formatHijriDate(endDate)}',
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: notesController,
+                  maxLines: 2,
+                  decoration: const InputDecoration(
+                    labelText: 'ملاحظات إضافية',
+                    prefixIcon: Icon(Icons.notes),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('إلغاء'),
+            ),
+            FilledButton(
+              onPressed: () {
+                if (reasonController.text.trim().isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('اكتب سبب الإيقاف')),
+                  );
+                  return;
+                }
+                Navigator.pop(context, true);
+              },
+              child: const Text('اعتماد الإيقاف'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (accepted == true) {
+      try {
+        await _db.saveStudentHold(StudentHold(
+          studentId: _student.id,
+          startDate: startDate,
+          endDate: endDate,
+          reason: reasonController.text.trim(),
+          notes: notesController.text.trim().isEmpty
+              ? null
+              : notesController.text.trim(),
+        ));
+        await _loadData();
+      } catch (error) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('تعذر حفظ الإيقاف: $error')),
+          );
+        }
+      }
+    }
+    reasonController.dispose();
+    notesController.dispose();
+  }
+
+  Future<void> _endActiveHold() async {
+    final hold = _activeHold;
+    if (hold == null) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('إنهاء الإيقاف؟'),
+        content: const Text('سيتمكن الطالب من تسجيل الحفظ والمراجعة فورًا.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('إلغاء'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('إنهاء الإيقاف'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      await _db.endStudentHold(hold.id);
+      await _loadData();
+    }
+  }
+
   void _showQrCode() {
-    final qrData = QrService.generateQrData(_student.id);
+    final qrData = QrService.generateQrData(_student.qrCode);
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -786,15 +1058,130 @@ class _StudentDetailScreenState extends State<StudentDetailScreen>
     );
   }
 
-  void _addBehaviorPoint() {
-    showModalBottomSheet(
+  Future<void> _addBehaviorPoint() async {
+    final saved = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(builder: (_) => AddPointScreen(student: _student)),
+    );
+    if (saved == true && mounted) await _loadData();
+  }
+
+  Future<void> _showArchiveStudentDialog() async {
+    final reasonController = TextEditingController();
+    final notesController = TextEditingController();
+    var status = 'expelled';
+    final accepted = await showDialog<bool>(
       context: context,
-      isScrollControlled: true,
-      builder: (context) => _AddPointsSheet(
-        studentId: _student.id,
-        onSaved: _loadData,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text('نقل ${_student.name} إلى الأرشيف'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'ستبقى جميع بيانات الطالب وتقاريره محفوظة، وسيختفي من الحضور والتسميع والقوائم اليومية.',
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  value: status,
+                  decoration: const InputDecoration(labelText: 'حالة الأرشفة'),
+                  items: const [
+                    DropdownMenuItem(value: 'expelled', child: Text('مفصول')),
+                    DropdownMenuItem(value: 'graduated', child: Text('متخرج/خاتم')),
+                    DropdownMenuItem(value: 'inactive', child: Text('طالب سابق')),
+                  ],
+                  onChanged: (value) {
+                    if (value != null) setDialogState(() => status = value);
+                  },
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: reasonController,
+                  decoration: const InputDecoration(
+                    labelText: 'السبب (إلزامي)',
+                    hintText: 'مثال: تجاوز حد الغياب بعد التواصل مع ولي الأمر',
+                  ),
+                  maxLines: 2,
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: notesController,
+                  decoration: const InputDecoration(labelText: 'ملاحظات إضافية'),
+                  maxLines: 2,
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('إلغاء'),
+            ),
+            FilledButton(
+              onPressed: () {
+                if (reasonController.text.trim().isEmpty) return;
+                Navigator.pop(context, true);
+              },
+              child: const Text('تأكيد النقل'),
+            ),
+          ],
+        ),
       ),
     );
+    final reason = reasonController.text.trim();
+    final notes = notesController.text.trim();
+    reasonController.dispose();
+    notesController.dispose();
+    if (accepted != true || reason.isEmpty) return;
+    await _db.changeStudentStatus(
+      studentId: _student.id,
+      newStatus: status,
+      reason: reason,
+      notes: notes,
+    );
+    if (!mounted) return;
+    await _loadData();
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('تم نقل الطالب إلى الأرشيف مع حفظ سجله')),
+    );
+  }
+
+  Future<void> _showRestoreStudentDialog() async {
+    final controller = TextEditingController();
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('إعادة تفعيل ${_student.name}'),
+        content: TextField(
+          controller: controller,
+          decoration: const InputDecoration(labelText: 'سبب إعادة التفعيل (إلزامي)'),
+          maxLines: 2,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('إلغاء'),
+          ),
+          FilledButton(
+            onPressed: () {
+              if (controller.text.trim().isEmpty) return;
+              Navigator.pop(context, true);
+            },
+            child: const Text('إعادة تفعيل'),
+          ),
+        ],
+      ),
+    );
+    final reason = controller.text.trim();
+    controller.dispose();
+    if (accepted != true || reason.isEmpty) return;
+    await _db.changeStudentStatus(
+      studentId: _student.id,
+      newStatus: 'active',
+      reason: reason,
+    );
+    if (mounted) await _loadData();
   }
 
   Color _getStatusColor(String status) {
@@ -802,6 +1189,8 @@ class _StudentDetailScreenState extends State<StudentDetailScreen>
       case 'active': return Colors.green;
       case 'suspended': return Colors.orange;
       case 'expelled': return Colors.red;
+      case 'graduated': return Colors.blue;
+      case 'inactive': return Colors.grey;
       default: return Colors.grey;
     }
   }
@@ -811,6 +1200,8 @@ class _StudentDetailScreenState extends State<StudentDetailScreen>
       case 'active': return 'نشط';
       case 'suspended': return 'موقوف';
       case 'expelled': return 'مفصول';
+      case 'graduated': return 'متخرج';
+      case 'inactive': return 'سابق';
       default: return status;
     }
   }
@@ -849,103 +1240,5 @@ class _StudentDetailScreenState extends State<StudentDetailScreen>
       case 'pages': return 'صفحة';
       default: return '';
     }
-  }
-}
-
-class _AddPointsSheet extends StatefulWidget {
-  final String studentId;
-  final VoidCallback onSaved;
-
-  const _AddPointsSheet({required this.studentId, required this.onSaved});
-
-  @override
-  State<_AddPointsSheet> createState() => _AddPointsSheetState();
-}
-
-class _AddPointsSheetState extends State<_AddPointsSheet> {
-  String _selectedType = 'positive';
-  String? _selectedReason;
-  int _customPoints = 0;
-  final DatabaseService _db = DatabaseService();
-
-  @override
-  Widget build(BuildContext context) {
-    final reasons = _selectedType == 'positive'
-        ? BehaviorReason.positive
-        : BehaviorReason.negative;
-
-    return Padding(
-      padding: EdgeInsets.only(
-        bottom: MediaQuery.of(context).viewInsets.bottom,
-      ),
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'إضافة نقاط',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 16),
-            SegmentedButton<String>(
-              segments: const [
-                ButtonSegment(value: 'positive', label: Text('إيجابي')),
-                ButtonSegment(value: 'negative', label: Text('سلبي')),
-              ],
-              selected: {_selectedType},
-              onSelectionChanged: (set) {
-                setState(() {
-                  _selectedType = set.first;
-                  _selectedReason = null;
-                });
-              },
-            ),
-            const SizedBox(height: 16),
-            DropdownButtonFormField<String>(
-              decoration: const InputDecoration(
-                labelText: 'السبب',
-                border: OutlineInputBorder(),
-              ),
-              value: _selectedReason,
-              items: reasons.entries.map((e) {
-                return DropdownMenuItem(
-                  value: e.key,
-                  child: Text('${e.value['label']} (${e.value['points']})'),
-                );
-              }).toList(),
-              onChanged: (value) {
-                setState(() {
-                  _selectedReason = value;
-                  _customPoints = BehaviorReason.getDefaultPoints(value!);
-                });
-              },
-            ),
-            const SizedBox(height: 24),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: _selectedReason == null ? null : _save,
-                child: const Text('حفظ'),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Future<void> _save() async {
-    final point = BehaviorPoint(
-      studentId: widget.studentId,
-      type: _selectedType,
-      reason: _selectedReason!,
-      points: _customPoints,
-      date: DateTime.now(),
-    );
-    await _db.insertBehaviorPoint(point);
-    widget.onSaved();
-    if (mounted) Navigator.pop(context);
   }
 }

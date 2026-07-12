@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
 import '../../services/database_service.dart';
 import '../../services/quran_service.dart';
+import '../../services/memorization_measure_service.dart';
+import '../../services/memorization_progression_service.dart';
 import '../../models/student.dart';
 import '../../models/memorization.dart';
 import '../../models/daily_record.dart';
 import '../../models/behavior_point.dart';
 import '../../models/settings.dart';
-import '../../models/ayah.dart';
 import '../../utils/quran_data.dart';
 import '../../widgets/surah_picker.dart';
 import '../../widgets/ayah_range_picker.dart';
@@ -396,9 +397,26 @@ class _AddMemorizationScreenState extends State<AddMemorizationScreen> {
       return;
     }
 
+    if (_selectedStudent!.totalMemorized >= QuranData.totalAyahs) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('هذا الطالب أتم حفظ القرآن؛ المتاح له هو المراجعة'),
+        ),
+      );
+      return;
+    }
+
     setState(() => _isSaving = true);
 
     try {
+      final currentStudent =
+          await _db.getStudent(_selectedStudent!.id) ?? _selectedStudent!;
+      final newlyMemorizedAyahs = await _db.countNewMemorizedAyahs(
+        student: currentStudent,
+        surahId: _selectedSurahId!,
+        fromAyah: _fromAyah,
+        toAyah: _toAyah,
+      );
       final progress = MemorizationProgress(
         studentId: _selectedStudent!.id,
         surahId: _selectedSurahId!,
@@ -424,26 +442,44 @@ class _AddMemorizationScreenState extends State<AddMemorizationScreen> {
         attendance: 'present',
         arrivalTime: existingRecord?.arrivalTime ?? DateTime.now(),
         memorizationDone: true,
-        memorizationAmount: _ayahCount,
+        memorizationAmount:
+            (existingRecord?.memorizationAmount ?? 0) + newlyMemorizedAyahs,
         memorizationNote: _notes.isEmpty ? null : _notes,
       );
 
       await _db.saveDailyRecord(record);
 
-      final updatedStudent = _selectedStudent!.copyWith(
-        totalMemorized: _selectedStudent!.totalMemorized + _ayahCount,
+      final updatedStudent = currentStudent.copyWith(
+        totalMemorized:
+            currentStudent.totalMemorized + newlyMemorizedAyahs,
       );
       await _db.updateStudent(updatedStudent);
 
       bool addedExtraPoints = false;
       int extraPoints = 0;
-      if (_selectedStudent!.planType == 'ayahs' && _ayahCount > _selectedStudent!.planAmount) {
+      const bonusReason = 'زيادة عن المقرر اليومي';
+      final selectedSurah = _quran.getSurah(_selectedSurahId!);
+      final exceedsPlan = selectedSurah != null &&
+          MemorizationMeasureService.exceedsPlan(
+            surah: selectedSurah,
+            fromAyah: _fromAyah,
+            toAyah: _toAyah,
+            planType: _selectedStudent!.planType,
+            planAmount: _selectedStudent!.planAmount,
+          );
+      final bonusAlreadyAdded = exceedsPlan &&
+          await _db.hasBehaviorPointForDate(
+            _selectedStudent!.id,
+            bonusReason,
+            DateTime.now(),
+          );
+      if (exceedsPlan && !bonusAlreadyAdded) {
         extraPoints = _settings.pointsConfig['extra_memorization'] ?? 2;
         if (extraPoints > 0) {
           final point = BehaviorPoint(
             studentId: _selectedStudent!.id,
             type: 'positive',
-            reason: 'زيادة عن المقرر اليومي',
+            reason: bonusReason,
             points: extraPoints,
             date: DateTime.now(),
           );
@@ -452,12 +488,24 @@ class _AddMemorizationScreenState extends State<AddMemorizationScreen> {
         }
       }
 
+      final requiresSurahRevision = newlyMemorizedAyahs > 0 &&
+          selectedSurah != null &&
+          await _db.isSurahFullyMemorized(
+            student: updatedStudent,
+            surahId: _selectedSurahId!,
+            totalAyahs: selectedSurah.totalAyahs,
+          );
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(addedExtraPoints
-                ? 'تم حفظ التسجيل بنجاح، وإضافة $extraPoints نقاط مكافأة للزيادة 🎉'
-                : 'تم حفظ التسجيل بنجاح'),
+            content: Text(
+              requiresSurahRevision
+                  ? 'تم إتمام السورة، وأضيفت تلقائيًا إلى المراجعة الإلزامية'
+                  : addedExtraPoints
+                      ? 'تم حفظ التسجيل بنجاح، وإضافة $extraPoints نقاط مكافأة للزيادة 🎉'
+                      : 'تم حفظ التسجيل بنجاح',
+            ),
             backgroundColor: Colors.green,
           ),
         );
@@ -476,152 +524,13 @@ class _AddMemorizationScreenState extends State<AddMemorizationScreen> {
     }
   }
 
-  int _calculateToAyah({
-    required Surah surah,
-    required int fromAyah,
-    required String planType,
-    required int planAmount,
-  }) {
-    if (planType == 'ayahs') {
-      return (fromAyah + planAmount - 1).clamp(1, surah.totalAyahs);
-    }
-    
-    if (planType == 'pages') {
-      final startAyahObj = surah.getAyah(fromAyah);
-      if (startAyahObj == null) return surah.totalAyahs;
-      final startPage = startAyahObj.page;
-      final targetEndPage = startPage + planAmount - 1;
-      
-      int targetToAyah = fromAyah;
-      for (int i = fromAyah; i <= surah.totalAyahs; i++) {
-        final a = surah.getAyah(i);
-        if (a != null && a.page <= targetEndPage) {
-          targetToAyah = i;
-        } else {
-          break;
-        }
-      }
-      return targetToAyah;
-    }
-    
-    if (planType == 'lines') {
-      double linesSum = 0;
-      int targetToAyah = fromAyah;
-      for (int i = fromAyah; i <= surah.totalAyahs; i++) {
-        final a = surah.getAyah(i);
-        if (a != null) {
-          linesSum += a.lines;
-          targetToAyah = i;
-          if (linesSum >= planAmount) {
-            break;
-          }
-        }
-      }
-      return targetToAyah;
-    }
-    
-    return surah.totalAyahs;
-  }
-
   Future<Map<String, int>?> _getNextMemorizationStartingPoint(Student student) async {
     final allProgress = await _db.getStudentMemorization(student.id);
-    final memorizations = allProgress.where((p) => !p.isRevision).toList();
-
-    if (memorizations.isNotEmpty) {
-      memorizations.sort((a, b) => b.date.compareTo(a.date));
-      final last = memorizations.first;
-      final surah = _quran.getSurah(last.surahId);
-      if (surah != null) {
-        if (last.toAyah < surah.totalAyahs) {
-          final nextFrom = last.toAyah + 1;
-          return {
-            'surahId': last.surahId,
-            'fromAyah': nextFrom,
-            'toAyah': _calculateToAyah(
-              surah: surah,
-              fromAyah: nextFrom,
-              planType: student.planType,
-              planAmount: student.planAmount,
-            ),
-          };
-        } else {
-          int nextSurahId = student.memorizationDirection == 'desc' 
-              ? last.surahId - 1 
-              : last.surahId + 1;
-          
-          if (nextSurahId >= 1 && nextSurahId <= 114) {
-            final nextSurah = _quran.getSurah(nextSurahId);
-            if (nextSurah != null) {
-              return {
-                'surahId': nextSurahId,
-                'fromAyah': 1,
-                'toAyah': _calculateToAyah(
-                  surah: nextSurah,
-                  fromAyah: 1,
-                  planType: student.planType,
-                  planAmount: student.planAmount,
-                ),
-              };
-            }
-          }
-        }
-      }
-    }
-
-    if (student.preMemorizedEndSurah != null) {
-      int nextSurahId = student.preMemorizedEndSurah!;
-      int nextFromAyah = (student.preMemorizedEndAyah ?? 1) + 1;
-      final currentSurah = _quran.getSurah(nextSurahId);
-      
-      if (currentSurah != null && nextFromAyah <= currentSurah.totalAyahs) {
-        return {
-          'surahId': nextSurahId,
-          'fromAyah': nextFromAyah,
-          'toAyah': _calculateToAyah(
-            surah: currentSurah,
-            fromAyah: nextFromAyah,
-            planType: student.planType,
-            planAmount: student.planAmount,
-          ),
-        };
-      } else {
-        nextSurahId = student.memorizationDirection == 'desc'
-            ? student.preMemorizedEndSurah! - 1
-            : student.preMemorizedEndSurah! + 1;
-            
-        if (nextSurahId >= 1 && nextSurahId <= 114) {
-          final nextSurah = _quran.getSurah(nextSurahId);
-          if (nextSurah != null) {
-            return {
-              'surahId': nextSurahId,
-              'fromAyah': 1,
-              'toAyah': _calculateToAyah(
-                surah: nextSurah,
-                fromAyah: 1,
-                planType: student.planType,
-                planAmount: student.planAmount,
-              ),
-            };
-          }
-        }
-      }
-    }
-
-    int defaultSurahId = student.memorizationDirection == 'desc' ? 114 : 1;
-    final defaultSurah = _quran.getSurah(defaultSurahId);
-    if (defaultSurah != null) {
-      return {
-        'surahId': defaultSurahId,
-        'fromAyah': 1,
-        'toAyah': _calculateToAyah(
-          surah: defaultSurah,
-          fromAyah: 1,
-          planType: student.planType,
-          planAmount: student.planAmount,
-        ),
-      };
-    }
-    return null;
+    return MemorizationProgressionService.nextStartingPoint(
+      student: student,
+      progress: allProgress,
+      getSurah: _quran.getSurah,
+    );
   }
 
   String _getPlanLabel(String planType) {

@@ -74,6 +74,24 @@ export default function MemorizationPage() {
     return surahs.find(s => s.number === formData.surahNum);
   }, [formData.surahNum, surahs]);
 
+  const setEndAtBoundary = (boundary: "page" | "hizb") => {
+    if (!selectedSurah) return;
+    const start = selectedSurah.ayahs.find(
+      (ayah) => ayah.number === formData.fromAyah
+    );
+    if (!start) return;
+    const matching = selectedSurah.ayahs.filter(
+      (ayah) =>
+        ayah.number >= formData.fromAyah &&
+        (boundary === "page" ? ayah.page === start.page : ayah.hizb === start.hizb)
+    );
+    const end = matching.reduce(
+      (last, ayah) => Math.max(last, ayah.number),
+      formData.fromAyah
+    );
+    setFormData({ ...formData, toAyah: end });
+  };
+
   // إجمالي الآيات المحفوظة لطالب معيّن (من سجل الحفظ الجديد غير الغياب)
   const getMemorizedAyahCount = (studentId: string) => {
     return homeworkGrades
@@ -764,6 +782,25 @@ export default function MemorizationPage() {
                     </select>
                   </div>
                 </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setEndAtBoundary("page")}
+                  disabled={!selectedSurah}
+                  className="py-3 rounded-xl border border-teal-200 dark:border-teal-800 text-teal-700 dark:text-teal-300 font-bold text-xs disabled:opacity-40"
+                >
+                  إلى نهاية الصفحة
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEndAtBoundary("hizb")}
+                  disabled={!selectedSurah}
+                  className="py-3 rounded-xl border border-teal-200 dark:border-teal-800 text-teal-700 dark:text-teal-300 font-bold text-xs disabled:opacity-40"
+                >
+                  إلى نهاية الحزب
+                </button>
               </div>
 
               {/* 5-Level Grade Mark */}

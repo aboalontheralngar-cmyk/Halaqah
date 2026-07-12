@@ -43,6 +43,9 @@ class _PointsHistoryScreenState extends State<PointsHistoryScreen> {
     if (_filter == 'positive') {
       return _points.where((p) => p.type == 'positive').toList();
     }
+    if (_filter == 'unresolved') {
+      return _points.where((p) => p.type == 'negative' && !p.resolved).toList();
+    }
     return _points.where((p) => p.type == 'negative').toList();
   }
 
@@ -67,6 +70,10 @@ class _PointsHistoryScreenState extends State<PointsHistoryScreen> {
               const PopupMenuItem(value: 'all', child: Text('الكل')),
               const PopupMenuItem(value: 'positive', child: Text('إيجابية فقط')),
               const PopupMenuItem(value: 'negative', child: Text('سلبية فقط')),
+              const PopupMenuItem(
+                value: 'unresolved',
+                child: Text('مخالفات قائمة فقط'),
+              ),
             ],
           ),
         ],
@@ -208,21 +215,193 @@ class _PointsHistoryScreenState extends State<PointsHistoryScreen> {
               ),
           ],
         ),
-        trailing: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          decoration: BoxDecoration(
-            color: color.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Text(
-            '${isPositive ? '+' : ''}${point.points}',
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              color: color,
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: color.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text(
+                '${isPositive ? '+' : ''}${point.points}',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: color,
+                ),
+              ),
             ),
-          ),
+            IconButton(
+              icon: const Icon(Icons.person_search_outlined),
+              color: Colors.blue,
+              tooltip: 'تصحيح الطالب المسند إليه',
+              onPressed: () => _showReassignDialog(point),
+            ),
+            IconButton(
+              icon: const Icon(Icons.delete_outline),
+              color: Colors.red,
+              tooltip: 'حذف السجل الخاطئ',
+              onPressed: () => _confirmDelete(point),
+            ),
+          ],
         ),
       ),
     );
+  }
+
+  Future<void> _confirmDelete(BehaviorPoint point) async {
+    final reasonController = TextEditingController();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('حذف سجل النقاط؟'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'سيُحذف «${point.reason}» من سجل ${widget.student.name}. '
+              'سيُحفظ سبب التصحيح في سجل التدقيق.',
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: reasonController,
+              decoration: const InputDecoration(
+                labelText: 'سبب الحذف (إلزامي)',
+                hintText: 'مثال: سُجلت المكافأة مرتين',
+              ),
+              maxLines: 2,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('إلغاء'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () {
+              if (reasonController.text.trim().isEmpty) return;
+              Navigator.pop(context, true);
+            },
+            child: const Text('حذف'),
+          ),
+        ],
+      ),
+    );
+    final reason = reasonController.text.trim();
+    reasonController.dispose();
+    if (confirmed != true || reason.isEmpty) return;
+    await _db.deleteBehaviorPoint(
+      point.id,
+      expectedStudentId: widget.student.id,
+      correctionReason: reason,
+    );
+    if (!mounted) return;
+    setState(() => _points.removeWhere((item) => item.id == point.id));
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('تم حذف السجل الخاطئ')),
+    );
+  }
+
+  Future<void> _showReassignDialog(BehaviorPoint point) async {
+    final students = (await _db.getOperationalStudents())
+        .where((student) => student.id != widget.student.id)
+        .toList();
+    if (!mounted) return;
+    if (students.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('لا يوجد طالب آخر نشط لتصحيح الإسناد إليه')),
+      );
+      return;
+    }
+    Student? selectedStudent;
+    final reasonController = TextEditingController();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('تصحيح إسناد السجل'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('السجل الحالي: ${point.reason} (${point.points} نقطة)'),
+              Text('مسند حاليًا إلى: ${widget.student.name}'),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<Student>(
+                value: selectedStudent,
+                decoration: const InputDecoration(
+                  labelText: 'الطالب الصحيح',
+                  prefixIcon: Icon(Icons.person_search_outlined),
+                ),
+                items: students.map((student) {
+                  final suffix = student.guardianPhone.trim().isEmpty
+                      ? ''
+                      : ' — ${_maskedPhone(student.guardianPhone)}';
+                  return DropdownMenuItem(
+                    value: student,
+                    child: Text(
+                      '${student.name}$suffix',
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  );
+                }).toList(),
+                onChanged: (value) {
+                  setDialogState(() => selectedStudent = value);
+                },
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: reasonController,
+                decoration: const InputDecoration(
+                  labelText: 'سبب التصحيح (إلزامي)',
+                  hintText: 'مثال: تشابه الاسمين عند التسجيل',
+                ),
+                maxLines: 2,
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('إلغاء'),
+            ),
+            FilledButton(
+              onPressed: () {
+                if (selectedStudent == null ||
+                    reasonController.text.trim().isEmpty) {
+                  return;
+                }
+                Navigator.pop(context, true);
+              },
+              child: const Text('تأكيد التصحيح'),
+            ),
+          ],
+        ),
+      ),
+    );
+    final reason = reasonController.text.trim();
+    reasonController.dispose();
+    if (confirmed != true || selectedStudent == null || reason.isEmpty) return;
+    await _db.reassignBehaviorPoint(
+      pointId: point.id,
+      expectedStudentId: widget.student.id,
+      correctedStudentId: selectedStudent!.id,
+      reason: reason,
+    );
+    if (!mounted) return;
+    setState(() => _points.removeWhere((item) => item.id == point.id));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('تم نقل السجل إلى ${selectedStudent!.name} مع حفظ سبب التصحيح')),
+    );
+  }
+
+  String _maskedPhone(String value) {
+    final normalized = value.replaceAll(RegExp(r'\s+'), '');
+    if (normalized.length <= 4) return normalized;
+    return '••••${normalized.substring(normalized.length - 4)}';
   }
 }

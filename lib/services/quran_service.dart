@@ -27,8 +27,11 @@ class QuranService {
   List<Surah> get surahs => _surahs;
 
   Surah? getSurah(int number) {
-    if (number < 1 || number > 114) return null;
-    return _surahs.firstWhere((s) => s.number == number, orElse: () => _surahs[0]);
+    if (number < 1 || number > 114 || _surahs.isEmpty) return null;
+    for (final surah in _surahs) {
+      if (surah.number == number) return surah;
+    }
+    return null;
   }
 
   String getSurahName(int number) {

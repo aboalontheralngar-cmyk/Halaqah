@@ -2,25 +2,24 @@ import 'dart:convert';
 import 'package:crypto/crypto.dart';
 
 class QrService {
+  static const String _prefix = 'HALAQAH:STUDENT:1:';
+  // Kept only to read QR cards printed by older Android releases.
   static const String _secretKey = 'HalaqahApp2024!';
 
-  static String generateQrData(String studentId) {
-    final timestamp = DateTime.now().millisecondsSinceEpoch.toString();
-    final data = '$studentId|$timestamp';
-    final checksum = _generateChecksum(data);
-    
-    final qrData = {
-      'sid': studentId,
-      'ts': timestamp,
-      'cs': checksum,
-    };
-    
-    return base64Encode(utf8.encode(json.encode(qrData)));
+  static String generateQrData(String qrToken) {
+    return '$_prefix${qrToken.trim()}';
   }
 
   static String? decodeQrData(String encodedData) {
+    final value = encodedData.trim();
+    if (value.startsWith(_prefix)) {
+      final token = value.substring(_prefix.length).trim();
+      return token.isEmpty ? null : token;
+    }
+
+    // Backward compatibility: old printed cards contain a signed student id.
     try {
-      final decoded = utf8.decode(base64Decode(encodedData));
+      final decoded = utf8.decode(base64Decode(value));
       final qrData = json.decode(decoded) as Map<String, dynamic>;
       
       final studentId = qrData['sid'] as String;

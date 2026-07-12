@@ -138,8 +138,8 @@ class _AppearanceViolationsScreenState extends State<AppearanceViolationsScreen>
   }
 
   Widget _buildViolationCard(ViolationWithStudent data) {
-    final daysCount = DateTime.now().difference(data.violation.date).inDays;
-    final totalPenalty = (daysCount + 1) * 3;
+    final daysCount = DateTime.now().difference(data.violation.date).inDays.clamp(0, 99999);
+    final recordedPenalty = data.violation.points.abs();
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -180,7 +180,7 @@ class _AppearanceViolationsScreenState extends State<AppearanceViolationsScreen>
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Text(
-                    '-$totalPenalty',
+                    '-$recordedPenalty',
                     style: const TextStyle(
                       fontWeight: FontWeight.bold,
                       color: Colors.red,
@@ -210,7 +210,7 @@ class _AppearanceViolationsScreenState extends State<AppearanceViolationsScreen>
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
                     Text(
-                      'المدة',
+                      'مفتوحة منذ',
                       style: TextStyle(fontSize: 10, color: Colors.grey[600]),
                     ),
                     Text(
@@ -261,7 +261,12 @@ class _AppearanceViolationsScreenState extends State<AppearanceViolationsScreen>
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('تأكيد التعديل'),
-        content: Text('هل تم تعديل مخالفة ${data.student.name}؟'),
+        content: Text(
+          'الطالب: ${data.student.name}\n'
+          'المخالفة: ${data.violation.reason}\n'
+          'القيمة المسجلة: ${data.violation.points} نقطة\n\n'
+          'هل عولجت المخالفة فعلًا؟ لن تُضاف عقوبة جديدة تلقائيًا عند الإغلاق.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),

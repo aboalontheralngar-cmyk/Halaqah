@@ -2,6 +2,15 @@ import { create } from 'zustand';
 import { supabase } from '@/lib/supabase';
 import { quranService } from '@/services/quranService';
 
+function createInvitationCode(): string {
+  const bytes = new Uint8Array(12);
+  crypto.getRandomValues(bytes);
+  const token = Array.from(bytes, byte => byte.toString(16).padStart(2, '0'))
+    .join('')
+    .toUpperCase();
+  return `HAL-SEC-${token}`;
+}
+
 export type UserRole = 'supervisor' | 'center_admin' | 'teacher';
 
 export interface Profile {
@@ -27,6 +36,7 @@ export interface Teacher {
 
 export interface Student {
   id: string;
+  qrCode?: string;
   name: string;
   phone: string;
   parentPhone: string;
@@ -93,6 +103,24 @@ export interface Exam {
   studentScores: { studentId: string; degree: number; notes: string }[];
 }
 
+export interface SmartPlan {
+  id: string;
+  studentId: string;
+  period: 'weekly' | 'monthly';
+  startDate: string;
+  endDate: string;
+  unit: 'ayahs' | 'pages' | 'lines';
+  newAmount: number;
+  reviewAmount: number;
+  status: 'active' | 'completed' | 'cancelled';
+  testStatus: 'not_required' | 'pending' | 'passed' | 'failed';
+  completionExamId?: string;
+  completedAt?: string;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Activity {
   id: string;
   type: string;
@@ -136,6 +164,7 @@ interface HalaqahStore {
   memorization: MemorizationRecord[];
   points: PointRecord[];
   exams: Exam[];
+  plans: SmartPlan[];
   vacations: Vacation[];
   activities: Activity[];
   homeworkGrades: HomeworkGrade[];
@@ -168,6 +197,12 @@ interface HalaqahStore {
   fetchStudents: () => Promise<void>;
   addStudent: (student: Omit<Student, 'id'>) => Promise<void>;
   updateStudent: (id: string, student: Partial<Student>) => Promise<void>;
+  changeStudentStatus: (
+    id: string,
+    status: Student['status'],
+    reason: string,
+    notes?: string
+  ) => Promise<void>;
   deleteStudent: (id: string) => Promise<void>;
   fetchHalaqat: () => Promise<void>;
   
@@ -182,6 +217,8 @@ interface HalaqahStore {
   
   addMemorization: (record: Omit<MemorizationRecord, 'id'>) => Promise<void>;
   addPoints: (record: Omit<PointRecord, 'id'>) => Promise<void>;
+  reassignPoint: (pointId: string, studentId: string, reason: string) => Promise<void>;
+  deletePointWithAudit: (pointId: string, reason: string) => Promise<void>;
   resolveViolation: (pointId: string) => Promise<void>;
 
   addVacation: (vacation: Omit<Vacation, 'id'>) => Promise<void>;
@@ -198,6 +235,10 @@ interface HalaqahStore {
   fetchPoints: () => Promise<void>;
   fetchVacations: () => Promise<void>;
   fetchExams: () => Promise<void>;
+  fetchPlans: () => Promise<void>;
+  addSmartPlan: (plan: Omit<SmartPlan, 'id' | 'createdAt' | 'updatedAt'>) => Promise<void>;
+  updateSmartPlan: (id: string, changes: Partial<SmartPlan>) => Promise<void>;
+  deleteSmartPlan: (id: string) => Promise<void>;
   fetchCenterData: () => Promise<void>;
 
   fetchHomeworkGrades: () => Promise<void>;
@@ -224,6 +265,7 @@ export const useStore = create<HalaqahStore>((set, get) => ({
   memorization: [],
   points: [],
   exams: [],
+  plans: [],
   vacations: [],
   activities: [],
   homeworkGrades: [],
@@ -384,15 +426,19 @@ export const useStore = create<HalaqahStore>((set, get) => ({
     const center = get().currentCenter;
     if (!center) return;
 
-    const invitation_code = 'HAL-SEC-' + Math.random().toString(36).substring(2, 14).toUpperCase();
+    const invitation_code = createInvitationCode();
+    const invitation_expires_at = new Date(
+      Date.now() + 14 * 24 * 60 * 60 * 1000
+    ).toISOString();
     const { error } = await supabase
       .from('center_members')
       .insert([{ 
-        email, 
+        email: email.trim().toLowerCase(),
         center_id: center.id, 
         halaqah_id: halaqahId,
         role: 'teacher',
-        invitation_code
+        invitation_code,
+        invitation_expires_at,
       }]);
 
     if (!error) {
@@ -490,6 +536,7 @@ export const useStore = create<HalaqahStore>((set, get) => ({
       if (data) {
         const mapped = data.map((s: any) => ({
           id: s.id,
+          qrCode: s.qr_code,
           name: s.name,
           phone: s.phone,
           parentPhone: s.parent_phone,
@@ -506,7 +553,11 @@ export const useStore = create<HalaqahStore>((set, get) => ({
           preMemorizedEndSurah: s.pre_memorized_end_surah,
           preMemorizedEndAyah: s.pre_memorized_end_ayah,
         }));
-        set({ students: mapped as Student[] });
+        set({
+          students: (mapped as Student[]).sort((a, b) =>
+            a.name.localeCompare(b.name, 'ar', { sensitivity: 'base' })
+          ),
+        });
       } else {
         set({ students: [] });
       }
@@ -553,6 +604,7 @@ export const useStore = create<HalaqahStore>((set, get) => ({
       if (data) {
         const mapped = {
           id: data.id,
+          qrCode: data.qr_code,
           name: data.name,
           phone: data.phone,
           parentPhone: data.parent_phone,
@@ -568,7 +620,11 @@ export const useStore = create<HalaqahStore>((set, get) => ({
           preMemorizedEndSurah: data.pre_memorized_end_surah,
           preMemorizedEndAyah: data.pre_memorized_end_ayah,
         };
-        set((state) => ({ students: [...state.students, mapped as Student] }));
+        set((state) => ({
+          students: [...state.students, mapped as Student].sort((a, b) =>
+            a.name.localeCompare(b.name, 'ar', { sensitivity: 'base' })
+          ),
+        }));
         get().addActivity('student_added', `تم إضافة ${isMen ? 'طالب' : 'طالبة'} جديد: ${student.name}`);
       }
     }
@@ -614,7 +670,35 @@ export const useStore = create<HalaqahStore>((set, get) => ({
     }
 
     set((state) => ({
-      students: state.students.map(s => s.id === id ? { ...s, ...student } : s)
+      students: state.students
+        .map(s => s.id === id ? { ...s, ...student } : s)
+        .sort((a, b) =>
+          a.name.localeCompare(b.name, 'ar', { sensitivity: 'base' })
+        )
+    }));
+  },
+
+  changeStudentStatus: async (id, status, reason, notes) => {
+    if (!reason.trim()) {
+      alert('سبب تغيير حالة الطالب مطلوب');
+      return;
+    }
+    if (supabase) {
+      const { error } = await supabase.rpc('change_student_status', {
+        p_student_id: id,
+        p_new_status: status,
+        p_reason: reason.trim(),
+        p_notes: notes?.trim() || null,
+      });
+      if (error) {
+        alert('فشل تغيير حالة الطالب: ' + error.message);
+        return;
+      }
+    }
+    set((state) => ({
+      students: state.students.map((student) =>
+        student.id === id ? { ...student, status } : student
+      ),
     }));
   },
 
@@ -638,7 +722,7 @@ export const useStore = create<HalaqahStore>((set, get) => ({
     if (supabase && center) {
       const { data, error } = await supabase
         .from('attendance')
-        .insert([{ 
+        .upsert([{
           student_id: record.studentId,
           center_id: center.id,
           halaqa_id: center.activeHalaqa?.id,
@@ -647,7 +731,7 @@ export const useStore = create<HalaqahStore>((set, get) => ({
           arrival_time: record.arrivalTime,
           absence_reason: record.absenceReason,
           notes: record.notes
-        }])
+        }], { onConflict: 'student_id,date' })
         .select()
         .single();
       if (error) {
@@ -655,22 +739,44 @@ export const useStore = create<HalaqahStore>((set, get) => ({
         return;
       }
       if (data) {
-        set((state) => ({ attendance: [...state.attendance, {
-          id: data.id,
-          studentId: data.student_id,
-          date: data.date,
-          status: data.status,
-          arrivalTime: data.arrival_time,
-          absenceReason: data.absence_reason,
-          notes: data.notes
-        } as AttendanceRecord] }));
+        set((state) => {
+          const mapped = {
+            id: data.id,
+            studentId: data.student_id,
+            date: data.date,
+            status: data.status,
+            arrivalTime: data.arrival_time,
+            absenceReason: data.absence_reason,
+            notes: data.notes,
+          } as AttendanceRecord;
+          return {
+            attendance: [
+              ...state.attendance.filter(item =>
+                !(item.studentId === mapped.studentId && item.date === mapped.date)
+              ),
+              mapped,
+            ],
+          };
+        });
       }
     }
   },
 
   updateAttendance: async (id, status, extra) => {
     if (supabase) {
-      await supabase.from('attendance').update({ status, ...extra }).eq('id', id);
+      const { error } = await supabase
+        .from('attendance')
+        .update({
+          status,
+          arrival_time: extra?.arrivalTime,
+          absence_reason: extra?.absenceReason,
+          notes: extra?.notes,
+        })
+        .eq('id', id);
+      if (error) {
+        alert(`فشل تحديث الحضور: ${error.message}`);
+        return;
+      }
     }
     set((state) => ({
       attendance: state.attendance.map(a => a.id === id ? { ...a, status, ...extra } : a)
@@ -761,6 +867,7 @@ export const useStore = create<HalaqahStore>((set, get) => ({
     attendance: [], 
     memorization: [], 
     points: [], 
+    plans: [],
     activities: [],
     loading: true 
   }),
@@ -828,7 +935,7 @@ export const useStore = create<HalaqahStore>((set, get) => ({
 
     // استدعاء الدالة الآمنة في قاعدة البيانات (تتجاوز RLS وتتحقق من الكود والبريد)
     const { data, error } = await supabase.rpc('join_center_with_code', {
-      p_code: code.trim(),
+      p_code: code.trim().toUpperCase(),
     });
 
     if (error) {
@@ -836,7 +943,7 @@ export const useStore = create<HalaqahStore>((set, get) => ({
       return false;
     }
 
-    const result = data as { success: boolean; error?: string; email?: string };
+    const result = data as { success: boolean; error?: string };
 
     if (!result?.success) {
       switch (result?.error) {
@@ -844,7 +951,10 @@ export const useStore = create<HalaqahStore>((set, get) => ({
           alert("الكود غير صحيح أو منتهي الصلاحية");
           break;
         case 'email_mismatch':
-          alert(`عذراً، هذا الكود مخصص للبريد: ${result.email}. يرجى التسجيل بهذا البريد للمتابعة.`);
+          alert("البريد المسجل في الحساب لا يطابق البريد المحدد في الدعوة");
+          break;
+        case 'expired_code':
+          alert("انتهت صلاحية الكود؛ اطلب دعوة جديدة من مدير المركز");
           break;
         case 'already_used':
           alert("هذا الكود تم استخدامه من قبل حساب آخر");
@@ -902,6 +1012,10 @@ export const useStore = create<HalaqahStore>((set, get) => ({
 
   addPoints: async (record) => {
     const center = get().currentCenter;
+    const persistentViolation = record.type === 'negative' && [
+      'مخالفة المظهر/الحلاقة',
+      'عدم لبس الثوب',
+    ].includes(record.reason);
     if (supabase && center) {
       const { data, error } = await supabase
         .from('points')
@@ -913,7 +1027,7 @@ export const useStore = create<HalaqahStore>((set, get) => ({
           amount: record.amount,
           reason: record.reason,
           date: record.date,
-          resolved: record.type === 'positive' 
+          resolved: !persistentViolation,
         }])
         .select()
         .single();
@@ -934,6 +1048,39 @@ export const useStore = create<HalaqahStore>((set, get) => ({
         get().addActivity('points_awarded', `${record.type === 'positive' ? 'منح نقاط' : 'تسجيل مخالفة'} لـ ${get().students.find(s=>s.id===record.studentId)?.name}`);
       }
     }
+  },
+
+  reassignPoint: async (pointId, studentId, reason) => {
+    if (!supabase || !reason.trim()) return;
+    const { error } = await supabase.rpc('reassign_behavior_point', {
+      p_point_id: pointId,
+      p_corrected_student_id: studentId,
+      p_reason: reason.trim(),
+    });
+    if (error) {
+      alert('فشل تصحيح إسناد السجل: ' + error.message);
+      return;
+    }
+    set((state) => ({
+      points: state.points.map((point) =>
+        point.id === pointId ? { ...point, studentId } : point
+      ),
+    }));
+  },
+
+  deletePointWithAudit: async (pointId, reason) => {
+    if (!supabase || !reason.trim()) return;
+    const { error } = await supabase.rpc('delete_behavior_point_with_audit', {
+      p_point_id: pointId,
+      p_reason: reason.trim(),
+    });
+    if (error) {
+      alert('فشل حذف سجل النقاط: ' + error.message);
+      return;
+    }
+    set((state) => ({
+      points: state.points.filter((point) => point.id !== pointId),
+    }));
   },
 
   addActivity: async (type, description) => {
@@ -1140,6 +1287,107 @@ export const useStore = create<HalaqahStore>((set, get) => ({
     }
   },
 
+  fetchPlans: async () => {
+    const center = get().currentCenter;
+    if (!supabase || !center) return;
+    let query = supabase
+      .from('plans')
+      .select('*')
+      .eq('center_id', center.id)
+      .is('deleted_at', null);
+    if (center.activeHalaqa?.id) {
+      query = query.eq('halaqa_id', center.activeHalaqa.id);
+    }
+    const { data, error } = await query.order('created_at', { ascending: false });
+    if (error) throw error;
+    set({
+      plans: (data || []).map((plan: any) => ({
+        id: plan.id,
+        studentId: plan.student_id,
+        period: plan.period,
+        startDate: plan.start_date,
+        endDate: plan.end_date,
+        unit: plan.unit,
+        newAmount: plan.new_amount,
+        reviewAmount: plan.review_amount,
+        status: plan.status,
+        testStatus: plan.test_status || 'not_required',
+        completionExamId: plan.completion_exam_id || undefined,
+        completedAt: plan.completed_at || undefined,
+        notes: plan.notes || undefined,
+        createdAt: plan.created_at,
+        updatedAt: plan.updated_at || plan.created_at,
+      })) as SmartPlan[],
+    });
+  },
+
+  addSmartPlan: async (plan) => {
+    const center = get().currentCenter;
+    if (!supabase || !center) throw new Error('الاتصال بقاعدة البيانات غير متاح');
+    const { error } = await supabase.from('plans').insert({
+      student_id: plan.studentId,
+      center_id: center.id,
+      halaqa_id: center.activeHalaqa?.id,
+      period: plan.period,
+      start_date: plan.startDate,
+      end_date: plan.endDate,
+      unit: plan.unit,
+      new_amount: plan.newAmount,
+      review_amount: plan.reviewAmount,
+      status: plan.status,
+      test_status: plan.testStatus,
+      completion_exam_id: plan.completionExamId,
+      completed_at: plan.completedAt,
+      notes: plan.notes,
+    });
+    if (error) throw error;
+    await Promise.all([
+      get().fetchPlans(),
+      get().updateStudent(plan.studentId, {
+        planType: plan.unit,
+        planAmount: plan.newAmount,
+      }),
+    ]);
+  },
+
+  updateSmartPlan: async (id, changes) => {
+    if (!supabase) throw new Error('الاتصال بقاعدة البيانات غير متاح');
+    const payload: Record<string, unknown> = {};
+    if (changes.period !== undefined) payload.period = changes.period;
+    if (changes.startDate !== undefined) payload.start_date = changes.startDate;
+    if (changes.endDate !== undefined) payload.end_date = changes.endDate;
+    if (changes.unit !== undefined) payload.unit = changes.unit;
+    if (changes.newAmount !== undefined) payload.new_amount = changes.newAmount;
+    if (changes.reviewAmount !== undefined) payload.review_amount = changes.reviewAmount;
+    if (changes.status !== undefined) payload.status = changes.status;
+    if (changes.testStatus !== undefined) payload.test_status = changes.testStatus;
+    if (changes.completionExamId !== undefined) {
+      payload.completion_exam_id = changes.completionExamId || null;
+    }
+    if (changes.completedAt !== undefined) payload.completed_at = changes.completedAt || null;
+    if (changes.notes !== undefined) payload.notes = changes.notes || null;
+    const { error } = await supabase.from('plans').update(payload).eq('id', id);
+    if (error) throw error;
+    const plan = get().plans.find((item) => item.id === id);
+    if (plan && (changes.unit !== undefined || changes.newAmount !== undefined) && plan.status === 'active') {
+      await get().updateStudent(plan.studentId, {
+        planType: changes.unit ?? plan.unit,
+        planAmount: changes.newAmount ?? plan.newAmount,
+      });
+    }
+    await get().fetchPlans();
+  },
+
+  deleteSmartPlan: async (id) => {
+    if (!supabase) throw new Error('الاتصال بقاعدة البيانات غير متاح');
+    const { error } = await supabase
+      .from('plans')
+      .update({ deleted_at: new Date().toISOString() })
+      .eq('id', id);
+    if (error) throw error;
+    set((state) => ({ plans: state.plans.filter((plan) => plan.id !== id) }));
+  },
+
   fetchCenterData: async () => {
     const g = get();
     await Promise.all([
@@ -1149,6 +1397,7 @@ export const useStore = create<HalaqahStore>((set, get) => ({
       g.fetchPoints(),
       g.fetchVacations(),
       g.fetchExams(),
+      g.fetchPlans(),
       g.fetchActivities(),
       g.fetchHomeworkGrades(),
       g.fetchMessageTemplates(),

@@ -1,9 +1,6 @@
 import type { Metadata } from "next";
-import { Cairo } from "next/font/google";
 import "./globals.css";
 import DashboardLayout from "@/components/DashboardLayout";
-
-const cairo = Cairo({ subsets: ["arabic", "latin"] });
 
 export const metadata: Metadata = {
   title: "حلقتي - لوحة التحكم",
@@ -17,7 +14,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ar" dir="rtl">
-      <body className={cairo.className}>
+      <body>
         <DashboardLayout>
           {children}
         </DashboardLayout>

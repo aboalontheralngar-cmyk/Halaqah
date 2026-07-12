@@ -88,10 +88,22 @@ class MushafService {
           thumunNumber: thumun,
           averageGrade: newAvg,
           lastGradedDate: grade.date,
-          isPreMemorized: false,
+          isPreMemorized: existing.isPreMemorized,
         );
         await _db.insertOrUpdateMushafProgress(updatedProgress);
       }
+    }
+  }
+
+  Future<void> rebuildStudentProgress(String studentId) async {
+    await _db.clearStudentGradedMushafProgress(studentId);
+    final grades = (await _db.getStudentHomeworkGrades(studentId))
+      ..sort((a, b) {
+        final byDate = a.date.compareTo(b.date);
+        return byDate != 0 ? byDate : a.createdAt.compareTo(b.createdAt);
+      });
+    for (final grade in grades) {
+      await updateProgressAfterGrading(grade);
     }
   }
 

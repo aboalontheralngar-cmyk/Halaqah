@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 class AyahRangePicker extends StatefulWidget {
   final int maxAyahs;
   final int initialFrom;
   final int initialTo;
+  final bool enabled;
+  final bool singleValue;
   final Function(int from, int to) onRangeChanged;
 
   const AyahRangePicker({
@@ -11,6 +14,8 @@ class AyahRangePicker extends StatefulWidget {
     required this.maxAyahs,
     this.initialFrom = 1,
     required this.initialTo,
+    this.enabled = true,
+    this.singleValue = false,
     required this.onRangeChanged,
   });
 
@@ -20,13 +25,23 @@ class AyahRangePicker extends StatefulWidget {
 
 class _AyahRangePickerState extends State<AyahRangePicker> {
   late RangeValues _currentRange;
+  late final TextEditingController _fromController;
+  late final TextEditingController _toController;
+  String? _fromError;
+  String? _toError;
+
+  int get _safeMaxAyahs => widget.maxAyahs < 1 ? 1 : widget.maxAyahs;
 
   @override
   void initState() {
     super.initState();
-    final double from = widget.initialFrom.toDouble().clamp(1.0, widget.maxAyahs.toDouble());
-    final double to = widget.initialTo.toDouble().clamp(from, widget.maxAyahs.toDouble());
+    final double from =
+        widget.initialFrom.toDouble().clamp(1.0, _safeMaxAyahs.toDouble());
+    final double to =
+        widget.initialTo.toDouble().clamp(from, _safeMaxAyahs.toDouble());
     _currentRange = RangeValues(from, to);
+    _fromController = TextEditingController(text: '${from.round()}');
+    _toController = TextEditingController(text: '${to.round()}');
   }
 
   @override
@@ -35,10 +50,96 @@ class _AyahRangePickerState extends State<AyahRangePicker> {
     if (oldWidget.maxAyahs != widget.maxAyahs ||
         oldWidget.initialFrom != widget.initialFrom ||
         oldWidget.initialTo != widget.initialTo) {
-      final double from = widget.initialFrom.toDouble().clamp(1.0, widget.maxAyahs.toDouble());
-      final double to = widget.initialTo.toDouble().clamp(from, widget.maxAyahs.toDouble());
+      final double from =
+          widget.initialFrom.toDouble().clamp(1.0, _safeMaxAyahs.toDouble());
+      final double to =
+          widget.initialTo.toDouble().clamp(from, _safeMaxAyahs.toDouble());
       _currentRange = RangeValues(from, to);
+      _syncControllers(from.round(), to.round());
+      _fromError = null;
+      _toError = null;
     }
+  }
+
+  @override
+  void dispose() {
+    _fromController.dispose();
+    _toController.dispose();
+    super.dispose();
+  }
+
+  void _syncControllers(int from, int to) {
+    if (_fromController.text != '$from') {
+      _fromController.value = TextEditingValue(
+        text: '$from',
+        selection: TextSelection.collapsed(offset: '$from'.length),
+      );
+    }
+    if (_toController.text != '$to') {
+      _toController.value = TextEditingValue(
+        text: '$to',
+        selection: TextSelection.collapsed(offset: '$to'.length),
+      );
+    }
+  }
+
+  void _setRange(int from, int to) {
+    setState(() {
+      _currentRange = RangeValues(from.toDouble(), to.toDouble());
+      _fromError = null;
+      _toError = null;
+      _syncControllers(from, to);
+    });
+    widget.onRangeChanged(from, to);
+  }
+
+  void _handleFromInput(String text) {
+    final value = int.tryParse(text);
+    final to = _currentRange.end.round();
+    if (value == null) {
+      setState(() => _fromError = 'أدخل رقمًا');
+      return;
+    }
+    if (value < 1 || value > _safeMaxAyahs) {
+      setState(() => _fromError = 'من 1 إلى $_safeMaxAyahs');
+      return;
+    }
+    if (value > to) {
+      setState(() => _fromError = 'أكبر من آية النهاية');
+      return;
+    }
+    _setRange(value, to);
+  }
+
+  void _handleSingleInput(String text) {
+    final value = int.tryParse(text);
+    if (value == null) {
+      setState(() => _fromError = 'أدخل رقمًا');
+      return;
+    }
+    if (value < 1 || value > _safeMaxAyahs) {
+      setState(() => _fromError = 'من 1 إلى $_safeMaxAyahs');
+      return;
+    }
+    _setRange(value, value);
+  }
+
+  void _handleToInput(String text) {
+    final value = int.tryParse(text);
+    final from = _currentRange.start.round();
+    if (value == null) {
+      setState(() => _toError = 'أدخل رقمًا');
+      return;
+    }
+    if (value < 1 || value > _safeMaxAyahs) {
+      setState(() => _toError = 'من 1 إلى $_safeMaxAyahs');
+      return;
+    }
+    if (value < from) {
+      setState(() => _toError = 'أصغر من آية البداية');
+      return;
+    }
+    _setRange(from, value);
   }
 
   @override
@@ -46,6 +147,67 @@ class _AyahRangePickerState extends State<AyahRangePicker> {
     final from = _currentRange.start.round();
     final to = _currentRange.end.round();
     final count = to - from + 1;
+
+    if (widget.singleValue) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'آية البداية',
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              color: Colors.grey[700],
+            ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              _buildAyahInput(
+                'من',
+                _fromController,
+                _fromError,
+                _handleSingleInput,
+              ),
+              Expanded(
+                child: _safeMaxAyahs > 1
+                    ? Slider(
+                        value: from.toDouble(),
+                        min: 1,
+                        max: _safeMaxAyahs.toDouble(),
+                        divisions: _safeMaxAyahs - 1,
+                        label: '$from',
+                        onChanged: widget.enabled
+                            ? (value) {
+                                final ayah = value.round();
+                                _setRange(ayah, ayah);
+                              }
+                            : null,
+                      )
+                    : const SizedBox(height: 48),
+              ),
+              Container(
+                width: 72,
+                alignment: Alignment.center,
+                child: Text(
+                  'الآية $from',
+                  style: TextStyle(
+                    color: Theme.of(context).primaryColor,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('الآية 1', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+              Text('الآية $_safeMaxAyahs', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+            ],
+          ),
+        ],
+      );
+    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -79,37 +241,37 @@ class _AyahRangePickerState extends State<AyahRangePicker> {
         const SizedBox(height: 8),
         Row(
           children: [
-            _buildAyahInput('من', from, (value) {
-              if (value >= 1 && value <= to) {
-                setState(() {
-                  _currentRange = RangeValues(value.toDouble(), _currentRange.end);
-                });
-                widget.onRangeChanged(value, to);
-              }
-            }),
+            _buildAyahInput(
+              'من',
+              _fromController,
+              _fromError,
+              _handleFromInput,
+            ),
             Expanded(
-              child: widget.maxAyahs > 1
+              child: _safeMaxAyahs > 1
                   ? RangeSlider(
                       values: _currentRange,
                       min: 1,
-                      max: widget.maxAyahs.toDouble(),
-                      divisions: widget.maxAyahs - 1,
+                      max: _safeMaxAyahs.toDouble(),
+                      divisions: _safeMaxAyahs - 1,
                       labels: RangeLabels('$from', '$to'),
-                      onChanged: (values) {
-                        setState(() => _currentRange = values);
-                        widget.onRangeChanged(values.start.round(), values.end.round());
-                      },
+                      onChanged: widget.enabled
+                          ? (values) {
+                              _setRange(
+                                values.start.round(),
+                                values.end.round(),
+                              );
+                            }
+                          : null,
                     )
                   : const SizedBox(height: 48),
             ),
-            _buildAyahInput('إلى', to, (value) {
-              if (value >= from && value <= widget.maxAyahs) {
-                setState(() {
-                  _currentRange = RangeValues(_currentRange.start, value.toDouble());
-                });
-                widget.onRangeChanged(from, value);
-              }
-            }),
+            _buildAyahInput(
+              'إلى',
+              _toController,
+              _toError,
+              _handleToInput,
+            ),
           ],
         ),
         const SizedBox(height: 8),
@@ -117,14 +279,19 @@ class _AyahRangePickerState extends State<AyahRangePicker> {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Text('الآية 1', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
-            Text('الآية ${widget.maxAyahs}', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+            Text('الآية $_safeMaxAyahs', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
           ],
         ),
       ],
     );
   }
 
-  Widget _buildAyahInput(String label, int value, Function(int) onChanged) {
+  Widget _buildAyahInput(
+    String label,
+    TextEditingController controller,
+    String? errorText,
+    ValueChanged<String> onChanged,
+  ) {
     return Column(
       children: [
         Text(label, style: TextStyle(fontSize: 12, color: Colors.grey[600])),
@@ -132,21 +299,20 @@ class _AyahRangePickerState extends State<AyahRangePicker> {
         SizedBox(
           width: 60,
           child: TextFormField(
-            initialValue: '$value',
+            controller: controller,
+            enabled: widget.enabled,
             keyboardType: TextInputType.number,
+            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
             textAlign: TextAlign.center,
             decoration: InputDecoration(
               contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+              errorText: errorText,
+              errorMaxLines: 2,
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(8),
               ),
             ),
-            onChanged: (text) {
-              final newValue = int.tryParse(text);
-              if (newValue != null) {
-                onChanged(newValue);
-              }
-            },
+            onChanged: onChanged,
           ),
         ),
       ],

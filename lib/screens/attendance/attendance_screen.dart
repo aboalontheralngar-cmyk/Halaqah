@@ -278,11 +278,12 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
       builder: (context) => SizedBox(
         height: MediaQuery.of(context).size.height * 0.7,
         child: _QrScannerSheet(
-          onStudentScanned: (studentId) async {
-            final student = await _db.getStudent(studentId);
+          onStudentScanned: (qrToken) async {
+            final student = await _db.getStudentByQrCode(qrToken) ??
+                await _db.getStudent(qrToken);
             if (student != null && mounted) {
               Navigator.pop(context);
-              await _updateAttendance(studentId, 'present');
+              await _updateAttendance(student.id, 'present');
               if (mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
@@ -794,6 +795,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   }
 
   Future<void> _openMemorization(Student student) async {
+    if (!await _canOpenRecitation(student)) return;
     final result = await Navigator.push(
       context,
       MaterialPageRoute(builder: (context) => RecitationScreen(student: student)),
@@ -802,11 +804,45 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   }
 
   Future<void> _openRevision(Student student) async {
+    if (!await _canOpenRecitation(student)) return;
     final result = await Navigator.push(
       context,
       MaterialPageRoute(builder: (context) => RevisionScreen(student: student)),
     );
     if (result == true) _loadData(silent: true);
+  }
+
+  Future<bool> _canOpenRecitation(Student student) async {
+    final now = DateTime.now();
+    final selected = DateTime(
+      _selectedDate.year,
+      _selectedDate.month,
+      _selectedDate.day,
+    );
+    final today = DateTime(now.year, now.month, now.day);
+    if (selected != today) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('التسميع المباشر متاح لليوم الحالي فقط'),
+        ),
+      );
+      return false;
+    }
+    final hold = await _db.getActiveStudentHold(student.id, date: now);
+    if (hold != null) {
+      if (!mounted) return false;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'التسميع موقوف مؤقتًا: ${hold.reason} — حتى '
+            '${Helpers.formatHijriDate(hold.endDate)}',
+          ),
+          backgroundColor: Colors.deepOrange,
+        ),
+      );
+      return false;
+    }
+    return true;
   }
 
   void _showStudentOptions(Student student, DailyRecord? record) {
@@ -937,10 +973,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   }
 
   void _showMemorizationDialog(Student student) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (context) => RecitationScreen(student: student)),
-    );
+    _openMemorization(student);
   }
 
   Widget _buildSuspendedBanner() {
@@ -1160,10 +1193,10 @@ class _QrScannerSheetState extends State<_QrScannerSheet> {
               final code = barcodes.first.rawValue;
               if (code == null) return;
               
-              final studentId = QrService.decodeQrData(code);
-              if (studentId != null) {
+              final qrToken = QrService.decodeQrData(code);
+              if (qrToken != null) {
                 setState(() => _isProcessing = true);
-                widget.onStudentScanned(studentId);
+                widget.onStudentScanned(qrToken);
               }
             },
           ),

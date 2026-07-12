@@ -4,7 +4,18 @@ import '../screens/home/home_screen.dart';
 import '../screens/settings/setup_wizard_screen.dart';
 import '../services/database_service.dart';
 
-final ValueNotifier<ThemeMode> themeNotifier = ValueNotifier(ThemeMode.light);
+final ValueNotifier<ThemeMode> themeNotifier = ValueNotifier(ThemeMode.system);
+
+ThemeMode themeModeFromSetting(String? value) {
+  switch (value) {
+    case 'light':
+      return ThemeMode.light;
+    case 'dark':
+      return ThemeMode.dark;
+    default:
+      return ThemeMode.system;
+  }
+}
 
 class HalaqahApp extends StatelessWidget {
   const HalaqahApp({super.key});

@@ -6,6 +6,7 @@ import '../../models/settings.dart';
 import '../../utils/helpers.dart';
 import 'student_form_screen.dart';
 import 'student_detail_screen.dart';
+import 'student_archive_screen.dart';
 
 class StudentsScreen extends StatefulWidget {
   const StudentsScreen({super.key});
@@ -24,6 +25,7 @@ class _StudentsScreenState extends State<StudentsScreen> {
   String _sortBy = 'name';
   HalaqahSettings _settings = HalaqahSettings();
   List<String> _leftOutStudentIds = [];
+  int _archiveCount = 0;
 
   // إشعار "لم يسمّع" لا يظهر إلا بعد انتهاء وقت دوام الحلقة (وقت النهاية في الإعدادات)
   bool _checkPastEndTime(HalaqahSettings settings) {
@@ -49,7 +51,6 @@ class _StudentsScreenState extends State<StudentsScreen> {
   Future<void> _loadStudents() async {
     setState(() => _isLoading = true);
     try {
-      final students = await _db.getStudents();
       final settings = await _db.getSettings();
       // احتساب النقاط السلبية التلقائية بعد انتهاء دوام الحلقة فقط (idempotent)
       // مع تخطّي الأيام المعطّلة (إجازة أسبوعية أو تعليق دراسة)
@@ -57,12 +58,16 @@ class _StudentsScreenState extends State<StudentsScreen> {
         final today = DateTime.now();
         final suspended = await _db.isDateSuspended(today);
         await _db.applyAutomaticNegativePoints(isHoliday: suspended);
+        await _db.generateNotifications();
       }
+      final students = await _db.getOperationalStudents();
+      final archivedStudents = await _db.getArchivedStudents();
       final leftOutIds = await _db.getStudentsWhoDidNotReciteLastClass();
       setState(() {
         _students = students;
         _settings = settings;
         _leftOutStudentIds = leftOutIds;
+        _archiveCount = archivedStudents.length;
         _applyFilters();
         _isLoading = false;
       });
@@ -101,6 +106,15 @@ class _StudentsScreenState extends State<StudentsScreen> {
       appBar: AppBar(
         title: Text(GenderHelper.students(_settings.gender)),
         actions: [
+          IconButton(
+            icon: Badge(
+              isLabelVisible: _archiveCount > 0,
+              label: Text('$_archiveCount'),
+              child: const Icon(Icons.inventory_2_outlined),
+            ),
+            onPressed: _openArchive,
+            tooltip: 'أرشيف الطلاب',
+          ),
           PopupMenuButton<String>(
             icon: const Icon(Icons.sort),
             tooltip: 'ترتيب ${GenderHelper.students(_settings.gender)}',
@@ -388,18 +402,6 @@ class _StudentsScreenState extends State<StudentsScreen> {
                 Navigator.pop(context);
               },
             ),
-            RadioListTile<String>(
-              title: const Text('مفصول'),
-              value: 'expelled',
-              groupValue: _statusFilter,
-              onChanged: (value) {
-                setState(() {
-                  _statusFilter = value!;
-                  _applyFilters();
-                });
-                Navigator.pop(context);
-              },
-            ),
           ],
         ),
       ),
@@ -416,6 +418,14 @@ class _StudentsScreenState extends State<StudentsScreen> {
     if (result == true) {
       _loadStudents();
     }
+  }
+
+  Future<void> _openArchive() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const StudentArchiveScreen()),
+    );
+    await _loadStudents();
   }
 
   void _navigateToDetail(Student student) async {

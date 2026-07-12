@@ -50,6 +50,9 @@ class _VacationsScreenState extends State<VacationsScreen> {
   void _showVacationDialog({Vacation? vacationToEdit}) {
     final isEditing = vacationToEdit != null;
     String? selectedStudentId = vacationToEdit?.studentId;
+    final selectedStudentIds = <String>{
+      if (vacationToEdit != null) vacationToEdit.studentId,
+    };
     String selectedReason = vacationToEdit?.reason ?? VacationReason.sick;
     DateTime startDate = vacationToEdit?.startDate ?? DateTime.now();
     DateTime endDate = vacationToEdit?.endDate ?? DateTime.now().add(const Duration(days: 3));
@@ -101,29 +104,48 @@ class _VacationsScreenState extends State<VacationsScreen> {
                   ),
                   const SizedBox(height: 20),
 
-                  // Student Dropdown
-                  DropdownButtonFormField<String>(
-                    decoration: const InputDecoration(
-                      labelText: 'اختر الطالب',
-                      prefixIcon: Icon(Icons.person),
+                  if (isEditing)
+                    DropdownButtonFormField<String>(
+                      decoration: const InputDecoration(
+                        labelText: 'الطالب',
+                        prefixIcon: Icon(Icons.person),
+                      ),
+                      value: selectedStudentId,
+                      items: _students.map((student) {
+                        return DropdownMenuItem(
+                          value: student.id,
+                          child: Text(student.name),
+                        );
+                      }).toList(),
+                      onChanged: null,
+                    )
+                  else
+                    InkWell(
+                      onTap: () async {
+                        final result = await _pickVacationStudents(
+                          selectedStudentIds,
+                        );
+                        if (result != null) {
+                          setModalState(() {
+                            selectedStudentIds
+                              ..clear()
+                              ..addAll(result);
+                          });
+                        }
+                      },
+                      borderRadius: BorderRadius.circular(16),
+                      child: InputDecorator(
+                        decoration: const InputDecoration(
+                          labelText: 'الطلاب المشمولون بالإجازة',
+                          prefixIcon: Icon(Icons.group_add_outlined),
+                        ),
+                        child: Text(
+                          selectedStudentIds.isEmpty
+                              ? 'اختر طالبًا أو أكثر'
+                              : 'تم اختيار ${selectedStudentIds.length} طالب',
+                        ),
+                      ),
                     ),
-                    value: selectedStudentId,
-                    items: _students.map((student) {
-                      return DropdownMenuItem(
-                        value: student.id,
-                        child: Text(student.name),
-                      );
-                    }).toList(),
-                    onChanged: (val) {
-                      setModalState(() {
-                        selectedStudentId = val;
-                      });
-                    },
-                    validator: (val) {
-                      if (val == null) return 'الرجاء اختيار طالب';
-                      return null;
-                    },
-                  ),
                   const SizedBox(height: 16),
 
                   // Reason Dropdown
@@ -205,9 +227,19 @@ class _VacationsScreenState extends State<VacationsScreen> {
                     child: ElevatedButton(
                       onPressed: () async {
                         if (formKey.currentState!.validate()) {
+                          if (!isEditing && selectedStudentIds.isEmpty) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('اختر طالبًا واحدًا على الأقل'),
+                              ),
+                            );
+                            return;
+                          }
                           final vac = Vacation(
                             id: vacationToEdit?.id,
-                            studentId: selectedStudentId!,
+                            studentId: isEditing
+                                ? selectedStudentId!
+                                : selectedStudentIds.first,
                             startDate: startDate,
                             endDate: endDate,
                             reason: selectedReason,
@@ -218,10 +250,31 @@ class _VacationsScreenState extends State<VacationsScreen> {
                           if (isEditing) {
                             await _db.updateVacation(vac);
                           } else {
-                            await _db.insertVacation(vac);
+                            final vacations = selectedStudentIds
+                                .map((studentId) => Vacation(
+                                      studentId: studentId,
+                                      startDate: startDate,
+                                      endDate: endDate,
+                                      reason: selectedReason,
+                                      notes: notes.trim().isEmpty
+                                          ? null
+                                          : notes.trim(),
+                                    ))
+                                .toList();
+                            await _db.insertVacations(vacations);
                           }
                           if (context.mounted) {
                             Navigator.pop(context);
+                            ScaffoldMessenger.of(this.context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  isEditing
+                                      ? 'تم تحديث الإجازة'
+                                      : 'تم تسجيل الإجازة لـ ${selectedStudentIds.length} طالب',
+                                ),
+                                backgroundColor: Colors.green,
+                              ),
+                            );
                             _loadData();
                           }
                         }
@@ -233,6 +286,74 @@ class _VacationsScreenState extends State<VacationsScreen> {
               ),
             ),
           ),
+        ),
+      ),
+    );
+  }
+
+  Future<Set<String>?> _pickVacationStudents(Set<String> initial) async {
+    final selected = Set<String>.from(initial);
+    return showDialog<Set<String>>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('اختيار الطلاب'),
+          content: SizedBox(
+            width: double.maxFinite,
+            height: 420,
+            child: Column(
+              children: [
+                Row(
+                  children: [
+                    TextButton(
+                      onPressed: () => setDialogState(() {
+                        selected
+                          ..clear()
+                          ..addAll(_students
+                              .where((student) => student.status == 'active')
+                              .map((student) => student.id));
+                      }),
+                      child: const Text('اختيار الكل'),
+                    ),
+                    TextButton(
+                      onPressed: () =>
+                          setDialogState(() => selected.clear()),
+                      child: const Text('إلغاء الاختيار'),
+                    ),
+                  ],
+                ),
+                const Divider(),
+                Expanded(
+                  child: ListView(
+                    children: _students
+                        .where((student) => student.status == 'active')
+                        .map((student) => CheckboxListTile(
+                              value: selected.contains(student.id),
+                              title: Text(student.name),
+                              onChanged: (checked) => setDialogState(() {
+                                if (checked == true) {
+                                  selected.add(student.id);
+                                } else {
+                                  selected.remove(student.id);
+                                }
+                              }),
+                            ))
+                        .toList(),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('إلغاء'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, selected),
+              child: Text('اعتماد (${selected.length})'),
+            ),
+          ],
         ),
       ),
     );

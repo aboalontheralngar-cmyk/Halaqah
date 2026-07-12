@@ -74,14 +74,23 @@ CREATE TABLE students (
     name TEXT NOT NULL,
     phone TEXT,
     parent_phone TEXT,
+    qr_code TEXT UNIQUE NOT NULL DEFAULT gen_random_uuid()::text,
     age INTEGER,
     level TEXT,
     join_date DATE DEFAULT CURRENT_DATE,
     photo_url TEXT,
-    plan_type TEXT CHECK (plan_type IN ('ayahs', 'pages')) DEFAULT 'ayahs',
+    plan_type TEXT CHECK (plan_type IN ('ayahs', 'pages', 'lines')) DEFAULT 'ayahs',
     plan_amount INTEGER DEFAULT 5,
-    status TEXT CHECK (status IN ('active', 'inactive')) DEFAULT 'active',
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    total_memorized INTEGER DEFAULT 0 CHECK (total_memorized BETWEEN 0 AND 6236),
+    status TEXT CHECK (status IN ('active', 'inactive', 'suspended', 'expelled', 'graduated')) DEFAULT 'active',
+    notes TEXT,
+    memorization_direction TEXT CHECK (memorization_direction IN ('asc', 'desc')) DEFAULT 'desc',
+    pre_memorized_start_surah INTEGER,
+    pre_memorized_start_ayah INTEGER,
+    pre_memorized_end_surah INTEGER,
+    pre_memorized_end_ayah INTEGER,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 -- 4. جدول الحضور (Attendance)
@@ -89,12 +98,14 @@ CREATE TABLE attendance (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     student_id UUID REFERENCES students(id) ON DELETE CASCADE,
     center_id UUID REFERENCES centers(id) ON DELETE CASCADE,
+    halaqa_id UUID REFERENCES halaqat(id) ON DELETE SET NULL,
     date DATE NOT NULL,
     status TEXT CHECK (status IN ('present', 'absent', 'excused', 'late')) NOT NULL,
     arrival_time TIME,
     absence_reason TEXT,
     notes TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    UNIQUE(student_id, date)
 );
 
 -- 5. جدول الحفظ (Memorization)
@@ -102,6 +113,7 @@ CREATE TABLE memorization (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     student_id UUID REFERENCES students(id) ON DELETE CASCADE,
     center_id UUID REFERENCES centers(id) ON DELETE CASCADE,
+    halaqa_id UUID REFERENCES halaqat(id) ON DELETE SET NULL,
     surah TEXT NOT NULL,
     from_ayah INTEGER,
     to_ayah INTEGER,
@@ -116,6 +128,7 @@ CREATE TABLE points (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     student_id UUID REFERENCES students(id) ON DELETE CASCADE,
     center_id UUID REFERENCES centers(id) ON DELETE CASCADE,
+    halaqa_id UUID REFERENCES halaqat(id) ON DELETE SET NULL,
     type TEXT CHECK (type IN ('positive', 'negative')) NOT NULL,
     amount INTEGER NOT NULL,
     reason TEXT NOT NULL,
@@ -142,7 +155,8 @@ CREATE TABLE exam_scores (
     student_id UUID REFERENCES students(id) ON DELETE CASCADE,
     degree INTEGER NOT NULL,
     notes TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    UNIQUE(exam_id, student_id)
 );
 
 -- 9. جدول الإجازات (Vacations)

@@ -23,6 +23,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final BackupService _backup = BackupService();
   HalaqahSettings _settings = HalaqahSettings();
   bool _isLoading = true;
+  String _selectedSection = 'halaqah';
+  DateTime? _lastBackupAt;
+  String? _lastAutomaticBackupError;
+  int _savedBackupCount = 0;
 
   @override
   void initState() {
@@ -33,9 +37,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _loadSettings() async {
     setState(() => _isLoading = true);
     try {
-      final settings = await _db.getSettings();
+      final results = await Future.wait<dynamic>([
+        _db.getSettings(),
+        _db.getSetting('last_backup_at'),
+        _db.getSetting('last_automatic_backup_error'),
+        _backup.getBackupFiles(),
+      ]);
+      final settings = results[0] as HalaqahSettings;
       setState(() {
         _settings = settings;
+        _lastBackupAt = DateTime.tryParse((results[1] as String?) ?? '');
+        _lastAutomaticBackupError = (results[2] as String?)?.trim();
+        _savedBackupCount = (results[3] as List).length;
         _isLoading = false;
       });
     } catch (e) {
@@ -118,21 +131,70 @@ class _SettingsScreenState extends State<SettingsScreen> {
             : ListView(
                 padding: const EdgeInsets.all(16),
                 children: [
-                  _buildHalaqahSection(),
+                  _buildSettingsNavigation(),
                   const SizedBox(height: 16),
-                  _buildTimingSection(),
-                  const SizedBox(height: 16),
-                  _buildRulesSection(),
-                  const SizedBox(height: 16),
-                  _buildDisplaySection(),
-                  const SizedBox(height: 16),
-                  _buildDataSection(),
-                  const SizedBox(height: 24),
-                  _buildAboutSection(),
+                  _buildSelectedSection(),
                 ],
               ),
       ),
     );
+  }
+
+  Widget _buildSettingsNavigation() {
+    const sections = <(String, String, IconData)>[
+      ('halaqah', 'الحلقة', Icons.mosque_outlined),
+      ('timing', 'الأوقات', Icons.schedule_outlined),
+      ('rules', 'القواعد', Icons.rule_outlined),
+      ('display', 'المظهر', Icons.palette_outlined),
+      ('data', 'البيانات', Icons.shield_outlined),
+      ('about', 'حول', Icons.info_outline),
+    ];
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'أقسام الإعدادات',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: sections.map((section) {
+                return ChoiceChip(
+                  selected: _selectedSection == section.$1,
+                  avatar: Icon(section.$3, size: 18),
+                  label: Text(section.$2),
+                  onSelected: (_) {
+                    setState(() => _selectedSection = section.$1);
+                  },
+                );
+              }).toList(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSelectedSection() {
+    switch (_selectedSection) {
+      case 'timing':
+        return _buildTimingSection();
+      case 'rules':
+        return _buildRulesSection();
+      case 'display':
+        return _buildDisplaySection();
+      case 'data':
+        return _buildDataSection();
+      case 'about':
+        return _buildAboutSection();
+      default:
+        return _buildHalaqahSection();
+    }
   }
 
   Widget _buildHalaqahSection() {
@@ -822,23 +884,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 16),
-            ListTile(
-              title: const Text('المظهر'),
-              subtitle: Text(
-                _settings.theme == 'dark' ? 'الوضع الداكن' : 'الوضع الفاتح',
-              ),
-              trailing: SegmentedButton<String>(
+            const ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: Icon(Icons.palette_outlined),
+              title: Text('المظهر'),
+              subtitle: Text('يمكن اتباع إعداد الجهاز أو اختيار وضع ثابت'),
+            ),
+            SizedBox(
+              width: double.infinity,
+              child: SegmentedButton<String>(
                 segments: const [
+                  ButtonSegment(
+                    value: 'system',
+                    label: Text('الجهاز'),
+                    icon: Icon(Icons.brightness_auto),
+                  ),
                   ButtonSegment(value: 'light', label: Text('فاتح')),
                   ButtonSegment(value: 'dark', label: Text('داكن')),
                 ],
                 selected: {_settings.theme},
-                onSelectionChanged: (set) {
+                onSelectionChanged: (selection) async {
+                  final selectedTheme = selection.first;
                   setState(() {
-                    _settings = _settings.copyWith(theme: set.first);
+                    _settings = _settings.copyWith(theme: selectedTheme);
                   });
-                  _saveSettings();
-                  themeNotifier.value = set.first == 'dark' ? ThemeMode.dark : ThemeMode.light;
+                  themeNotifier.value = themeModeFromSetting(selectedTheme);
+                  await _saveSettings();
                 },
               ),
             ),
@@ -923,6 +994,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Widget _buildDataSection() {
     final supabase = SupabaseService.instance;
+    final lastBackupText = _lastBackupAt == null
+        ? 'لم تُنشأ نسخة احتياطية بعد'
+        : 'آخر نسخة: ${_formatBackupDate(_lastBackupAt!)}';
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -934,30 +1008,169 @@ class _SettingsScreenState extends State<SettingsScreen> {
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 16),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.primaryContainer,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    _lastBackupAt == null
+                        ? Icons.warning_amber_rounded
+                        : Icons.verified_user_outlined,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          lastBackupText,
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        Text('النسخ المحلية المحفوظة: $_savedBackupCount'),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (_lastAutomaticBackupError?.isNotEmpty == true) ...[
+              const SizedBox(height: 8),
+              Text(
+                'تعذر آخر نسخ تلقائي. افتح هذا القسم وأنشئ نسخة يدوية للتحقق من مساحة الجهاز.',
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+            ],
+            const Divider(height: 28),
             ListTile(
               leading: const Icon(Icons.backup),
-              title: const Text('نسخ احتياطي'),
-              subtitle: const Text('تصدير البيانات'),
+              title: const Text('إنشاء نسخة الآن'),
+              subtitle: const Text('حفظ نسخة كاملة وإتاحة مشاركتها خارج الجهاز'),
               onTap: () => _performBackup(),
             ),
             ListTile(
               leading: const Icon(Icons.restore),
               title: const Text('استعادة'),
-              subtitle: const Text('استيراد البيانات'),
+              subtitle: const Text('استعادة إحدى النسخ المحلية المحفوظة'),
               onTap: () => _performRestore(),
             ),
-            ListTile(
-              leading: const Icon(Icons.sync),
-              title: const Text('مزامنة'),
-              subtitle: const Text('مزامنة عبر WiFi/Bluetooth'),
-              onTap: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('ستتوفر هذه الميزة في التحديث القادم')),
-                );
+            const Divider(height: 28),
+            SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              secondary: const Icon(Icons.schedule_send_outlined),
+              title: const Text('النسخ المحلي التلقائي'),
+              subtitle: Text(
+                'ينفذ عند أول فتح للتطبيق بعد الساعة ${_formatHour(_settings.automaticBackupHour)}',
+              ),
+              value: _settings.automaticBackupEnabled,
+              onChanged: (value) async {
+                setState(() {
+                  _settings = _settings.copyWith(
+                    automaticBackupEnabled: value,
+                  );
+                });
+                await _saveSettings();
               },
             ),
+            if (_settings.automaticBackupEnabled) ...[
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.access_time),
+                title: const Text('وقت النسخ التلقائي'),
+                subtitle: const Text('يُطبق عند فتح التطبيق، ولا يحتاج بقاءه مفتوحًا عند الوقت نفسه'),
+                trailing: Text(
+                  _formatHour(_settings.automaticBackupHour),
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                onTap: _selectAutomaticBackupHour,
+              ),
+              DropdownButtonFormField<int>(
+                value: const [7, 14, 30]
+                        .contains(_settings.automaticBackupRetentionCount)
+                    ? _settings.automaticBackupRetentionCount
+                    : 14,
+                decoration: const InputDecoration(
+                  labelText: 'عدد النسخ التلقائية المحتفظ بها',
+                  prefixIcon: Icon(Icons.inventory_2_outlined),
+                ),
+                items: const [7, 14, 30]
+                    .map((count) => DropdownMenuItem(
+                          value: count,
+                          child: Text('$count نسخة'),
+                        ))
+                    .toList(),
+                onChanged: (value) async {
+                  if (value == null) return;
+                  setState(() {
+                    _settings = _settings.copyWith(
+                      automaticBackupRetentionCount: value,
+                    );
+                  });
+                  await _saveSettings();
+                },
+              ),
+            ],
+            const SizedBox(height: 8),
+            SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              secondary: const Icon(Icons.notifications_active_outlined),
+              title: const Text('تذكير سلامة البيانات'),
+              subtitle: const Text('تنبيه دوري إذا لم تُنشأ نسخة خلال المدة المحددة'),
+              value: _settings.backupReminderEnabled,
+              onChanged: (value) async {
+                setState(() {
+                  _settings = _settings.copyWith(
+                    backupReminderEnabled: value,
+                  );
+                });
+                await _saveSettings();
+              },
+            ),
+            if (_settings.backupReminderEnabled)
+              DropdownButtonFormField<int>(
+                value: const [1, 3, 7]
+                        .contains(_settings.backupReminderIntervalDays)
+                    ? _settings.backupReminderIntervalDays
+                    : 3,
+                decoration: const InputDecoration(
+                  labelText: 'فترة التذكير',
+                  prefixIcon: Icon(Icons.date_range_outlined),
+                ),
+                items: const [1, 3, 7]
+                    .map((days) => DropdownMenuItem(
+                          value: days,
+                          child: Text(days == 1 ? 'يوميًا' : 'كل $days أيام'),
+                        ))
+                    .toList(),
+                onChanged: (value) async {
+                  if (value == null) return;
+                  setState(() {
+                    _settings = _settings.copyWith(
+                      backupReminderIntervalDays: value,
+                    );
+                  });
+                  await _saveSettings();
+                },
+              ),
+            const Divider(height: 28),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: Icon(
+                supabase.isAuthenticated ? Icons.cloud_done : Icons.cloud_off,
+                color: supabase.isAuthenticated ? Colors.green : null,
+              ),
+              title: const Text('المزامنة السحابية'),
+              subtitle: Text(
+                supabase.isAuthenticated
+                    ? 'متصل بالحساب ${supabase.currentUserEmail ?? ''}'
+                    : 'غير متصل؛ يمكن ربط الحساب من زر السحابة في الشاشة الرئيسية',
+              ),
+            ),
             if (supabase.isAuthenticated) ...[
-              const Divider(),
               ListTile(
                 leading: const Icon(Icons.logout, color: Colors.red),
                 title: const Text(
@@ -1002,6 +1215,33 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
       ),
     );
+  }
+
+  String _formatHour(int hour) =>
+      '${hour.clamp(0, 23).toInt().toString().padLeft(2, '0')}:00';
+
+  String _formatBackupDate(DateTime date) {
+    final local = date.toLocal();
+    final day = local.day.toString().padLeft(2, '0');
+    final month = local.month.toString().padLeft(2, '0');
+    final hour = local.hour.toString().padLeft(2, '0');
+    final minute = local.minute.toString().padLeft(2, '0');
+    return '$day/$month/${local.year}، $hour:$minute';
+  }
+
+  Future<void> _selectAutomaticBackupHour() async {
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay(
+        hour: _settings.automaticBackupHour.clamp(0, 23).toInt(),
+        minute: 0,
+      ),
+    );
+    if (picked == null) return;
+    setState(() {
+      _settings = _settings.copyWith(automaticBackupHour: picked.hour);
+    });
+    await _saveSettings();
   }
 
   Widget _buildAboutSection() {
@@ -1053,6 +1293,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       );
       
       final filePath = await _backup.exportBackup();
+      await _refreshBackupStatus();
       
       if (mounted) Navigator.pop(context);
       
@@ -1097,6 +1338,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
         );
       }
     }
+  }
+
+  Future<void> _refreshBackupStatus() async {
+    final lastRaw = await _db.getSetting('last_backup_at');
+    final error = await _db.getSetting('last_automatic_backup_error');
+    final files = await _backup.getBackupFiles();
+    if (!mounted) return;
+    setState(() {
+      _lastBackupAt = DateTime.tryParse(lastRaw ?? '');
+      _lastAutomaticBackupError = error?.trim();
+      _savedBackupCount = files.length;
+    });
   }
 
   Future<void> _performRestore() async {

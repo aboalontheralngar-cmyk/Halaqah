@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../services/database_service.dart';
+import '../../services/backup_service.dart';
 import '../../services/supabase_service.dart';
 import '../auth/login_screen.dart';
 import '../../models/student.dart';
@@ -32,6 +33,8 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _currentIndex = 0;
   final DatabaseService _db = DatabaseService();
+  final BackupService _backup = BackupService();
+  bool _backupMaintenanceChecked = false;
   
   List<Student> _students = [];
   bool _isLoading = true;
@@ -83,8 +86,77 @@ class _HomeScreenState extends State<HomeScreen> {
         _settings = settings;
         _isLoading = false;
       });
+      if (!_backupMaintenanceChecked) {
+        _backupMaintenanceChecked = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _handleBackupMaintenance();
+        });
+      }
     } catch (e) {
       setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _handleBackupMaintenance() async {
+    final automatic = await _backup.performAutomaticBackupIfDue(
+      settings: _settings,
+    );
+    if (!mounted) return;
+
+    if (automatic.attempted && !automatic.succeeded) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'تعذر إنشاء النسخة التلقائية. تحقق من مساحة الجهاز أو أنشئ نسخة من الإعدادات.',
+          ),
+          backgroundColor: Colors.orange,
+        ),
+      );
+    }
+
+    if (!await _backup.shouldShowReminder(settings: _settings) || !mounted) {
+      return;
+    }
+    await _backup.markReminderShown();
+    if (!mounted) return;
+    final createNow = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('حماية بيانات الحلقة'),
+        content: const Text(
+          'لسلامة بيانات الطلاب، يرجى الاحتفاظ بنسخة احتياطية حديثة ومشاركة نسخة منها إلى مكان آمن خارج الجهاز.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('لاحقًا'),
+          ),
+          FilledButton.icon(
+            onPressed: () => Navigator.pop(context, true),
+            icon: const Icon(Icons.backup_outlined),
+            label: const Text('نسخ الآن'),
+          ),
+        ],
+      ),
+    );
+    if (createNow != true) return;
+    try {
+      await _backup.exportBackup();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('تم إنشاء نسخة احتياطية محلية بنجاح'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('تعذر إنشاء النسخة الاحتياطية'),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
   }
 

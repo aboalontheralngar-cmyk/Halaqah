@@ -93,7 +93,7 @@
     {
       "number": 2,
       "name": "البقرة",
-      "total_ayahs": 287,
+      "total_ayahs": 286,
       "juz_start": 1,
       "page_start": 2,
       "ayahs": [
@@ -3259,7 +3259,7 @@
     {
       "number": 3,
       "name": "آل عمران",
-      "total_ayahs": 201,
+      "total_ayahs": 200,
       "juz_start": 3,
       "page_start": 50,
       "ayahs": [
@@ -5479,7 +5479,7 @@
     {
       "number": 4,
       "name": "النساء",
-      "total_ayahs": 177,
+      "total_ayahs": 176,
       "juz_start": 4,
       "page_start": 77,
       "ayahs": [
@@ -7435,7 +7435,7 @@
     {
       "number": 5,
       "name": "المائدة",
-      "total_ayahs": 121,
+      "total_ayahs": 120,
       "juz_start": 6,
       "page_start": 106,
       "ayahs": [
@@ -8775,7 +8775,7 @@
     {
       "number": 6,
       "name": "الأنعام",
-      "total_ayahs": 166,
+      "total_ayahs": 165,
       "juz_start": 7,
       "page_start": 128,
       "ayahs": [
@@ -10610,7 +10610,7 @@
     {
       "number": 7,
       "name": "الأعراف",
-      "total_ayahs": 207,
+      "total_ayahs": 206,
       "juz_start": 8,
       "page_start": 151,
       "ayahs": [
@@ -12896,7 +12896,7 @@
     {
       "number": 8,
       "name": "الأنفال",
-      "total_ayahs": 76,
+      "total_ayahs": 75,
       "juz_start": 9,
       "page_start": 177,
       "ayahs": [
@@ -15169,7 +15169,7 @@
     {
       "number": 10,
       "name": "يونس",
-      "total_ayahs": 110,
+      "total_ayahs": 109,
       "juz_start": 11,
       "page_start": 208,
       "ayahs": [
@@ -16388,7 +16388,7 @@
     {
       "number": 11,
       "name": "هود",
-      "total_ayahs": 124,
+      "total_ayahs": 123,
       "juz_start": 11,
       "page_start": 221,
       "ayahs": [
@@ -17761,7 +17761,7 @@
     {
       "number": 12,
       "name": "يوسف",
-      "total_ayahs": 112,
+      "total_ayahs": 111,
       "juz_start": 12,
       "page_start": 235,
       "ayahs": [
@@ -19002,7 +19002,7 @@
     {
       "number": 13,
       "name": "الرعد",
-      "total_ayahs": 44,
+      "total_ayahs": 43,
       "juz_start": 13,
       "page_start": 249,
       "ayahs": [
@@ -19495,7 +19495,7 @@
     {
       "number": 14,
       "name": "إبراهيم",
-      "total_ayahs": 53,
+      "total_ayahs": 52,
       "juz_start": 13,
       "page_start": 255,
       "ayahs": [
@@ -20087,7 +20087,7 @@
     {
       "number": 15,
       "name": "الحجر",
-      "total_ayahs": 100,
+      "total_ayahs": 99,
       "juz_start": 14,
       "page_start": 262,
       "ayahs": [
@@ -21196,7 +21196,7 @@
     {
       "number": 16,
       "name": "النحل",
-      "total_ayahs": 129,
+      "total_ayahs": 128,
       "juz_start": 14,
       "page_start": 267,
       "ayahs": [
@@ -22624,7 +22624,7 @@
     {
       "number": 17,
       "name": "الإسراء",
-      "total_ayahs": 112,
+      "total_ayahs": 111,
       "juz_start": 15,
       "page_start": 282,
       "ayahs": [
@@ -23865,7 +23865,7 @@
     {
       "number": 18,
       "name": "الكهف",
-      "total_ayahs": 111,
+      "total_ayahs": 110,
       "juz_start": 15,
       "page_start": 293,
       "ayahs": [
@@ -25095,7 +25095,7 @@
     {
       "number": 19,
       "name": "مريم",
-      "total_ayahs": 99,
+      "total_ayahs": 98,
       "juz_start": 16,
       "page_start": 305,
       "ayahs": [
@@ -26193,7 +26193,7 @@
     {
       "number": 20,
       "name": "طه",
-      "total_ayahs": 136,
+      "total_ayahs": 135,
       "juz_start": 16,
       "page_start": 312,
       "ayahs": [
@@ -27698,7 +27698,7 @@
     {
       "number": 21,
       "name": "الأنبياء",
-      "total_ayahs": 113,
+      "total_ayahs": 112,
       "juz_start": 17,
       "page_start": 322,
       "ayahs": [
@@ -28950,7 +28950,7 @@
     {
       "number": 22,
       "name": "الحج",
-      "total_ayahs": 79,
+      "total_ayahs": 78,
       "juz_start": 17,
       "page_start": 332,
       "ayahs": [
@@ -29828,7 +29828,7 @@
     {
       "number": 23,
       "name": "المؤمنون",
-      "total_ayahs": 119,
+      "total_ayahs": 118,
       "juz_start": 18,
       "page_start": 342,
       "ayahs": [
@@ -31146,7 +31146,7 @@
     {
       "number": 24,
       "name": "النور",
-      "total_ayahs": 65,
+      "total_ayahs": 64,
       "juz_start": 18,
       "page_start": 350,
       "ayahs": [
@@ -31870,7 +31870,7 @@
     {
       "number": 25,
       "name": "الفرقان",
-      "total_ayahs": 78,
+      "total_ayahs": 77,
       "juz_start": 18,
       "page_start": 359,
       "ayahs": [
@@ -32737,7 +32737,7 @@
     {
       "number": 26,
       "name": "الشعراء",
-      "total_ayahs": 228,
+      "total_ayahs": 227,
       "juz_start": 19,
       "page_start": 367,
       "ayahs": [
@@ -35254,7 +35254,7 @@
     {
       "number": 27,
       "name": "النمل",
-      "total_ayahs": 94,
+      "total_ayahs": 93,
       "juz_start": 19,
       "page_start": 377,
       "ayahs": [
@@ -36297,7 +36297,7 @@
     {
       "number": 28,
       "name": "القصص",
-      "total_ayahs": 89,
+      "total_ayahs": 88,
       "juz_start": 20,
       "page_start": 385,
       "ayahs": [
@@ -37285,7 +37285,7 @@
     {
       "number": 29,
       "name": "العنكبوت",
-      "total_ayahs": 70,
+      "total_ayahs": 69,
       "juz_start": 20,
       "page_start": 396,
       "ayahs": [
@@ -38064,7 +38064,7 @@
     {
       "number": 30,
       "name": "الروم",
-      "total_ayahs": 61,
+      "total_ayahs": 60,
       "juz_start": 21,
       "page_start": 404,
       "ayahs": [
@@ -38744,7 +38744,7 @@
     {
       "number": 31,
       "name": "لقمان",
-      "total_ayahs": 35,
+      "total_ayahs": 34,
       "juz_start": 21,
       "page_start": 411,
       "ayahs": [
@@ -39138,7 +39138,7 @@
     {
       "number": 32,
       "name": "السجدة",
-      "total_ayahs": 31,
+      "total_ayahs": 30,
       "juz_start": 21,
       "page_start": 415,
       "ayahs": [
@@ -39488,7 +39488,7 @@
     {
       "number": 33,
       "name": "الأحزاب",
-      "total_ayahs": 74,
+      "total_ayahs": 73,
       "juz_start": 21,
       "page_start": 418,
       "ayahs": [
@@ -40311,7 +40311,7 @@
     {
       "number": 34,
       "name": "سبأ",
-      "total_ayahs": 55,
+      "total_ayahs": 54,
       "juz_start": 22,
       "page_start": 428,
       "ayahs": [
@@ -40925,7 +40925,7 @@
     {
       "number": 35,
       "name": "فاطر",
-      "total_ayahs": 46,
+      "total_ayahs": 45,
       "juz_start": 22,
       "page_start": 434,
       "ayahs": [
@@ -41440,7 +41440,7 @@
     {
       "number": 36,
       "name": "يس",
-      "total_ayahs": 84,
+      "total_ayahs": 83,
       "juz_start": 22,
       "page_start": 440,
       "ayahs": [
@@ -42373,7 +42373,7 @@
     {
       "number": 37,
       "name": "الصافات",
-      "total_ayahs": 183,
+      "total_ayahs": 182,
       "juz_start": 23,
       "page_start": 446,
       "ayahs": [
@@ -44395,7 +44395,7 @@
     {
       "number": 38,
       "name": "ص",
-      "total_ayahs": 89,
+      "total_ayahs": 88,
       "juz_start": 23,
       "page_start": 453,
       "ayahs": [
@@ -45383,7 +45383,7 @@
     {
       "number": 39,
       "name": "الزمر",
-      "total_ayahs": 76,
+      "total_ayahs": 75,
       "juz_start": 23,
       "page_start": 458,
       "ayahs": [
@@ -46228,7 +46228,7 @@
     {
       "number": 40,
       "name": "غافر",
-      "total_ayahs": 86,
+      "total_ayahs": 85,
       "juz_start": 24,
       "page_start": 467,
       "ayahs": [
@@ -47183,7 +47183,7 @@
     {
       "number": 41,
       "name": "فصلت",
-      "total_ayahs": 55,
+      "total_ayahs": 54,
       "juz_start": 24,
       "page_start": 477,
       "ayahs": [
@@ -47797,7 +47797,7 @@
     {
       "number": 42,
       "name": "الشورى",
-      "total_ayahs": 54,
+      "total_ayahs": 53,
       "juz_start": 25,
       "page_start": 483,
       "ayahs": [
@@ -48400,7 +48400,7 @@
     {
       "number": 43,
       "name": "الزخرف",
-      "total_ayahs": 90,
+      "total_ayahs": 89,
       "juz_start": 25,
       "page_start": 489,
       "ayahs": [
@@ -49399,7 +49399,7 @@
     {
       "number": 44,
       "name": "الدخان",
-      "total_ayahs": 60,
+      "total_ayahs": 59,
       "juz_start": 25,
       "page_start": 496,
       "ayahs": [
@@ -50068,7 +50068,7 @@
     {
       "number": 45,
       "name": "الجاثية",
-      "total_ayahs": 38,
+      "total_ayahs": 37,
       "juz_start": 25,
       "page_start": 499,
       "ayahs": [
@@ -50495,7 +50495,7 @@
     {
       "number": 46,
       "name": "الأحقاف",
-      "total_ayahs": 36,
+      "total_ayahs": 35,
       "juz_start": 26,
       "page_start": 502,
       "ayahs": [
@@ -50900,7 +50900,7 @@
     {
       "number": 47,
       "name": "محمد",
-      "total_ayahs": 39,
+      "total_ayahs": 38,
       "juz_start": 26,
       "page_start": 507,
       "ayahs": [
@@ -51338,7 +51338,7 @@
     {
       "number": 48,
       "name": "الفتح",
-      "total_ayahs": 30,
+      "total_ayahs": 29,
       "juz_start": 26,
       "page_start": 511,
       "ayahs": [
@@ -51677,7 +51677,7 @@
     {
       "number": 49,
       "name": "الحجرات",
-      "total_ayahs": 19,
+      "total_ayahs": 18,
       "juz_start": 26,
       "page_start": 515,
       "ayahs": [
@@ -51895,7 +51895,7 @@
     {
       "number": 50,
       "name": "ق",
-      "total_ayahs": 46,
+      "total_ayahs": 45,
       "juz_start": 26,
       "page_start": 518,
       "ayahs": [
@@ -52410,7 +52410,7 @@
     {
       "number": 51,
       "name": "الذاريات",
-      "total_ayahs": 61,
+      "total_ayahs": 60,
       "juz_start": 26,
       "page_start": 520,
       "ayahs": [
@@ -53090,7 +53090,7 @@
     {
       "number": 52,
       "name": "الطور",
-      "total_ayahs": 50,
+      "total_ayahs": 49,
       "juz_start": 27,
       "page_start": 523,
       "ayahs": [
@@ -53649,7 +53649,7 @@
     {
       "number": 53,
       "name": "النجم",
-      "total_ayahs": 63,
+      "total_ayahs": 62,
       "juz_start": 27,
       "page_start": 526,
       "ayahs": [
@@ -54351,7 +54351,7 @@
     {
       "number": 54,
       "name": "القمر",
-      "total_ayahs": 56,
+      "total_ayahs": 55,
       "juz_start": 27,
       "page_start": 528,
       "ayahs": [
@@ -54976,7 +54976,7 @@
     {
       "number": 55,
       "name": "الرحمن",
-      "total_ayahs": 79,
+      "total_ayahs": 78,
       "juz_start": 27,
       "page_start": 531,
       "ayahs": [
@@ -55854,7 +55854,7 @@
     {
       "number": 56,
       "name": "الواقعة",
-      "total_ayahs": 97,
+      "total_ayahs": 96,
       "juz_start": 27,
       "page_start": 534,
       "ayahs": [
@@ -56930,7 +56930,7 @@
     {
       "number": 57,
       "name": "الحديد",
-      "total_ayahs": 30,
+      "total_ayahs": 29,
       "juz_start": 27,
       "page_start": 537,
       "ayahs": [
@@ -57269,7 +57269,7 @@
     {
       "number": 58,
       "name": "المجادلة",
-      "total_ayahs": 23,
+      "total_ayahs": 22,
       "juz_start": 28,
       "page_start": 542,
       "ayahs": [
@@ -57531,7 +57531,7 @@
     {
       "number": 59,
       "name": "الحشر",
-      "total_ayahs": 25,
+      "total_ayahs": 24,
       "juz_start": 28,
       "page_start": 545,
       "ayahs": [
@@ -57815,7 +57815,7 @@
     {
       "number": 60,
       "name": "الممتحنة",
-      "total_ayahs": 14,
+      "total_ayahs": 13,
       "juz_start": 28,
       "page_start": 549,
       "ayahs": [
@@ -57978,7 +57978,7 @@
     {
       "number": 61,
       "name": "الصف",
-      "total_ayahs": 15,
+      "total_ayahs": 14,
       "juz_start": 28,
       "page_start": 551,
       "ayahs": [
@@ -58152,7 +58152,7 @@
     {
       "number": 62,
       "name": "الجمعة",
-      "total_ayahs": 12,
+      "total_ayahs": 11,
       "juz_start": 28,
       "page_start": 553,
       "ayahs": [
@@ -58293,7 +58293,7 @@
     {
       "number": 63,
       "name": "المنافقون",
-      "total_ayahs": 12,
+      "total_ayahs": 11,
       "juz_start": 28,
       "page_start": 554,
       "ayahs": [
@@ -58434,7 +58434,7 @@
     {
       "number": 64,
       "name": "التغابن",
-      "total_ayahs": 19,
+      "total_ayahs": 18,
       "juz_start": 28,
       "page_start": 556,
       "ayahs": [
@@ -58652,7 +58652,7 @@
     {
       "number": 65,
       "name": "الطلاق",
-      "total_ayahs": 13,
+      "total_ayahs": 12,
       "juz_start": 28,
       "page_start": 558,
       "ayahs": [
@@ -58804,7 +58804,7 @@
     {
       "number": 66,
       "name": "التحريم",
-      "total_ayahs": 13,
+      "total_ayahs": 12,
       "juz_start": 28,
       "page_start": 560,
       "ayahs": [
@@ -58956,7 +58956,7 @@
     {
       "number": 67,
       "name": "الملك",
-      "total_ayahs": 31,
+      "total_ayahs": 30,
       "juz_start": 29,
       "page_start": 562,
       "ayahs": [
@@ -59306,7 +59306,7 @@
     {
       "number": 68,
       "name": "القلم",
-      "total_ayahs": 53,
+      "total_ayahs": 52,
       "juz_start": 29,
       "page_start": 564,
       "ayahs": [
@@ -59898,7 +59898,7 @@
     {
       "number": 69,
       "name": "الحاقة",
-      "total_ayahs": 53,
+      "total_ayahs": 52,
       "juz_start": 29,
       "page_start": 566,
       "ayahs": [
@@ -60490,7 +60490,7 @@
     {
       "number": 70,
       "name": "المعارج",
-      "total_ayahs": 45,
+      "total_ayahs": 44,
       "juz_start": 29,
       "page_start": 568,
       "ayahs": [
@@ -60994,7 +60994,7 @@
     {
       "number": 71,
       "name": "نوح",
-      "total_ayahs": 29,
+      "total_ayahs": 28,
       "juz_start": 29,
       "page_start": 570,
       "ayahs": [
@@ -61322,7 +61322,7 @@
     {
       "number": 72,
       "name": "الجن",
-      "total_ayahs": 29,
+      "total_ayahs": 28,
       "juz_start": 29,
       "page_start": 572,
       "ayahs": [
@@ -61650,7 +61650,7 @@
     {
       "number": 73,
       "name": "المزمل",
-      "total_ayahs": 21,
+      "total_ayahs": 20,
       "juz_start": 29,
       "page_start": 574,
       "ayahs": [
@@ -61890,7 +61890,7 @@
     {
       "number": 74,
       "name": "المدثر",
-      "total_ayahs": 57,
+      "total_ayahs": 56,
       "juz_start": 29,
       "page_start": 575,
       "ayahs": [
@@ -62526,7 +62526,7 @@
     {
       "number": 75,
       "name": "القيامة",
-      "total_ayahs": 41,
+      "total_ayahs": 40,
       "juz_start": 29,
       "page_start": 577,
       "ayahs": [
@@ -62986,7 +62986,7 @@
     {
       "number": 76,
       "name": "الإنسان",
-      "total_ayahs": 32,
+      "total_ayahs": 31,
       "juz_start": 29,
       "page_start": 578,
       "ayahs": [
@@ -63347,7 +63347,7 @@
     {
       "number": 77,
       "name": "المرسلات",
-      "total_ayahs": 51,
+      "total_ayahs": 50,
       "juz_start": 29,
       "page_start": 580,
       "ayahs": [
@@ -63917,7 +63917,7 @@
     {
       "number": 78,
       "name": "النبأ",
-      "total_ayahs": 41,
+      "total_ayahs": 40,
       "juz_start": 30,
       "page_start": 582,
       "ayahs": [
@@ -64377,7 +64377,7 @@
     {
       "number": 79,
       "name": "النازعات",
-      "total_ayahs": 47,
+      "total_ayahs": 46,
       "juz_start": 30,
       "page_start": 583,
       "ayahs": [
@@ -64903,7 +64903,7 @@
     {
       "number": 80,
       "name": "عبس",
-      "total_ayahs": 43,
+      "total_ayahs": 42,
       "juz_start": 30,
       "page_start": 585,
       "ayahs": [
@@ -65385,7 +65385,7 @@
     {
       "number": 81,
       "name": "التكوير",
-      "total_ayahs": 30,
+      "total_ayahs": 29,
       "juz_start": 30,
       "page_start": 586,
       "ayahs": [
@@ -65724,7 +65724,7 @@
     {
       "number": 82,
       "name": "الانفطار",
-      "total_ayahs": 20,
+      "total_ayahs": 19,
       "juz_start": 30,
       "page_start": 587,
       "ayahs": [
@@ -65953,7 +65953,7 @@
     {
       "number": 83,
       "name": "المطففين",
-      "total_ayahs": 37,
+      "total_ayahs": 36,
       "juz_start": 30,
       "page_start": 587,
       "ayahs": [
@@ -66369,7 +66369,7 @@
     {
       "number": 84,
       "name": "الانشقاق",
-      "total_ayahs": 26,
+      "total_ayahs": 25,
       "juz_start": 30,
       "page_start": 589,
       "ayahs": [
@@ -66664,7 +66664,7 @@
     {
       "number": 85,
       "name": "البروج",
-      "total_ayahs": 23,
+      "total_ayahs": 22,
       "juz_start": 30,
       "page_start": 590,
       "ayahs": [
@@ -66926,7 +66926,7 @@
     {
       "number": 86,
       "name": "الطارق",
-      "total_ayahs": 18,
+      "total_ayahs": 17,
       "juz_start": 30,
       "page_start": 591,
       "ayahs": [
@@ -67133,7 +67133,7 @@
     {
       "number": 87,
       "name": "الأعلى",
-      "total_ayahs": 20,
+      "total_ayahs": 19,
       "juz_start": 30,
       "page_start": 591,
       "ayahs": [
@@ -67362,7 +67362,7 @@
     {
       "number": 88,
       "name": "الغاشية",
-      "total_ayahs": 27,
+      "total_ayahs": 26,
       "juz_start": 30,
       "page_start": 592,
       "ayahs": [
@@ -67668,7 +67668,7 @@
     {
       "number": 89,
       "name": "الفجر",
-      "total_ayahs": 31,
+      "total_ayahs": 30,
       "juz_start": 30,
       "page_start": 593,
       "ayahs": [
@@ -68018,7 +68018,7 @@
     {
       "number": 90,
       "name": "البلد",
-      "total_ayahs": 21,
+      "total_ayahs": 20,
       "juz_start": 30,
       "page_start": 594,
       "ayahs": [
@@ -68258,7 +68258,7 @@
     {
       "number": 91,
       "name": "الشمس",
-      "total_ayahs": 16,
+      "total_ayahs": 15,
       "juz_start": 30,
       "page_start": 595,
       "ayahs": [
@@ -68443,7 +68443,7 @@
     {
       "number": 92,
       "name": "الليل",
-      "total_ayahs": 22,
+      "total_ayahs": 21,
       "juz_start": 30,
       "page_start": 595,
       "ayahs": [
@@ -68694,7 +68694,7 @@
     {
       "number": 93,
       "name": "الضحى",
-      "total_ayahs": 12,
+      "total_ayahs": 11,
       "juz_start": 30,
       "page_start": 596,
       "ayahs": [
@@ -68835,7 +68835,7 @@
     {
       "number": 94,
       "name": "الشرح",
-      "total_ayahs": 9,
+      "total_ayahs": 8,
       "juz_start": 30,
       "page_start": 596,
       "ayahs": [
@@ -68943,7 +68943,7 @@
     {
       "number": 95,
       "name": "التين",
-      "total_ayahs": 9,
+      "total_ayahs": 8,
       "juz_start": 30,
       "page_start": 597,
       "ayahs": [
@@ -69051,7 +69051,7 @@
     {
       "number": 96,
       "name": "العلق",
-      "total_ayahs": 20,
+      "total_ayahs": 19,
       "juz_start": 30,
       "page_start": 597,
       "ayahs": [
@@ -69280,7 +69280,7 @@
     {
       "number": 97,
       "name": "القدر",
-      "total_ayahs": 6,
+      "total_ayahs": 5,
       "juz_start": 30,
       "page_start": 598,
       "ayahs": [
@@ -69355,7 +69355,7 @@
     {
       "number": 98,
       "name": "البينة",
-      "total_ayahs": 9,
+      "total_ayahs": 8,
       "juz_start": 30,
       "page_start": 598,
       "ayahs": [
@@ -69463,7 +69463,7 @@
     {
       "number": 99,
       "name": "الزلزلة",
-      "total_ayahs": 9,
+      "total_ayahs": 8,
       "juz_start": 30,
       "page_start": 599,
       "ayahs": [
@@ -69571,7 +69571,7 @@
     {
       "number": 100,
       "name": "العاديات",
-      "total_ayahs": 12,
+      "total_ayahs": 11,
       "juz_start": 30,
       "page_start": 599,
       "ayahs": [
@@ -69712,7 +69712,7 @@
     {
       "number": 101,
       "name": "القارعة",
-      "total_ayahs": 12,
+      "total_ayahs": 11,
       "juz_start": 30,
       "page_start": 600,
       "ayahs": [
@@ -69853,7 +69853,7 @@
     {
       "number": 102,
       "name": "التكاثر",
-      "total_ayahs": 9,
+      "total_ayahs": 8,
       "juz_start": 30,
       "page_start": 600,
       "ayahs": [
@@ -69961,7 +69961,7 @@
     {
       "number": 103,
       "name": "العصر",
-      "total_ayahs": 4,
+      "total_ayahs": 3,
       "juz_start": 30,
       "page_start": 601,
       "ayahs": [
@@ -70014,7 +70014,7 @@
     {
       "number": 104,
       "name": "الهمزة",
-      "total_ayahs": 10,
+      "total_ayahs": 9,
       "juz_start": 30,
       "page_start": 601,
       "ayahs": [
@@ -70133,7 +70133,7 @@
     {
       "number": 105,
       "name": "الفيل",
-      "total_ayahs": 6,
+      "total_ayahs": 5,
       "juz_start": 30,
       "page_start": 601,
       "ayahs": [
@@ -70208,7 +70208,7 @@
     {
       "number": 106,
       "name": "قريش",
-      "total_ayahs": 5,
+      "total_ayahs": 4,
       "juz_start": 30,
       "page_start": 602,
       "ayahs": [
@@ -70272,7 +70272,7 @@
     {
       "number": 107,
       "name": "الماعون",
-      "total_ayahs": 8,
+      "total_ayahs": 7,
       "juz_start": 30,
       "page_start": 602,
       "ayahs": [
@@ -70369,7 +70369,7 @@
     {
       "number": 108,
       "name": "الكوثر",
-      "total_ayahs": 4,
+      "total_ayahs": 3,
       "juz_start": 30,
       "page_start": 602,
       "ayahs": [
@@ -70422,7 +70422,7 @@
     {
       "number": 109,
       "name": "الكافرون",
-      "total_ayahs": 7,
+      "total_ayahs": 6,
       "juz_start": 30,
       "page_start": 603,
       "ayahs": [
@@ -70508,7 +70508,7 @@
     {
       "number": 110,
       "name": "النصر",
-      "total_ayahs": 4,
+      "total_ayahs": 3,
       "juz_start": 30,
       "page_start": 603,
       "ayahs": [
@@ -70561,7 +70561,7 @@
     {
       "number": 111,
       "name": "المسد",
-      "total_ayahs": 6,
+      "total_ayahs": 5,
       "juz_start": 30,
       "page_start": 603,
       "ayahs": [
@@ -70636,7 +70636,7 @@
     {
       "number": 112,
       "name": "الإخلاص",
-      "total_ayahs": 5,
+      "total_ayahs": 4,
       "juz_start": 30,
       "page_start": 604,
       "ayahs": [
@@ -70700,7 +70700,7 @@
     {
       "number": 113,
       "name": "الفلق",
-      "total_ayahs": 6,
+      "total_ayahs": 5,
       "juz_start": 30,
       "page_start": 604,
       "ayahs": [
@@ -70775,7 +70775,7 @@
     {
       "number": 114,
       "name": "الناس",
-      "total_ayahs": 7,
+      "total_ayahs": 6,
       "juz_start": 30,
       "page_start": 604,
       "ayahs": [

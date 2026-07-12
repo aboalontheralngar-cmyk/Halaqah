@@ -160,7 +160,14 @@ class _AddPointScreenState extends State<AddPointScreen> {
               ),
               hint: const Text('اختر طالباً'),
               items: _students.map((student) {
-                return DropdownMenuItem(value: student, child: Text(student.name));
+                final guardian = student.guardianPhone.trim();
+                final identity = guardian.isEmpty
+                    ? student.name
+                    : '${student.name} — ولي الأمر ${_maskedPhone(guardian)}';
+                return DropdownMenuItem(
+                  value: student,
+                  child: Text(identity, overflow: TextOverflow.ellipsis),
+                );
               }).toList(),
               onChanged: (student) => setState(() => _selectedStudent = student),
               validator: (value) => value == null ? 'يرجى اختيار طالب' : null,
@@ -184,12 +191,22 @@ class _AddPointScreenState extends State<AddPointScreen> {
           ),
         ),
         title: Text(student.name, style: const TextStyle(fontWeight: FontWeight.bold)),
-        subtitle: FutureBuilder<int>(
-          future: _db.getStudentTotalPoints(student.id),
-          builder: (context, snapshot) {
-            final points = snapshot.data ?? 0;
-            return Text('الرصيد الحالي: $points نقطة');
-          },
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              student.guardianPhone.trim().isEmpty
+                  ? 'رقم ولي الأمر غير مسجل'
+                  : 'ولي الأمر: ${_maskedPhone(student.guardianPhone)}',
+            ),
+            FutureBuilder<int>(
+              future: _db.getStudentTotalPoints(student.id),
+              builder: (context, snapshot) {
+                final points = snapshot.data ?? 0;
+                return Text('الرصيد الحالي: $points نقطة');
+              },
+            ),
+          ],
         ),
       ),
     );
@@ -435,6 +452,7 @@ class _AddPointScreenState extends State<AddPointScreen> {
   }
 
   Future<void> _savePoint() async {
+    if (!_formKey.currentState!.validate()) return;
     if (_selectedStudent == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('يرجى اختيار طالب')),
@@ -456,10 +474,52 @@ class _AddPointScreenState extends State<AddPointScreen> {
       return;
     }
 
+    final selectedReason = _currentReasons.firstWhere(
+      (reason) => reason.id == _selectedReason,
+    );
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('تأكيد إسناد النقاط'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('الطالب: ${_selectedStudent!.name}'),
+            Text(
+              _selectedStudent!.guardianPhone.trim().isEmpty
+                  ? 'ولي الأمر: غير مسجل'
+                  : 'ولي الأمر: ${_maskedPhone(_selectedStudent!.guardianPhone)}',
+            ),
+            const SizedBox(height: 8),
+            Text('السبب: ${selectedReason.label}'),
+            const SizedBox(height: 8),
+            Text(
+              'القيمة: ${_selectedPoints > 0 ? '+' : ''}$_selectedPoints نقطة',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                color: _selectedPoints >= 0 ? Colors.green : Colors.red,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('رجوع'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('تأكيد وحفظ'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
     setState(() => _isSaving = true);
 
     try {
-      final reason = _currentReasons.firstWhere((r) => r.id == _selectedReason);
       // المخالفات المستمرة (تبقى قائمة حتى يُعدّلها الطالب): المظهر/الحلاقة وعدم لبس الثوب
       final isAppearanceViolation =
           _selectedReason == 'appearance_violation' || _selectedReason == 'no_thobe';
@@ -467,7 +527,7 @@ class _AddPointScreenState extends State<AddPointScreen> {
       final point = BehaviorPoint(
         studentId: _selectedStudent!.id,
         type: _isPositive ? 'positive' : 'negative',
-        reason: reason.label,
+        reason: selectedReason.label,
         points: _selectedPoints,
         date: DateTime.now(),
         resolved: !isAppearanceViolation,
@@ -493,6 +553,12 @@ class _AddPointScreenState extends State<AddPointScreen> {
         );
       }
     }
+  }
+
+  String _maskedPhone(String value) {
+    final normalized = value.replaceAll(RegExp(r'\s+'), '');
+    if (normalized.length <= 4) return normalized;
+    return '••••${normalized.substring(normalized.length - 4)}';
   }
 }
 

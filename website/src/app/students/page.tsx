@@ -1,31 +1,28 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { 
   Search, 
   Plus, 
   Edit2, 
-  Trash2, 
-  Phone, 
-  User, 
   Calendar, 
   Filter, 
   X, 
-  Save, 
   GraduationCap,
   LayoutGrid,
   List as ListIcon,
   QrCode,
-  Download,
   Target,
-  Camera,
   CircleCheck,
   CircleDashed,
   Map,
-  History
+  History,
+  Archive,
+  RotateCcw
 } from "lucide-react";
 import { useStore, Student } from "@/store/useStore";
 import { QRCodeSVG } from "qrcode.react";
+import { encodeStudentQr } from "@/lib/studentQr";
 import MushafVisualizer from "@/components/MushafVisualizer";
 import { quranService } from "@/services/quranService";
 
@@ -41,10 +38,8 @@ export default function StudentsPage() {
     students, 
     addStudent, 
     updateStudent, 
-    deleteStudent, 
-    loading, 
+    changeStudentStatus,
     homeworkGrades, 
-    fetchHomeworkGrades,
     attendance,
     fetchCenterData
   } = useStore();
@@ -56,6 +51,11 @@ export default function StudentsPage() {
   const [visualizingStudent, setVisualizingStudent] = useState<Student | null>(null);
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
+  const [statusView, setStatusView] = useState<"current" | "archive">("current");
+  const [statusStudent, setStatusStudent] = useState<Student | null>(null);
+  const [archiveStatus, setArchiveStatus] = useState<Student['status']>('expelled');
+  const [statusReason, setStatusReason] = useState('');
+  const [statusNotes, setStatusNotes] = useState('');
 
   useEffect(() => {
     fetchCenterData();
@@ -65,7 +65,7 @@ export default function StudentsPage() {
   const [timelineStudent, setTimelineStudent] = useState<Student | null>(null);
   const [sortByLeftOut, setSortByLeftOut] = useState(false);
 
-  const checkDidNotReciteLastClass = (studentId: string) => {
+  const checkDidNotReciteLastClass = useCallback((studentId: string) => {
     const studentAtt = attendance
       .filter(a => a.studentId === studentId && (a.status === 'present' || a.status === 'late'))
       .sort((a, b) => b.date.localeCompare(a.date));
@@ -74,7 +74,7 @@ export default function StudentsPage() {
     const lastAttendedDate = studentAtt[0].date;
     const hasRecited = homeworkGrades.some(g => g.studentId === studentId && g.date === lastAttendedDate && g.gradeMark !== 'absent');
     return !hasRecited;
-  };
+  }, [attendance, homeworkGrades]);
 
   const getStudentStats = (studentId: string) => {
     const studentGrades = homeworkGrades.filter(g => g.studentId === studentId && g.gradeMark !== 'absent');
@@ -182,7 +182,9 @@ export default function StudentsPage() {
     let result = students.filter(s => {
       const matchSearch = s.name.includes(search) || s.phone.includes(search);
       const matchLevel = selectedLevel === "الكل" || s.level === selectedLevel;
-      return matchSearch && matchLevel;
+      const archived = ['expelled', 'graduated', 'inactive'].includes(s.status);
+      const matchStatus = statusView === 'archive' ? archived : !archived;
+      return matchSearch && matchLevel && matchStatus;
     });
 
     if (sortByLeftOut) {
@@ -194,7 +196,7 @@ export default function StudentsPage() {
     }
 
     return result;
-  }, [students, search, selectedLevel, sortByLeftOut, attendance, homeworkGrades]);
+  }, [students, search, selectedLevel, statusView, sortByLeftOut, checkDidNotReciteLastClass]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -234,10 +236,23 @@ export default function StudentsPage() {
     setShowForm(true);
   };
 
-  const handleDelete = async (id: string) => {
-    if (confirm("هل أنت متأكد من حذف هذا الطالب؟ سيتم حذف جميع بياناته بشكل نهائي.")) {
-      await deleteStudent(id);
-    }
+  const openStatusDialog = (student: Student) => {
+    const archived = ['expelled', 'graduated', 'inactive'].includes(student.status);
+    setStatusStudent(student);
+    setArchiveStatus(archived ? 'active' : 'expelled');
+    setStatusReason('');
+    setStatusNotes('');
+  };
+
+  const submitStatusChange = async () => {
+    if (!statusStudent || !statusReason.trim()) return;
+    await changeStudentStatus(
+      statusStudent.id,
+      archiveStatus,
+      statusReason.trim(),
+      statusNotes.trim() || undefined
+    );
+    setStatusStudent(null);
   };
 
   return (
@@ -248,14 +263,33 @@ export default function StudentsPage() {
           <h1 className="text-3xl font-black text-gray-900 dark:text-white tracking-tight">إدارة شؤون الطلاب 👨‍🎓</h1>
           <p className="text-gray-500 dark:text-gray-400 mt-2 font-medium">متابعة دقيقة لبيانات الطلاب وخطط حفظهم اليومية.</p>
         </div>
-        <button 
-          onClick={() => { setShowForm(true); setEditingStudent(null); }}
-          className="bg-teal-600 text-white px-8 py-4 rounded-3xl font-black text-sm hover:bg-teal-700 shadow-xl shadow-teal-100 dark:shadow-none transition-all flex items-center justify-center gap-2 group"
-        >
-          <Plus className="w-5 h-5 group-hover:rotate-90 transition-transform" />
-          إضافة طالب جديد
-        </button>
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            onClick={() => setStatusView(statusView === 'current' ? 'archive' : 'current')}
+            className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 px-5 py-4 rounded-3xl font-black text-sm text-gray-600 dark:text-gray-300 flex items-center gap-2"
+          >
+            {statusView === 'current' ? <Archive className="w-5 h-5" /> : <RotateCcw className="w-5 h-5" />}
+            {statusView === 'current'
+              ? `الأرشيف (${students.filter(s => ['expelled','graduated','inactive'].includes(s.status)).length})`
+              : 'العودة للطلاب الحاليين'}
+          </button>
+          {statusView === 'current' && (
+            <button
+              onClick={() => { setShowForm(true); setEditingStudent(null); }}
+              className="bg-teal-600 text-white px-8 py-4 rounded-3xl font-black text-sm hover:bg-teal-700 shadow-xl shadow-teal-100 dark:shadow-none transition-all flex items-center justify-center gap-2 group"
+            >
+              <Plus className="w-5 h-5 group-hover:rotate-90 transition-transform" />
+              إضافة طالب جديد
+            </button>
+          )}
+        </div>
       </div>
+
+      {statusView === 'archive' && (
+        <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900 rounded-3xl px-6 py-4 text-sm font-bold text-amber-800 dark:text-amber-300">
+          بيانات الطلاب المؤرشفين محفوظة بالكامل، ويمكن إعادة تفعيل الطالب مع توثيق السبب دون حذف سجله.
+        </div>
+      )}
 
       {/* Filters Bar */}
       <div className="bg-white/60 dark:bg-gray-900/60 backdrop-blur-md rounded-[2.5rem] border border-white dark:border-gray-800 p-6 shadow-xl shadow-gray-200/30 dark:shadow-none flex flex-col lg:flex-row gap-6 items-center">
@@ -338,7 +372,7 @@ export default function StudentsPage() {
               <div>
                 <h4 className="text-xl font-black text-gray-900 dark:text-white group-hover:text-teal-600 transition-colors flex flex-wrap items-center gap-2 justify-center md:justify-start">
                   {student.name}
-                  {checkDidNotReciteLastClass(student.id) && (
+                  {statusView === 'current' && checkDidNotReciteLastClass(student.id) && (
                     <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-amber-50 dark:bg-amber-950/20 text-amber-700 dark:text-amber-400 rounded-lg text-[9px] font-black border border-amber-100/30">
                       ⚠️ لم يُسمّع
                     </span>
@@ -382,7 +416,17 @@ export default function StudentsPage() {
               </button>
               <button onClick={() => setShowQR(student)} className="w-12 h-12 bg-amber-50 dark:bg-amber-900/20 text-amber-600 rounded-2xl flex items-center justify-center hover:bg-amber-600 hover:text-white transition-all"><QrCode className="w-5 h-5" /></button>
               <button onClick={() => handleEdit(student)} className="w-12 h-12 bg-blue-50 dark:bg-blue-900/20 text-blue-600 rounded-2xl flex items-center justify-center hover:bg-blue-600 hover:text-white transition-all"><Edit2 className="w-5 h-5" /></button>
-              <button onClick={() => handleDelete(student.id)} className="w-12 h-12 bg-rose-50 dark:bg-rose-900/20 text-rose-600 rounded-2xl flex items-center justify-center hover:bg-rose-600 hover:text-white transition-all"><Trash2 className="w-5 h-5" /></button>
+              <button
+                onClick={() => openStatusDialog(student)}
+                className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-all ${
+                  statusView === 'archive'
+                    ? 'bg-green-50 dark:bg-green-900/20 text-green-600 hover:bg-green-600 hover:text-white'
+                    : 'bg-rose-50 dark:bg-rose-900/20 text-rose-600 hover:bg-rose-600 hover:text-white'
+                }`}
+                title={statusView === 'archive' ? 'إعادة تفعيل الطالب' : 'نقل إلى الأرشيف'}
+              >
+                {statusView === 'archive' ? <RotateCcw className="w-5 h-5" /> : <Archive className="w-5 h-5" />}
+              </button>
             </div>
           </div>
         ))}
@@ -630,11 +674,66 @@ export default function StudentsPage() {
         </div>
       )}
 
+      {statusStudent && (
+        <div className="fixed inset-0 bg-gray-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-gray-900 rounded-[2.5rem] p-8 w-full max-w-lg shadow-2xl">
+            <div className="flex items-start justify-between gap-4 mb-6">
+              <div>
+                <h3 className="text-2xl font-black text-gray-900 dark:text-white">
+                  {archiveStatus === 'active' ? 'إعادة تفعيل الطالب' : 'نقل الطالب إلى الأرشيف'}
+                </h3>
+                <p className="text-sm text-gray-500 mt-2 font-bold">{statusStudent.name}</p>
+              </div>
+              <button onClick={() => setStatusStudent(null)} className="p-2 text-gray-400"><X className="w-5 h-5" /></button>
+            </div>
+
+            <div className="space-y-5">
+              {archiveStatus !== 'active' && (
+                <select
+                  value={archiveStatus}
+                  onChange={e => setArchiveStatus(e.target.value as Student['status'])}
+                  className="w-full bg-gray-50 dark:bg-gray-800 rounded-2xl px-5 py-4 font-bold outline-none"
+                >
+                  <option value="expelled">مفصول</option>
+                  <option value="graduated">متخرج/خاتم</option>
+                  <option value="inactive">طالب سابق</option>
+                </select>
+              )}
+              <textarea
+                value={statusReason}
+                onChange={e => setStatusReason(e.target.value)}
+                placeholder={archiveStatus === 'active' ? 'سبب إعادة التفعيل (إلزامي)' : 'سبب الأرشفة (إلزامي)'}
+                rows={3}
+                className="w-full bg-gray-50 dark:bg-gray-800 rounded-2xl px-5 py-4 font-bold outline-none resize-none"
+              />
+              <textarea
+                value={statusNotes}
+                onChange={e => setStatusNotes(e.target.value)}
+                placeholder="ملاحظات إضافية (اختياري)"
+                rows={2}
+                className="w-full bg-gray-50 dark:bg-gray-800 rounded-2xl px-5 py-4 font-bold outline-none resize-none"
+              />
+              <div className="bg-amber-50 dark:bg-amber-950/20 rounded-2xl p-4 text-xs font-bold text-amber-800 dark:text-amber-300">
+                لن تُحذف بيانات الطالب أو تقاريره، وسيُحفظ سبب تغيير الحالة في سجل التدقيق.
+              </div>
+              <button
+                type="button"
+                disabled={!statusReason.trim()}
+                onClick={submitStatusChange}
+                className="w-full py-4 bg-teal-600 text-white rounded-2xl font-black disabled:opacity-40"
+              >
+                تأكيد وحفظ السبب
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* QR Modal Placeholder (Same as before but with Dark Mode support) */}
       {showQR && (
         <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-md flex items-center justify-center z-50 p-4" onClick={() => setShowQR(null)}>
           <div className="bg-white dark:bg-gray-900 rounded-[3rem] p-10 w-full max-w-sm text-center relative" onClick={e => e.stopPropagation()}>
-            <QRCodeSVG value={showQR.id} size={200} className="mx-auto mb-6 p-4 bg-white rounded-3xl border-4 border-teal-500/20" />
+            <QRCodeSVG value={encodeStudentQr(showQR.qrCode || showQR.id)} size={200} className="mx-auto mb-6 p-4 bg-white rounded-3xl border-4 border-teal-500/20" />
             <h3 className="text-xl font-black text-gray-900 dark:text-white">{showQR.name}</h3>
             <p className="text-xs font-bold text-gray-400 mt-2">كود الحضور الذكي</p>
           </div>

@@ -6,7 +6,17 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "validate:quran": "node scripts/validate-quran-data.mjs",
+    "validate:security": "node scripts/validate-security-migration.mjs",
+    "validate:reports": "node scripts/validate-period-reports.mjs",
+    "validate:discipline": "node scripts/validate-discipline-contract.mjs",
+    "validate:recitation": "node scripts/validate-recitation-records.mjs",
+    "validate:plans": "node scripts/validate-smart-plans.mjs",
+    "validate:open-recitation": "node scripts/validate-open-recitation.mjs",
+    "validate:revision": "node scripts/validate-revision-continuity.mjs",
+    "validate:backup-settings": "node scripts/validate-backup-settings.mjs",
+    "validate:student-archive-behavior": "node scripts/validate-student-archive-behavior.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.105.1",

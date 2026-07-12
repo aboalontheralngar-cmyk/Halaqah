@@ -16,6 +16,16 @@ export interface Surah {
   ayahs: Ayah[];
 }
 
+interface QuranDataFile {
+  surahs?: RawSurah[];
+}
+
+interface RawSurah {
+  number: number;
+  name: string;
+  ayahs?: Ayah[];
+}
+
 class QuranService {
   private static instance: QuranService;
   private surahs: Surah[] = [];
@@ -34,12 +44,19 @@ class QuranService {
     if (this.isLoaded) return;
     try {
       const response = await fetch('/quran_data.json');
-      const data = await response.json();
-      this.surahs = (data.surahs as any[]).map(s => ({
+      const data = (await response.json()) as QuranDataFile;
+      this.surahs = (data.surahs ?? []).map(s => ({
         number: s.number,
         name: s.name,
-        totalAyahs: s.total_ayahs || s.ayahs?.length || 0,
-        ayahs: (s.ayahs as any[] | undefined)?.map(a => ({
+        // Basmala rows are stored as ayah number 0 in most surahs. They are
+        // display content, not part of the numbered ayah range.
+        totalAyahs: Math.max(
+          0,
+          ...(s.ayahs ?? [])
+            .map(a => Number(a.number) || 0)
+            .filter(number => number > 0),
+        ),
+        ayahs: s.ayahs?.map(a => ({
           number: a.number,
           page: a.page,
           text: a.text,

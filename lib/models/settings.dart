@@ -47,6 +47,11 @@ class HalaqahSettings {
 
   // أيام العطلة الأسبوعية (تُعتبر معطّلة تلقائياً). تستخدم ترقيم DateTime.weekday: الإثنين=1 ... الأحد=7، الجمعة=5.
   List<int> holidayWeekdays;
+  bool backupReminderEnabled;
+  int backupReminderIntervalDays;
+  bool automaticBackupEnabled;
+  int automaticBackupHour;
+  int automaticBackupRetentionCount;
 
   HalaqahSettings({
     this.halaqahName = 'حلقتي',
@@ -62,7 +67,7 @@ class HalaqahSettings {
     this.absenceDaysBeforeExpulsion = 7,
     this.autoExpulsionEnabled = false,
     this.useHijriCalendar = true,
-    this.theme = 'light',
+    this.theme = 'system',
     this.fontSize = 16,
     this.revisionOrder = 'ascending',
     this.currencySymbol = 'ر.س',
@@ -85,6 +90,11 @@ class HalaqahSettings {
     this.ramadanFixedEndTime = '22:30',
     Map<String, int>? pointsConfig,
     List<int>? holidayWeekdays,
+    this.backupReminderEnabled = true,
+    this.backupReminderIntervalDays = 3,
+    this.automaticBackupEnabled = true,
+    this.automaticBackupHour = 2,
+    this.automaticBackupRetentionCount = 14,
   })  : pointsConfig = pointsConfig ?? Map<String, int>.from(defaultPointsConfig),
         holidayWeekdays = holidayWeekdays ?? [5];
 
@@ -141,6 +151,11 @@ class HalaqahSettings {
             .map((e) => '${e.key}:${e.value}')
             .join(','),
         'holiday_weekdays': holidayWeekdays.join(','),
+        'backup_reminder_enabled': backupReminderEnabled ? 1 : 0,
+        'backup_reminder_interval_days': backupReminderIntervalDays,
+        'automatic_backup_enabled': automaticBackupEnabled ? 1 : 0,
+        'automatic_backup_hour': automaticBackupHour,
+        'automatic_backup_retention_count': automaticBackupRetentionCount,
       };
 
   factory HalaqahSettings.fromMap(Map<String, dynamic> map) {
@@ -198,7 +213,9 @@ class HalaqahSettings {
       absenceDaysBeforeExpulsion: parseInt(map['absence_days_expulsion'], 7),
       autoExpulsionEnabled: parseBool(map['auto_expulsion_enabled'], false),
       useHijriCalendar: parseBool(map['use_hijri_calendar'], true),
-      theme: map['theme'] ?? 'light',
+      theme: const {'system', 'light', 'dark'}.contains(map['theme'])
+          ? map['theme']
+          : 'system',
       fontSize: parseInt(map['font_size'], 16),
       revisionOrder: map['revision_order'] ?? 'ascending',
       currencySymbol: map['currency_symbol'] ?? 'ر.س',
@@ -221,6 +238,15 @@ class HalaqahSettings {
       ramadanFixedEndTime: map['ramadan_fixed_end_time'] ?? '22:30',
       pointsConfig: points.isEmpty ? null : points,
       holidayWeekdays: holidayDays,
+      backupReminderEnabled:
+          parseBool(map['backup_reminder_enabled'], true),
+      backupReminderIntervalDays:
+          parseInt(map['backup_reminder_interval_days'], 3),
+      automaticBackupEnabled:
+          parseBool(map['automatic_backup_enabled'], true),
+      automaticBackupHour: parseInt(map['automatic_backup_hour'], 2),
+      automaticBackupRetentionCount:
+          parseInt(map['automatic_backup_retention_count'], 14),
     );
   }
 
@@ -261,6 +287,11 @@ class HalaqahSettings {
     String? ramadanFixedEndTime,
     Map<String, int>? pointsConfig,
     List<int>? holidayWeekdays,
+    bool? backupReminderEnabled,
+    int? backupReminderIntervalDays,
+    bool? automaticBackupEnabled,
+    int? automaticBackupHour,
+    int? automaticBackupRetentionCount,
   }) {
     return HalaqahSettings(
       halaqahName: halaqahName ?? this.halaqahName,
@@ -301,6 +332,16 @@ class HalaqahSettings {
       ramadanFixedEndTime: ramadanFixedEndTime ?? this.ramadanFixedEndTime,
       pointsConfig: pointsConfig ?? this.pointsConfig,
       holidayWeekdays: holidayWeekdays ?? this.holidayWeekdays,
+      backupReminderEnabled:
+          backupReminderEnabled ?? this.backupReminderEnabled,
+      backupReminderIntervalDays:
+          backupReminderIntervalDays ?? this.backupReminderIntervalDays,
+      automaticBackupEnabled:
+          automaticBackupEnabled ?? this.automaticBackupEnabled,
+      automaticBackupHour:
+          automaticBackupHour ?? this.automaticBackupHour,
+      automaticBackupRetentionCount: automaticBackupRetentionCount ??
+          this.automaticBackupRetentionCount,
     );
   }
 

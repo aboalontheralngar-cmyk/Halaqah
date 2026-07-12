@@ -19,6 +19,8 @@ class _StudentRaffleScreenState extends State<StudentRaffleScreen> with SingleTi
   final DatabaseService _db = DatabaseService();
   List<Student> _students = [];
   List<Student> _excludedStudents = [];
+  Set<String> _absentStudentIds = {};
+  bool _excludeAbsent = true;
   bool _isLoading = true;
 
   Student? _selectedStudent;
@@ -55,13 +57,25 @@ class _StudentRaffleScreenState extends State<StudentRaffleScreen> with SingleTi
     setState(() => _isLoading = true);
     try {
       final list = await _db.getStudents(status: 'active');
+      final todayRecords = await _db.getDailyRecordsForDate(DateTime.now());
       final prefs = await SharedPreferences.getInstance();
       final excludedIds = prefs.getStringList('raffle_excluded_ids') ?? [];
       final selectedId = prefs.getString('raffle_selected_id');
+      final excludeAbsent = prefs.getBool('raffle_exclude_absent') ?? true;
+      final pendingWinnerId = prefs.getString('raffle_pending_winner_id');
+      final pendingFinishText = prefs.getString('raffle_pending_finish_at');
+      final pendingFinish = pendingFinishText == null
+          ? null
+          : DateTime.tryParse(pendingFinishText);
       
       setState(() {
         _students = list;
         _excludedStudents = list.where((s) => excludedIds.contains(s.id)).toList();
+        _absentStudentIds = todayRecords
+            .where((record) => record.attendance == 'absent')
+            .map((record) => record.studentId)
+            .toSet();
+        _excludeAbsent = excludeAbsent;
         if (selectedId != null && selectedId.isNotEmpty) {
           _selectedStudent = list.cast<Student?>().firstWhere(
             (s) => s?.id == selectedId,
@@ -70,6 +84,16 @@ class _StudentRaffleScreenState extends State<StudentRaffleScreen> with SingleTi
         }
         _isLoading = false;
       });
+
+      final pendingWinner = pendingWinnerId == null
+          ? null
+          : list.cast<Student?>().firstWhere(
+              (student) => student?.id == pendingWinnerId,
+              orElse: () => null,
+            );
+      if (pendingWinner != null && pendingFinish != null) {
+        await _restorePendingDraw(pendingWinner, pendingFinish, prefs);
+      }
     } catch (e) {
       setState(() => _isLoading = false);
     }
@@ -80,13 +104,53 @@ class _StudentRaffleScreenState extends State<StudentRaffleScreen> with SingleTi
       final prefs = await SharedPreferences.getInstance();
       await prefs.setStringList('raffle_excluded_ids', _excludedStudents.map((s) => s.id).toList());
       await prefs.setString('raffle_selected_id', _selectedStudent?.id ?? '');
+      await prefs.setBool('raffle_exclude_absent', _excludeAbsent);
     } catch (e) {
       debugPrint('Error saving raffle state: $e');
     }
   }
 
+  List<Student> get _availableStudents => _students.where((student) {
+        final manuallyExcluded =
+            _excludedStudents.any((excluded) => excluded.id == student.id);
+        final absentExcluded =
+            _excludeAbsent && _absentStudentIds.contains(student.id);
+        return !manuallyExcluded && !absentExcluded;
+      }).toList();
+
+  Future<void> _restorePendingDraw(
+    Student winner,
+    DateTime finishAt,
+    SharedPreferences prefs,
+  ) async {
+    final remaining = finishAt.difference(DateTime.now());
+    if (remaining.isNegative) {
+      if (!mounted) return;
+      setState(() {
+        _selectedStudent = winner;
+        _isDrawing = false;
+      });
+    } else {
+      if (!mounted) return;
+      setState(() {
+        _selectedStudent = winner;
+        _isDrawing = true;
+      });
+      await Future.delayed(remaining);
+      if (!mounted) return;
+      setState(() {
+        _selectedStudent = winner;
+        _isDrawing = false;
+      });
+      _celebrationController.forward(from: 0);
+    }
+    await prefs.remove('raffle_pending_winner_id');
+    await prefs.remove('raffle_pending_finish_at');
+    await _saveRaffleState();
+  }
+
   Future<void> _startDraw() async {
-    final availableStudents = _students.where((s) => !_excludedStudents.any((ex) => ex.id == s.id)).toList();
+    final availableStudents = _availableStudents;
 
     if (availableStudents.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -115,15 +179,25 @@ class _StudentRaffleScreenState extends State<StudentRaffleScreen> with SingleTi
     final delays = [
       40, 40, 40, 40, 40, 45, 45, 45, 50, 50, 60, 70, 80, 95, 110, 130, 155, 185, 225, 275, 335, 405, 495, 605, 755, 955
     ];
+    final winner = availableStudents[random.nextInt(availableStudents.length)];
+    final prefs = await SharedPreferences.getInstance();
+    final finishAt = DateTime.now().add(
+      Duration(milliseconds: delays.fold<int>(0, (sum, delay) => sum + delay)),
+    );
+    await prefs.setString('raffle_pending_winner_id', winner.id);
+    await prefs.setString('raffle_pending_finish_at', finishAt.toIso8601String());
 
     int lastIndex = -1;
-    for (final delay in delays) {
+    for (var step = 0; step < delays.length; step++) {
+      final delay = delays[step];
       if (!mounted) return;
 
-      int randIndex;
-      do {
-        randIndex = random.nextInt(availableStudents.length);
-      } while (availableStudents.length > 1 && randIndex == lastIndex);
+      int randIndex = availableStudents.indexWhere((s) => s.id == winner.id);
+      if (step < delays.length - 1) {
+        do {
+          randIndex = random.nextInt(availableStudents.length);
+        } while (availableStudents.length > 1 && randIndex == lastIndex);
+      }
 
       lastIndex = randIndex;
 
@@ -144,9 +218,51 @@ class _StudentRaffleScreenState extends State<StudentRaffleScreen> with SingleTi
     _celebrationController.forward();
 
     setState(() {
+      _selectedStudent = winner;
       _isDrawing = false;
     });
+    await prefs.remove('raffle_pending_winner_id');
+    await prefs.remove('raffle_pending_finish_at');
     _saveRaffleState();
+  }
+
+  Future<void> _drawAllAtOnce() async {
+    final ordered = List<Student>.from(_availableStudents)..shuffle(Random());
+    if (ordered.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('لا يوجد طلاب متاحون للقرعة')),
+      );
+      return;
+    }
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => SafeArea(
+        child: FractionallySizedBox(
+          heightFactor: 0.85,
+          child: Column(
+            children: [
+              const ListTile(
+                leading: Icon(Icons.format_list_numbered),
+                title: Text('ترتيب التسميع — قرعة دفعة واحدة'),
+                subtitle: Text('من الأول إلى الأخير'),
+              ),
+              const Divider(height: 1),
+              Expanded(
+                child: ListView.separated(
+                  itemCount: ordered.length,
+                  separatorBuilder: (_, __) => const Divider(height: 1),
+                  itemBuilder: (context, index) => ListTile(
+                    leading: CircleAvatar(child: Text('${index + 1}')),
+                    title: Text(ordered[index].name),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   void _excludeStudent(Student student) {
@@ -180,7 +296,7 @@ class _StudentRaffleScreenState extends State<StudentRaffleScreen> with SingleTi
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final primaryColor = Theme.of(context).primaryColor;
-    final availableCount = _students.length - _excludedStudents.length;
+    final availableCount = _availableStudents.length;
 
     return Scaffold(
       appBar: AppBar(
@@ -189,6 +305,11 @@ class _StudentRaffleScreenState extends State<StudentRaffleScreen> with SingleTi
           style: GoogleFonts.tajawal(fontWeight: FontWeight.bold),
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.format_list_numbered),
+            tooltip: 'قرعة دفعة واحدة',
+            onPressed: _isDrawing ? null : _drawAllAtOnce,
+          ),
           if (_excludedStudents.isNotEmpty)
             IconButton(
               icon: const Icon(Icons.refresh),
@@ -223,11 +344,23 @@ class _StudentRaffleScreenState extends State<StudentRaffleScreen> with SingleTi
                             Colors.teal,
                           ),
                           _buildHeaderBadge(
-                            'المستبعدون: ${_excludedStudents.length}',
+                            'يدويًا: ${_excludedStudents.length}',
                             Colors.orange,
                           ),
                         ],
                       ),
+                    ),
+                    FilterChip(
+                      avatar: const Icon(Icons.person_off_outlined, size: 18),
+                      label: Text(
+                        'استبعاد الغائبين اليوم (${_absentStudentIds.length})',
+                        style: GoogleFonts.tajawal(fontWeight: FontWeight.bold),
+                      ),
+                      selected: _excludeAbsent,
+                      onSelected: (value) {
+                        setState(() => _excludeAbsent = value);
+                        _saveRaffleState();
+                      },
                     ),
 
                     const Spacer(),

@@ -61,11 +61,16 @@ class Surah {
     final ayahsList = (json['ayahs'] as List?)
         ?.map((a) => Ayah.fromJson(a, surahNumber))
         .toList() ?? [];
+    final totalNumberedAyahs = ayahsList
+        .where((ayah) => ayah.number > 0)
+        .fold<int>(0, (maxNumber, ayah) => ayah.number > maxNumber ? ayah.number : maxNumber);
     
     return Surah(
       number: surahNumber,
       name: json['name'] ?? '',
-      totalAyahs: json['total_ayahs'] ?? 0,
+      // Some source rows include the basmala as ayah number 0. It is kept for
+      // display, but must never increase the numbered ayah range.
+      totalAyahs: totalNumberedAyahs,
       juzStart: json['juz_start'] ?? 0,
       pageStart: json['page_start'] ?? 0,
       ayahs: ayahsList,
@@ -73,8 +78,11 @@ class Surah {
   }
 
   Ayah? getAyah(int ayahNumber) {
-    if (ayahNumber < 1 || ayahNumber > ayahs.length) return null;
-    return ayahs.firstWhere((a) => a.number == ayahNumber, orElse: () => ayahs[0]);
+    if (ayahNumber < 1 || ayahNumber > totalAyahs) return null;
+    for (final ayah in ayahs) {
+      if (ayah.number == ayahNumber) return ayah;
+    }
+    return null;
   }
 
   List<Ayah> getAyahRange(int from, int to) {
