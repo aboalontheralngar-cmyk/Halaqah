@@ -35,6 +35,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   int _savedBackupCount = 0;
   bool _isPassphraseConfigured = false;
   bool _dataActionBusy = false;
+  DateTime? _lastCloudUploadAt;
+  DateTime? _lastCloudDownloadAt;
 
   @override
   void initState() {
@@ -51,6 +53,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _db.getSetting('last_automatic_backup_error'),
         _backup.getBackupFiles(),
         _backup.passphrases.isConfigured,
+        _db.getSetting('last_cloud_upload_at'),
+        _db.getSetting('last_cloud_download_at'),
       ]);
       final settings = results[0] as HalaqahSettings;
       setState(() {
@@ -59,6 +63,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _lastAutomaticBackupError = (results[2] as String?)?.trim();
         _savedBackupCount = (results[3] as List).length;
         _isPassphraseConfigured = results[4] as bool;
+        _lastCloudUploadAt = DateTime.tryParse((results[5] as String?) ?? '');
+        _lastCloudDownloadAt =
+            DateTime.tryParse((results[6] as String?) ?? '');
         _isLoading = false;
       });
     } catch (e) {
@@ -1345,6 +1352,50 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             if (supabase.isAuthenticated) ...[
               ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.cloud_upload_outlined),
+                title: const Text('رفع تغييرات الجهاز'),
+                subtitle: Text(
+                  _lastCloudUploadAt == null
+                      ? 'الجهاز ← السحابة فقط'
+                      : 'الجهاز ← السحابة فقط\nآخر رفع: ${_formatBackupDate(_lastCloudUploadAt!)}',
+                ),
+                onTap: _dataActionBusy
+                    ? null
+                    : () => _performDirectionalSync(
+                          CloudSyncDirection.uploadOnly,
+                        ),
+              ),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.cloud_download_outlined),
+                title: const Text('تنزيل بيانات السحابة'),
+                subtitle: Text(
+                  _lastCloudDownloadAt == null
+                      ? 'السحابة ← الجهاز فقط، مع نسخة حماية أولًا'
+                      : 'السحابة ← الجهاز فقط\nآخر تنزيل: ${_formatBackupDate(_lastCloudDownloadAt!)}',
+                ),
+                onTap: _dataActionBusy
+                    ? null
+                    : () => _performDirectionalSync(
+                          CloudSyncDirection.downloadOnly,
+                        ),
+              ),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.sync),
+                title: const Text('مزامنة ذكية ثنائية الاتجاه'),
+                subtitle: const Text(
+                  'ترفع تغييرات الجهاز أولًا، ثم تنزّل البيانات التشغيلية',
+                ),
+                onTap: _dataActionBusy
+                    ? null
+                    : () => _performDirectionalSync(
+                          CloudSyncDirection.bidirectional,
+                        ),
+              ),
+              const Divider(height: 24),
+              ListTile(
                 leading: const Icon(Icons.logout, color: Colors.red),
                 title: const Text(
                   'تسجيل الخروج من السحابة',
@@ -1862,6 +1913,93 @@ class _SettingsScreenState extends State<SettingsScreen> {
           'تعذر رفع النسخة. تأكد من تنفيذ migration التخزين السحابي: $error',
         );
       }
+    } finally {
+      if (mounted) setState(() => _dataActionBusy = false);
+    }
+  }
+
+  Future<void> _performDirectionalSync(CloudSyncDirection direction) async {
+    if (direction.shouldDownload &&
+        !await _ensurePassphraseConfigured()) {
+      return;
+    }
+    if (direction == CloudSyncDirection.downloadOnly) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('تنزيل بيانات السحابة؟'),
+          content: const Text(
+            'سينشئ التطبيق نسخة احتياطية محلية أولًا، ثم يدمج بيانات '
+            'السحابة مع بيانات هذا الجهاز. لن يرفع هذا الخيار أي بيانات '
+            'محلية.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('إلغاء'),
+            ),
+            FilledButton.icon(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              icon: const Icon(Icons.cloud_download_outlined),
+              label: const Text('تنزيل'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true || !mounted) return;
+    }
+
+    setState(() => _dataActionBusy = true);
+    var progressOpen = true;
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => AlertDialog(
+        content: Row(
+          children: [
+            const CircularProgressIndicator(),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Text(
+                direction == CloudSyncDirection.uploadOnly
+                    ? 'جاري رفع بيانات الجهاز...'
+                    : direction == CloudSyncDirection.downloadOnly
+                        ? 'جاري تنزيل بيانات السحابة...'
+                        : 'جاري الرفع والتنزيل...',
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+    try {
+      final result = await SupabaseService.instance.synchronizeData(
+        direction: direction,
+      );
+      if (mounted && progressOpen) {
+        Navigator.pop(context);
+        progressOpen = false;
+      }
+      if (!mounted) return;
+      setState(() {
+        if (direction.shouldUpload) {
+          _lastCloudUploadAt = result.completedAt;
+        }
+        if (direction.shouldDownload) {
+          _lastCloudDownloadAt = result.completedAt;
+        }
+      });
+      final message = direction == CloudSyncDirection.uploadOnly
+          ? 'تم الرفع فقط: الجهاز ← السحابة'
+          : direction == CloudSyncDirection.downloadOnly
+              ? 'تم التنزيل فقط: السحابة ← الجهاز'
+              : 'اكتملت المزامنة الثنائية: رفع ثم تنزيل';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message), backgroundColor: Colors.green),
+      );
+    } catch (error) {
+      if (mounted && progressOpen) Navigator.pop(context);
+      if (mounted) _showDataError('فشلت العملية السحابية: $error');
     } finally {
       if (mounted) setState(() => _dataActionBusy = false);
     }

@@ -10,6 +10,7 @@ const validators = [
   "validate-open-recitation.mjs",
   "validate-revision-continuity.mjs",
   "validate-backup-settings.mjs",
+  "validate-cloud-sync-direction.mjs",
   "validate-student-archive-behavior.mjs",
   "validate-daily-excellence.mjs",
   "validate-report-pdf-drawer.mjs",

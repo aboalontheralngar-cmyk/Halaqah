@@ -165,6 +165,13 @@ class BackupService {
     }
   }
 
+  Future<String> createPreSyncBackup() async {
+    final settings = await _db.getSettings();
+    final path = await exportBackup(automatic: true);
+    await _pruneAutomaticBackups(settings.automaticBackupRetentionCount);
+    return path;
+  }
+
   Future<bool> shouldShowReminder({
     HalaqahSettings? settings,
     DateTime? now,

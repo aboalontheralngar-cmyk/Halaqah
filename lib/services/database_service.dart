@@ -24,6 +24,7 @@ import '../models/family.dart';
 import '../models/family_guardian.dart';
 import '../models/audit_event.dart';
 import 'quran_service.dart';
+import 'memorized_content_service.dart';
 import 'recitation_record_math.dart';
 import 'behavior_point_policy.dart';
 import 'student_status_policy.dart';
@@ -1651,29 +1652,24 @@ class DatabaseService {
     return true;
   }
 
-  Future<List<int>> getMemorizedSurahs(String studentId) async {
-    final db = await database;
-    final maps = await db.rawQuery('''
-      SELECT DISTINCT surah_id FROM memorization_progress
-      WHERE student_id = ? AND is_revision = 0
-    ''', [studentId]);
-    final surahIds = maps.map((m) => m['surah_id'] as int).toSet();
-
-    // A student's assigned memorization predates daily recitation rows. It is
-    // stored on the student and in Mushaf progress, so it must also be offered
-    // in revision and exam screens.
+  Future<Map<int, MemorizedAyahRange>> getStudentMemorizedRanges(
+    String studentId,
+  ) async {
     final student = await getStudent(studentId);
-    final startSurah = student?.preMemorizedStartSurah;
-    final endSurah = student?.preMemorizedEndSurah;
-    if (startSurah != null && endSurah != null) {
-      final first = startSurah < endSurah ? startSurah : endSurah;
-      final last = startSurah > endSurah ? startSurah : endSurah;
-      for (var surah = first; surah <= last; surah++) {
-        if (surah >= 1 && surah <= 114) surahIds.add(surah);
-      }
-    }
+    if (student == null) return {};
+    final progress = await getStudentMemorization(studentId);
+    final mushafProgress = await getStudentMushafProgress(studentId);
+    return MemorizedContentService.buildRanges(
+      student: student,
+      progress: progress,
+      mushafProgress: mushafProgress,
+      surahs: QuranService.instance.surahs,
+    );
+  }
 
-    return surahIds.toList()..sort();
+  Future<List<int>> getMemorizedSurahs(String studentId) async {
+    final ranges = await getStudentMemorizedRanges(studentId);
+    return ranges.keys.toList()..sort();
   }
 
   Future<void> insertBehaviorPoint(BehaviorPoint point) async {

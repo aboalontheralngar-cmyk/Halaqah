@@ -5,6 +5,7 @@ import '../../services/mushaf_service.dart';
 import '../../services/quran_service.dart';
 import '../../services/recitation_boundary_service.dart';
 import '../../services/revision_progression_service.dart';
+import '../../services/memorized_content_service.dart';
 import '../../models/student.dart';
 import '../../models/memorization.dart';
 import '../../models/daily_record.dart';
@@ -13,6 +14,7 @@ import '../../utils/quran_data.dart';
 import '../../utils/helpers.dart';
 import '../../widgets/quality_rating.dart';
 import '../../widgets/ayah_range_picker.dart';
+import '../students/student_form_screen.dart';
 
 class RevisionScreen extends StatefulWidget {
   final Student student;
@@ -35,6 +37,8 @@ class _RevisionScreenState extends State<RevisionScreen> {
   String _reviewUnit = 'pages';
   int _reviewAmount = 1;
   String? _resumeText;
+  Student? _resolvedStudent;
+  bool _hasUnmappedMemorizedTotal = false;
 
   @override
   void initState() {
@@ -45,7 +49,11 @@ class _RevisionScreenState extends State<RevisionScreen> {
   Future<void> _loadMemorizedSurahs() async {
     setState(() => _isLoading = true);
     try {
-      final surahIds = await _db.getMemorizedSurahs(widget.student.id);
+      final currentStudent =
+          await _db.getStudent(widget.student.id) ?? widget.student;
+      final memorizedRanges =
+          await _db.getStudentMemorizedRanges(widget.student.id);
+      final surahIds = memorizedRanges.keys.toList()..sort();
       final allProgress = await _db.getStudentMemorization(widget.student.id);
       final settings = await _db.getSettings();
       final activePlan = await _db.getActiveStudentPlan(widget.student.id);
@@ -56,6 +64,8 @@ class _RevisionScreenState extends State<RevisionScreen> {
       final surahs = <MemorizedSurah>[];
       final requiredSurahs = <int>{};
       for (final surahId in surahIds) {
+        final memorizedRange = memorizedRanges[surahId];
+        if (memorizedRange == null) continue;
         final surahData = QuranData.surahs.firstWhere(
           (s) => s['id'] == surahId,
           orElse: () => {},
@@ -78,6 +88,7 @@ class _RevisionScreenState extends State<RevisionScreen> {
           surahId,
           surahData['ayahs'],
           allProgress,
+          currentStudent,
         );
         final requiresCompletionRevision = completionDate != null &&
             (lastRevisionAt == null || lastRevisionAt.isBefore(completionDate));
@@ -90,6 +101,8 @@ class _RevisionScreenState extends State<RevisionScreen> {
           juz: surahData['juz'],
           lastRevision: lastRevision,
           requiresCompletionRevision: requiresCompletionRevision,
+          minMemorizedAyah: memorizedRange.fromAyah,
+          maxMemorizedAyah: memorizedRange.toAyah,
         ));
       }
 
@@ -102,6 +115,7 @@ class _RevisionScreenState extends State<RevisionScreen> {
           progress: allProgress,
           ascending: _ascending,
           getSurah: _quran.getSurah,
+          memorizedRanges: memorizedRanges,
         );
         if (next != null) {
           final suggested = surahs.firstWhere(
@@ -124,6 +138,9 @@ class _RevisionScreenState extends State<RevisionScreen> {
         _memorizedSurahs = surahs;
         _selectedSurahs = requiredSurahs;
         _resumeText = resumeText;
+        _resolvedStudent = currentStudent;
+        _hasUnmappedMemorizedTotal =
+            memorizedRanges.isEmpty && currentStudent.totalMemorized > 0;
         _isLoading = false;
       });
     } catch (e) {
@@ -136,7 +153,9 @@ class _RevisionScreenState extends State<RevisionScreen> {
     required int fromAyah,
   }) {
     final detailed = _quran.getSurah(surah.id);
-    final safeFrom = fromAyah.clamp(1, surah.ayahs).toInt();
+    final safeFrom = fromAyah
+        .clamp(surah.minMemorizedAyah, surah.maxMemorizedAyah)
+        .toInt();
     surah.selectedFromAyah = safeFrom;
     if (detailed == null) {
       surah.selectedToAyah = safeFrom;
@@ -146,7 +165,7 @@ class _RevisionScreenState extends State<RevisionScreen> {
         fromAyah: safeFrom,
         planType: _reviewUnit,
         planAmount: _reviewAmount,
-      );
+      ).clamp(safeFrom, surah.maxMemorizedAyah).toInt();
     }
     surah.rangeVersion++;
   }
@@ -164,10 +183,11 @@ class _RevisionScreenState extends State<RevisionScreen> {
     int surahId,
     int totalAyahs,
     List<MemorizationProgress> allProgress,
+    Student student,
   ) {
     final memorized = <int>{};
     for (var ayah = 1; ayah <= totalAyahs; ayah++) {
-      if (_isPreMemorizedAyah(surahId, ayah)) memorized.add(ayah);
+      if (_isPreMemorizedAyah(student, surahId, ayah)) memorized.add(ayah);
     }
     if (memorized.length == totalAyahs) return null;
 
@@ -187,12 +207,12 @@ class _RevisionScreenState extends State<RevisionScreen> {
     return null;
   }
 
-  bool _isPreMemorizedAyah(int surahId, int ayah) {
-    final startSurah = widget.student.preMemorizedStartSurah;
-    final endSurah = widget.student.preMemorizedEndSurah;
+  bool _isPreMemorizedAyah(Student student, int surahId, int ayah) {
+    final startSurah = student.preMemorizedStartSurah;
+    final endSurah = student.preMemorizedEndSurah;
     if (startSurah == null || endSurah == null) return false;
-    final startAyah = widget.student.preMemorizedStartAyah ?? 1;
-    final endAyah = widget.student.preMemorizedEndAyah ?? 1;
+    final startAyah = student.preMemorizedStartAyah ?? 1;
+    final endAyah = student.preMemorizedEndAyah ?? 1;
     if (startSurah == endSurah) {
       if (surahId != startSurah) return false;
       final first = startAyah < endAyah ? startAyah : endAyah;
@@ -279,23 +299,52 @@ class _RevisionScreenState extends State<RevisionScreen> {
 
   Widget _buildEmptyState() {
     return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.menu_book, size: 60, color: Colors.grey[400]),
-          const SizedBox(height: 16),
-          Text(
-            'لا يوجد حفظ مسجل لهذا الطالب',
-            style: TextStyle(color: Colors.grey[600]),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'قم بتسجيل الحفظ أولاً',
-            style: TextStyle(color: Colors.grey[500], fontSize: 12),
-          ),
-        ],
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.menu_book, size: 60, color: Colors.grey[400]),
+            const SizedBox(height: 16),
+            Text(
+              _hasUnmappedMemorizedTotal
+                  ? 'يوجد إجمالي محفوظ دون نطاق سور وآيات'
+                  : 'لا يوجد حفظ مسجل لهذا الطالب',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.grey[700]),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              _hasUnmappedMemorizedTotal
+                  ? 'حدّث ملف الطالب وحدد بداية المحفوظ ونهايته مرة واحدة، ثم سيظهر كامل النطاق هنا وفي الاختبارات.'
+                  : 'سجّل محفوظ الطالب في ملفه أو أضف تسميع حفظ جديدًا أولاً.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.grey[500], fontSize: 12),
+            ),
+            if (_hasUnmappedMemorizedTotal && _resolvedStudent != null) ...[
+              const SizedBox(height: 16),
+              FilledButton.icon(
+                onPressed: _repairStudentMemorizedRange,
+                icon: const Icon(Icons.edit_note),
+                label: const Text('تحديد نطاق المحفوظ الآن'),
+              ),
+            ],
+          ],
+        ),
       ),
     );
+  }
+
+  Future<void> _repairStudentMemorizedRange() async {
+    final student = _resolvedStudent;
+    if (student == null) return;
+    final changed = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => StudentFormScreen(student: student),
+      ),
+    );
+    if (changed == true && mounted) await _loadMemorizedSurahs();
   }
 
   Widget _buildSortingInfo() {
@@ -430,6 +479,15 @@ class _RevisionScreenState extends State<RevisionScreen> {
                           '${surah.ayahs} آية - الجزء ${surah.juz}',
                           style: TextStyle(fontSize: 12, color: Colors.grey[600]),
                         ),
+                        if (surah.minMemorizedAyah != 1 ||
+                            surah.maxMemorizedAyah != surah.ayahs)
+                          Text(
+                            'المحفوظ المتاح: ${surah.minMemorizedAyah}–${surah.maxMemorizedAyah}',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Theme.of(context).colorScheme.primary,
+                            ),
+                          ),
                       ],
                     ),
                   ),
@@ -484,7 +542,8 @@ class _RevisionScreenState extends State<RevisionScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               child: AyahRangePicker(
                 key: ValueKey('${surah.id}_${surah.rangeVersion}'),
-                maxAyahs: surah.ayahs,
+                minAyah: surah.minMemorizedAyah,
+                maxAyahs: surah.maxMemorizedAyah,
                 initialFrom: surah.selectedFromAyah,
                 initialTo: surah.selectedToAyah,
                 enabled: !surah.requiresCompletionRevision,
@@ -519,7 +578,8 @@ class _RevisionScreenState extends State<RevisionScreen> {
                       tooltip: 'السورة كاملة',
                       onPressed: () {
                         setState(() {
-                          surah.selectedToAyah = surah.ayahs;
+                          surah.selectedFromAyah = surah.minMemorizedAyah;
+                          surah.selectedToAyah = surah.maxMemorizedAyah;
                           surah.rangeVersion++;
                         });
                       },
@@ -538,7 +598,7 @@ class _RevisionScreenState extends State<RevisionScreen> {
     final detailed = _quran.getSurah(surah.id);
     if (detailed == null) return;
     setState(() {
-      surah.selectedToAyah = boundary == 'page'
+      final boundaryAyah = boundary == 'page'
           ? RecitationBoundaryService.endOfPage(
               detailed,
               surah.selectedFromAyah,
@@ -547,6 +607,9 @@ class _RevisionScreenState extends State<RevisionScreen> {
               detailed,
               surah.selectedFromAyah,
             );
+      surah.selectedToAyah = boundaryAyah
+          .clamp(surah.selectedFromAyah, surah.maxMemorizedAyah)
+          .toInt();
       surah.rangeVersion++;
     });
   }
@@ -625,6 +688,16 @@ class _RevisionScreenState extends State<RevisionScreen> {
       for (var index = 0; index < selectedIds.length; index++) {
         final surahId = selectedIds[index];
         final surah = _memorizedSurahs.firstWhere((s) => s.id == surahId);
+        final isInsideMemorizedRange =
+            surah.selectedFromAyah >= surah.minMemorizedAyah &&
+            surah.selectedToAyah <= surah.maxMemorizedAyah &&
+            surah.selectedFromAyah <= surah.selectedToAyah;
+        if (!isInsideMemorizedRange) {
+          throw StateError(
+            'نطاق ${surah.name} خارج المحفوظ المسجل '
+            '(${surah.minMemorizedAyah}–${surah.maxMemorizedAyah})',
+          );
+        }
         final count = surah.selectedToAyah - surah.selectedFromAyah + 1;
         totalAyahs += count;
 
@@ -717,6 +790,8 @@ class MemorizedSurah {
   final String name;
   final int ayahs;
   final int juz;
+  final int minMemorizedAyah;
+  final int maxMemorizedAyah;
   final DateTime? lastRevision;
   final bool requiresCompletionRevision;
   int selectedFromAyah;
@@ -728,11 +803,13 @@ class MemorizedSurah {
     required this.name,
     required this.ayahs,
     required this.juz,
+    required this.minMemorizedAyah,
+    required this.maxMemorizedAyah,
     this.lastRevision,
     this.requiresCompletionRevision = false,
     int? selectedFromAyah,
     int? selectedToAyah,
     this.rangeVersion = 0,
-  }) : this.selectedFromAyah = selectedFromAyah ?? 1,
-       this.selectedToAyah = selectedToAyah ?? ayahs;
+  }) : this.selectedFromAyah = selectedFromAyah ?? minMemorizedAyah,
+       this.selectedToAyah = selectedToAyah ?? maxMemorizedAyah;
 }

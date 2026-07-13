@@ -51,17 +51,12 @@ class _LoginScreenState extends State<LoginScreen> {
         _passwordController.text,
       );
 
-      // Perform initial sync after successful login
-      try {
-        await _supabase.synchronizeData();
-      } catch (syncError) {
-        print('Initial sync failed: $syncError');
-      }
-
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('تم تسجيل الدخول ومزامنة البيانات بنجاح'),
+            content: Text(
+              'تم تسجيل الدخول. اختر بعد ذلك رفع البيانات أو تنزيلها بوضوح.',
+            ),
             backgroundColor: Colors.green,
           ),
         );
@@ -154,17 +149,12 @@ class _LoginScreenState extends State<LoginScreen> {
         await _supabase.signIn(email, password);
       }
 
-      // 3. Sync data
-      try {
-        await _supabase.synchronizeData();
-      } catch (syncError) {
-        print('Initial sync failed: $syncError');
-      }
-
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('تم تفعيل حسابك وتسجيل الدخول بنجاح!'),
+            content: Text(
+              'تم تفعيل الحساب. اختر بعد ذلك رفع البيانات أو تنزيلها.',
+            ),
             backgroundColor: Colors.green,
           ),
         );
@@ -230,7 +220,7 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
               const SizedBox(height: 6),
               Text(
-                'سجل دخولك بحساب معلم المقرأة لمزامنة بيانات الطلاب وتسميعهم أوفلاين',
+                'سجل دخولك بحساب معلم المقرأة، ثم اختر اتجاه نقل البيانات بنفسك',
                 style: TextStyle(
                   fontSize: 13,
                   color: Colors.grey[600],
@@ -386,7 +376,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                   )
                 : Text(
-                    'تسجيل الدخول والمزامنة',
+                    'تسجيل الدخول',
                     style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.bold,

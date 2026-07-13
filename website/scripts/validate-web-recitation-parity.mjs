@@ -72,7 +72,7 @@ for (const forbidden of ['DROP TABLE', 'TRUNCATE TABLE']) {
 }
 
 for (const contract of [
-  '_syncMemorizationProgress(centerId, halaqahId)',
+  '_syncMemorizationProgress(centerId, halaqahId, direction)',
   "row['deleted_at'] != null",
   'updatedAt.isAfter(remote.updatedAt)',
   'upsertMemorizationProgressFromSync',

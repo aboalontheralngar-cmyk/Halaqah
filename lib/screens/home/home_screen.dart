@@ -203,34 +203,68 @@ class _HomeScreenState extends State<HomeScreen> {
         // Trigger center selection directly after login
         final selected = await _showCenterHalaqahSelectionDialog();
         if (selected) {
-          _syncWithCloud(); // Start sync after successful selection
+          await _syncWithCloud();
         } else {
-          _loadData();
+          await _loadData();
         }
       }
     } else {
-      // Show action dialog for authenticated user
+      final lastUpload = DateTime.tryParse(
+        await _db.getSetting('last_cloud_upload_at') ?? '',
+      );
+      final lastDownload = DateTime.tryParse(
+        await _db.getSetting('last_cloud_download_at') ?? '',
+      );
+      if (!mounted) return;
       final action = await showDialog<String>(
         context: context,
         builder: (context) => AlertDialog(
-          title: Text(
+          title: const Text(
             'المزامنة السحابية',
             style: TextStyle(fontWeight: FontWeight.bold),
           ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'الحساب الحالي:',
-                style: TextStyle(color: Colors.grey),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                supabase.currentUserEmail ?? '',
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
-            ],
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'اختر اتجاه نقل البيانات. لن ينفذ التطبيق الاتجاه الآخر '
+                  'عند اختيار الرفع فقط أو التنزيل فقط.',
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  supabase.currentUserEmail ?? '',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 16),
+                _syncActionButton(
+                  icon: Icons.cloud_upload_outlined,
+                  title: 'رفع تغييرات الجهاز',
+                  subtitle: lastUpload == null
+                      ? 'الجهاز ← السحابة فقط'
+                      : 'الجهاز ← السحابة فقط\nآخر رفع: ${_formatSyncTime(lastUpload)}',
+                  onPressed: () => Navigator.pop(context, 'upload'),
+                ),
+                const SizedBox(height: 8),
+                _syncActionButton(
+                  icon: Icons.cloud_download_outlined,
+                  title: 'تنزيل بيانات السحابة',
+                  subtitle: lastDownload == null
+                      ? 'السحابة ← الجهاز فقط، مع نسخة حماية أولًا'
+                      : 'السحابة ← الجهاز فقط\nآخر تنزيل: ${_formatSyncTime(lastDownload)}',
+                  onPressed: () => Navigator.pop(context, 'download'),
+                ),
+                const SizedBox(height: 8),
+                _syncActionButton(
+                  icon: Icons.sync,
+                  title: 'مزامنة ذكية ثنائية الاتجاه',
+                  subtitle: 'ترفع تغييرات الجهاز، ثم تنزّل البيانات التشغيلية',
+                  filled: true,
+                  onPressed: () => Navigator.pop(context, 'sync'),
+                ),
+              ],
+            ),
           ),
           actions: [
             TextButton(
@@ -245,13 +279,6 @@ class _HomeScreenState extends State<HomeScreen> {
               child: Text(
                 'تغيير النطاق',
                 style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold),
-              ),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(context, 'sync'),
-              child: Text(
-                'مزامنة الآن',
-                style: TextStyle(color: Colors.teal, fontWeight: FontWeight.bold),
               ),
             ),
             TextButton(
@@ -298,14 +325,75 @@ class _HomeScreenState extends State<HomeScreen> {
       } else if (action == 'change') {
         final selected = await _showCenterHalaqahSelectionDialog();
         if (selected && mounted) {
-          _syncWithCloud(); // Start sync after selection
+          await _syncWithCloud();
         }
-      } else if (action == 'sync') {
+      } else if (action == 'sync' ||
+          action == 'upload' ||
+          action == 'download') {
         final centerId = await _db.getSetting('sync_center_id');
         final halaqahId = await _db.getSetting('sync_halaqah_id');
         if (centerId == null || centerId.isEmpty || halaqahId == null || halaqahId.isEmpty) {
           final selected = await _showCenterHalaqahSelectionDialog();
           if (!selected) return; // cancelled
+        }
+
+        final direction = action == 'upload'
+            ? CloudSyncDirection.uploadOnly
+            : action == 'download'
+                ? CloudSyncDirection.downloadOnly
+                : CloudSyncDirection.bidirectional;
+        if (direction.shouldDownload &&
+            !await _backup.passphrases.isConfigured) {
+          if (!mounted) return;
+          final openSettings = await showDialog<bool>(
+            context: context,
+            builder: (dialogContext) => AlertDialog(
+              title: const Text('إعداد عبارة حماية مطلوب'),
+              content: const Text(
+                'لحماية بيانات الطلاب، يلزم إعداد عبارة حماية للنسخ '
+                'الاحتياطية قبل أي تنزيل من السحابة. لن يبدأ التنزيل الآن.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext, false),
+                  child: const Text('لاحقًا'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.pop(dialogContext, true),
+                  child: const Text('فتح الإعدادات'),
+                ),
+              ],
+            ),
+          );
+          if (openSettings == true && mounted) {
+            setState(() => _currentIndex = 4);
+          }
+          return;
+        }
+        if (direction == CloudSyncDirection.downloadOnly) {
+          final confirmed = await showDialog<bool>(
+            context: context,
+            builder: (dialogContext) => AlertDialog(
+              title: const Text('تنزيل بيانات السحابة؟'),
+              content: const Text(
+                'سيتم إنشاء نسخة احتياطية أولًا، ثم تُدمج بيانات السحابة '
+                'مع هذا الجهاز. قد تُحدّث السجلات المحلية التي تحمل '
+                'المعرّفات نفسها. لن يرفع هذا الخيار أي بيانات من الجهاز.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext, false),
+                  child: const Text('إلغاء'),
+                ),
+                FilledButton.icon(
+                  onPressed: () => Navigator.pop(dialogContext, true),
+                  icon: const Icon(Icons.cloud_download_outlined),
+                  label: const Text('تنزيل'),
+                ),
+              ],
+            ),
+          );
+          if (confirmed != true) return;
         }
 
         if (!mounted) return;
@@ -318,7 +406,11 @@ class _HomeScreenState extends State<HomeScreen> {
                 const CircularProgressIndicator(),
                 const SizedBox(width: 16),
                 Text(
-                  'جاري مزامنة البيانات...',
+                  direction == CloudSyncDirection.uploadOnly
+                      ? 'جاري رفع بيانات الجهاز...'
+                      : direction == CloudSyncDirection.downloadOnly
+                          ? 'جاري تنزيل بيانات السحابة...'
+                          : 'جاري الرفع والتنزيل...',
                   style: TextStyle(fontWeight: FontWeight.bold),
                 ),
               ],
@@ -327,13 +419,20 @@ class _HomeScreenState extends State<HomeScreen> {
         );
 
         try {
-          await supabase.synchronizeData();
+          final result = await supabase.synchronizeData(direction: direction);
           if (mounted) Navigator.pop(context);
           _loadData();
           if (mounted) {
+            final successText = direction == CloudSyncDirection.uploadOnly
+                ? 'تم الرفع فقط: الجهاز ← السحابة'
+                : direction == CloudSyncDirection.downloadOnly
+                    ? 'تم التنزيل فقط: السحابة ← الجهاز'
+                    : 'اكتملت المزامنة الثنائية: رفع ثم تنزيل';
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('تمت المزامنة مع السحابة بنجاح'),
+              SnackBar(
+                content: Text(
+                  '$successText (${_formatSyncTime(result.completedAt)})',
+                ),
                 backgroundColor: Colors.green,
               ),
             );
@@ -351,6 +450,62 @@ class _HomeScreenState extends State<HomeScreen> {
         }
       }
     }
+  }
+
+  Widget _syncActionButton({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required VoidCallback onPressed,
+    bool filled = false,
+  }) {
+    final colors = Theme.of(context).colorScheme;
+    return Material(
+      color: filled ? colors.primaryContainer : colors.surfaceContainerLow,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        onTap: onPressed,
+        borderRadius: BorderRadius.circular(14),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            children: [
+              Icon(icon, color: colors.primary),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: colors.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_left),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  String _formatSyncTime(DateTime date) {
+    final local = date.toLocal();
+    final day = local.day.toString().padLeft(2, '0');
+    final month = local.month.toString().padLeft(2, '0');
+    final hour = local.hour.toString().padLeft(2, '0');
+    final minute = local.minute.toString().padLeft(2, '0');
+    return '$day/$month/${local.year}، $hour:$minute';
   }
 
   Future<bool> _showCenterHalaqahSelectionDialog() async {

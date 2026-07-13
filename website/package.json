@@ -21,6 +21,7 @@
     "validate:open-recitation": "node scripts/validate-open-recitation.mjs",
     "validate:revision": "node scripts/validate-revision-continuity.mjs",
     "validate:backup-settings": "node scripts/validate-backup-settings.mjs",
+    "validate:cloud-sync": "node scripts/validate-cloud-sync-direction.mjs",
     "validate:student-archive-behavior": "node scripts/validate-student-archive-behavior.mjs",
     "validate:daily-excellence": "node scripts/validate-daily-excellence.mjs",
     "validate:report-pdf-drawer": "node scripts/validate-report-pdf-drawer.mjs",

@@ -299,6 +299,11 @@ class WhatsNewScreen extends StatelessWidget {
         color: Color(0xFF1F6B5D),
         features: [
           FeatureItem(
+            icon: Icons.sync_alt_outlined,
+            title: 'رفع وتنزيل سحابيان واضحان',
+            description: 'اختيار صريح بين الرفع فقط والتنزيل فقط والمزامنة الثنائية، مع وقت مستقل لكل اتجاه ونسخة حماية قبل التنزيل.',
+          ),
+          FeatureItem(
             icon: Icons.font_download_outlined,
             title: 'خط Tajawal موحد ومحلي',
             description: 'توحيد نصوص وأرقام الواجهة بأربعة أوزان مضمنة تعمل دون تنزيل الخط من الإنترنت.',

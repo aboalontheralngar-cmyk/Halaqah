@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 class AyahRangePicker extends StatefulWidget {
+  final int minAyah;
   final int maxAyahs;
   final int initialFrom;
   final int initialTo;
@@ -12,6 +13,7 @@ class AyahRangePicker extends StatefulWidget {
   const AyahRangePicker({
     super.key,
     required this.maxAyahs,
+    this.minAyah = 1,
     this.initialFrom = 1,
     required this.initialTo,
     this.enabled = true,
@@ -31,12 +33,15 @@ class _AyahRangePickerState extends State<AyahRangePicker> {
   String? _toError;
 
   int get _safeMaxAyahs => widget.maxAyahs < 1 ? 1 : widget.maxAyahs;
+  int get _safeMinAyah => widget.minAyah.clamp(1, _safeMaxAyahs).toInt();
 
   @override
   void initState() {
     super.initState();
-    final double from =
-        widget.initialFrom.toDouble().clamp(1.0, _safeMaxAyahs.toDouble());
+    final double from = widget.initialFrom.toDouble().clamp(
+          _safeMinAyah.toDouble(),
+          _safeMaxAyahs.toDouble(),
+        );
     final double to =
         widget.initialTo.toDouble().clamp(from, _safeMaxAyahs.toDouble());
     _currentRange = RangeValues(from, to);
@@ -47,11 +52,14 @@ class _AyahRangePickerState extends State<AyahRangePicker> {
   @override
   void didUpdateWidget(AyahRangePicker oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.maxAyahs != widget.maxAyahs ||
+    if (oldWidget.minAyah != widget.minAyah ||
+        oldWidget.maxAyahs != widget.maxAyahs ||
         oldWidget.initialFrom != widget.initialFrom ||
         oldWidget.initialTo != widget.initialTo) {
-      final double from =
-          widget.initialFrom.toDouble().clamp(1.0, _safeMaxAyahs.toDouble());
+      final double from = widget.initialFrom.toDouble().clamp(
+            _safeMinAyah.toDouble(),
+            _safeMaxAyahs.toDouble(),
+          );
       final double to =
           widget.initialTo.toDouble().clamp(from, _safeMaxAyahs.toDouble());
       _currentRange = RangeValues(from, to);
@@ -100,8 +108,10 @@ class _AyahRangePickerState extends State<AyahRangePicker> {
       setState(() => _fromError = 'أدخل رقمًا');
       return;
     }
-    if (value < 1 || value > _safeMaxAyahs) {
-      setState(() => _fromError = 'من 1 إلى $_safeMaxAyahs');
+    if (value < _safeMinAyah || value > _safeMaxAyahs) {
+      setState(
+        () => _fromError = 'من $_safeMinAyah إلى $_safeMaxAyahs',
+      );
       return;
     }
     if (value > to) {
@@ -117,8 +127,10 @@ class _AyahRangePickerState extends State<AyahRangePicker> {
       setState(() => _fromError = 'أدخل رقمًا');
       return;
     }
-    if (value < 1 || value > _safeMaxAyahs) {
-      setState(() => _fromError = 'من 1 إلى $_safeMaxAyahs');
+    if (value < _safeMinAyah || value > _safeMaxAyahs) {
+      setState(
+        () => _fromError = 'من $_safeMinAyah إلى $_safeMaxAyahs',
+      );
       return;
     }
     _setRange(value, value);
@@ -131,8 +143,10 @@ class _AyahRangePickerState extends State<AyahRangePicker> {
       setState(() => _toError = 'أدخل رقمًا');
       return;
     }
-    if (value < 1 || value > _safeMaxAyahs) {
-      setState(() => _toError = 'من 1 إلى $_safeMaxAyahs');
+    if (value < _safeMinAyah || value > _safeMaxAyahs) {
+      setState(
+        () => _toError = 'من $_safeMinAyah إلى $_safeMaxAyahs',
+      );
       return;
     }
     if (value < from) {
@@ -169,12 +183,12 @@ class _AyahRangePickerState extends State<AyahRangePicker> {
                 _handleSingleInput,
               ),
               Expanded(
-                child: _safeMaxAyahs > 1
+                child: _safeMaxAyahs > _safeMinAyah
                     ? Slider(
                         value: from.toDouble(),
-                        min: 1,
+                        min: _safeMinAyah.toDouble(),
                         max: _safeMaxAyahs.toDouble(),
-                        divisions: _safeMaxAyahs - 1,
+                        divisions: _safeMaxAyahs - _safeMinAyah,
                         label: '$from',
                         onChanged: widget.enabled
                             ? (value) {
@@ -201,7 +215,7 @@ class _AyahRangePickerState extends State<AyahRangePicker> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('الآية 1', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+              Text('الآية $_safeMinAyah', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
               Text('الآية $_safeMaxAyahs', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
             ],
           ),
@@ -248,12 +262,12 @@ class _AyahRangePickerState extends State<AyahRangePicker> {
               _handleFromInput,
             ),
             Expanded(
-              child: _safeMaxAyahs > 1
+              child: _safeMaxAyahs > _safeMinAyah
                   ? RangeSlider(
                       values: _currentRange,
-                      min: 1,
+                      min: _safeMinAyah.toDouble(),
                       max: _safeMaxAyahs.toDouble(),
-                      divisions: _safeMaxAyahs - 1,
+                      divisions: _safeMaxAyahs - _safeMinAyah,
                       labels: RangeLabels('$from', '$to'),
                       onChanged: widget.enabled
                           ? (values) {
@@ -278,7 +292,7 @@ class _AyahRangePickerState extends State<AyahRangePicker> {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text('الآية 1', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+            Text('الآية $_safeMinAyah', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
             Text('الآية $_safeMaxAyahs', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
           ],
         ),
