@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart' as intl;
 import '../../models/notification_log.dart';
 import '../../models/student.dart';
@@ -118,7 +117,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                           const SizedBox(height: 16),
                           Text(
                             'سجل الإشعارات فارغ حالياً',
-                            style: GoogleFonts.tajawal(
+                            style: TextStyle(
                               color: Colors.grey[600],
                               fontSize: 15,
                             ),
@@ -204,7 +203,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                                       Text(
                                         intl.DateFormat('yyyy/MM/dd HH:mm')
                                             .format(notification.createdAt),
-                                        style: GoogleFonts.outfit(
+                                        style: TextStyle(
                                           fontSize: 10,
                                           color: Colors.grey,
                                         ),

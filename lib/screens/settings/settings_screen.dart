@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'dart:io';
-import 'package:google_fonts/google_fonts.dart';
 import '../../services/database_service.dart';
 import '../../services/backup_service.dart';
+import '../../services/backup_crypto_service.dart';
+import '../../services/cloud_backup_service.dart';
+import '../../services/audit_log_service.dart';
 import '../../services/supabase_service.dart';
 import 'package:share_plus/share_plus.dart';
 import '../../models/settings.dart';
@@ -10,9 +12,13 @@ import '../../app/app.dart';
 import '../../utils/prayer_time_helper.dart';
 import 'message_templates_screen.dart';
 import 'whats_new_screen.dart';
+import 'privacy_policy_screen.dart';
+import 'audit_log_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
-  const SettingsScreen({super.key});
+  final VoidCallback? onOpenMenu;
+
+  const SettingsScreen({super.key, this.onOpenMenu});
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -27,6 +33,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   DateTime? _lastBackupAt;
   String? _lastAutomaticBackupError;
   int _savedBackupCount = 0;
+  bool _isPassphraseConfigured = false;
+  bool _dataActionBusy = false;
 
   @override
   void initState() {
@@ -42,6 +50,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _db.getSetting('last_backup_at'),
         _db.getSetting('last_automatic_backup_error'),
         _backup.getBackupFiles(),
+        _backup.passphrases.isConfigured,
       ]);
       final settings = results[0] as HalaqahSettings;
       setState(() {
@@ -49,6 +58,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _lastBackupAt = DateTime.tryParse((results[1] as String?) ?? '');
         _lastAutomaticBackupError = (results[2] as String?)?.trim();
         _savedBackupCount = (results[3] as List).length;
+        _isPassphraseConfigured = results[4] as bool;
         _isLoading = false;
       });
     } catch (e) {
@@ -116,6 +126,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
+        leading: widget.onOpenMenu == null
+            ? null
+            : IconButton(
+                onPressed: widget.onOpenMenu,
+                icon: const Icon(Icons.menu),
+                tooltip: 'القائمة الرئيسية',
+              ),
         title: const Text('الإعدادات'),
         actions: [
           IconButton(
@@ -313,14 +330,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
           children: [
             Text(
               'أوقات الحلقة وجدولة الصلوات',
-              style: GoogleFonts.tajawal(fontSize: 16, fontWeight: FontWeight.bold, color: Theme.of(context).primaryColor),
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Theme.of(context).primaryColor),
             ),
             const SizedBox(height: 16),
             
             // Timing Type Selection
             Text(
               'نوع جدولة الوقت:',
-              style: GoogleFonts.tajawal(fontSize: 14, fontWeight: FontWeight.bold),
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
             SizedBox(
@@ -333,12 +350,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 segments: [
                   ButtonSegment(
                     value: 'fixed',
-                    label: Text('وقت ثابت', style: GoogleFonts.tajawal(fontSize: 13)),
+                    label: Text('وقت ثابت', style: TextStyle(fontSize: 13)),
                     icon: const Icon(Icons.timer_outlined),
                   ),
                   ButtonSegment(
                     value: 'relative',
-                    label: Text('مرتبط بالصلوات', style: GoogleFonts.tajawal(fontSize: 13)),
+                    label: Text('مرتبط بالصلوات', style: TextStyle(fontSize: 13)),
                     icon: const Icon(Icons.access_time_filled_outlined),
                   ),
                 ],
@@ -554,7 +571,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     (_settings.relativeStartOffset >= 0 ? '+' : '') +
                     '${_settings.relativeStartOffset} دقيقة' +
                     ' (${_settings.relativeStartOffset >= 0 ? 'بعد الصلاة' : 'قبل الصلاة'})',
-                style: GoogleFonts.tajawal(fontSize: 13, fontWeight: FontWeight.bold),
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
               ),
               Slider(
                 value: _settings.relativeStartOffset.toDouble(),
@@ -576,7 +593,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               // 7. Class Duration
               Text(
                 'مدة الحلقة: ${_settings.classDurationMinutes} دقيقة (${(_settings.classDurationMinutes / 60).toStringAsFixed(1)} ساعة)',
-                style: GoogleFonts.tajawal(fontSize: 13, fontWeight: FontWeight.bold),
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
               ),
               Slider(
                 value: _settings.classDurationMinutes.toDouble(),
@@ -604,7 +621,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const SizedBox(width: 8),
                 Text(
                   'توقيت شهر رمضان المبارك',
-                  style: GoogleFonts.tajawal(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.orange[700]),
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.orange[700]),
                 ),
               ],
             ),
@@ -626,7 +643,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(height: 8),
             Text(
               'نوع توقيت حلقة رمضان:',
-              style: GoogleFonts.tajawal(fontSize: 13, fontWeight: FontWeight.bold),
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
             DropdownButtonFormField<String>(
@@ -635,9 +652,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 border: OutlineInputBorder(),
               ),
               items: [
-                DropdownMenuItem(value: 'same', child: Text('نفس التوقيت المعتاد (العادي)', style: GoogleFonts.tajawal(fontSize: 14))),
-                DropdownMenuItem(value: 'fixed', child: Text('ساعات ثابتة مخصصة لرمضان', style: GoogleFonts.tajawal(fontSize: 14))),
-                DropdownMenuItem(value: 'relative', child: Text('مرتبط بالصلوات لرمضان', style: GoogleFonts.tajawal(fontSize: 14))),
+                DropdownMenuItem(value: 'same', child: Text('نفس التوقيت المعتاد (العادي)', style: TextStyle(fontSize: 14))),
+                DropdownMenuItem(value: 'fixed', child: Text('ساعات ثابتة مخصصة لرمضان', style: TextStyle(fontSize: 14))),
+                DropdownMenuItem(value: 'relative', child: Text('مرتبط بالصلوات لرمضان', style: TextStyle(fontSize: 14))),
               ],
               onChanged: (val) {
                 if (val != null) {
@@ -719,7 +736,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     (_settings.ramadanRelativeStartOffset >= 0 ? '+' : '') +
                     '${_settings.ramadanRelativeStartOffset} دقيقة' +
                     ' (${_settings.ramadanRelativeStartOffset >= 0 ? 'بعد الصلاة' : 'قبل الصلاة'})',
-                style: GoogleFonts.tajawal(fontSize: 13, fontWeight: FontWeight.bold),
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
               ),
               Slider(
                 value: _settings.ramadanRelativeStartOffset.toDouble(),
@@ -741,7 +758,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               // Class duration in Ramadan
               Text(
                 'مدة حلقة رمضان: ${_settings.ramadanClassDurationMinutes} دقيقة (${(_settings.ramadanClassDurationMinutes / 60).toStringAsFixed(1)} ساعة)',
-                style: GoogleFonts.tajawal(fontSize: 13, fontWeight: FontWeight.bold),
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
               ),
               Slider(
                 value: _settings.ramadanClassDurationMinutes.toDouble(),
@@ -1046,17 +1063,63 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ],
             const Divider(height: 28),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: _isPassphraseConfigured
+                    ? Colors.green.withOpacity(0.09)
+                    : Theme.of(context).colorScheme.errorContainer,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    _isPassphraseConfigured
+                        ? Icons.lock_outline
+                        : Icons.lock_open_outlined,
+                    color: _isPassphraseConfigured
+                        ? Colors.green
+                        : Theme.of(context).colorScheme.error,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _isPassphraseConfigured
+                              ? 'تشفير النسخ الاحتياطية مفعّل'
+                              : 'يلزم إعداد عبارة حماية',
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        const Text(
+                          'احفظ العبارة خارج الجهاز؛ لا يمكن فك النسخة بدونها.',
+                        ),
+                      ],
+                    ),
+                  ),
+                  TextButton(
+                    onPressed:
+                        _dataActionBusy ? null : _configureBackupPassphrase,
+                    child: Text(
+                      _isPassphraseConfigured ? 'تغيير' : 'إعداد',
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 8),
             ListTile(
-              leading: const Icon(Icons.backup),
+              leading: const Icon(Icons.enhanced_encryption_outlined),
               title: const Text('إنشاء نسخة الآن'),
-              subtitle: const Text('حفظ نسخة كاملة وإتاحة مشاركتها خارج الجهاز'),
-              onTap: () => _performBackup(),
+              subtitle: const Text('إنشاء ملف مشفر ومتحقق من سلامته'),
+              onTap: _dataActionBusy ? null : _performBackup,
             ),
             ListTile(
               leading: const Icon(Icons.restore),
               title: const Text('استعادة'),
               subtitle: const Text('استعادة إحدى النسخ المحلية المحفوظة'),
-              onTap: () => _performRestore(),
+              onTap: _dataActionBusy ? null : _performRestore,
             ),
             const Divider(height: 28),
             SwitchListTile.adaptive(
@@ -1068,6 +1131,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
               value: _settings.automaticBackupEnabled,
               onChanged: (value) async {
+                if (value && !await _ensurePassphraseConfigured()) return;
                 setState(() {
                   _settings = _settings.copyWith(
                     automaticBackupEnabled: value,
@@ -1156,6 +1220,115 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   await _saveSettings();
                 },
               ),
+            const Divider(height: 28),
+            SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              secondary: const Icon(Icons.cloud_sync_outlined),
+              title: const Text('نسخة سحابية تلقائية مشفرة'),
+              subtitle: Text(
+                supabase.isAuthenticated
+                    ? 'ترفع النسخة التلقائية إلى مساحة خاصة بالحساب'
+                    : 'يلزم تسجيل الدخول لتفعيلها',
+              ),
+              value: _settings.cloudBackupEnabled,
+              onChanged: !supabase.isAuthenticated
+                  ? null
+                  : (value) async {
+                      if (value && !await _ensurePassphraseConfigured()) return;
+                      setState(() {
+                        _settings = _settings.copyWith(
+                          cloudBackupEnabled: value,
+                        );
+                      });
+                      await _saveSettings();
+                    },
+            ),
+            if (supabase.isAuthenticated) ...[
+              DropdownButtonFormField<int>(
+                value: const [10, 30, 60]
+                        .contains(_settings.cloudBackupRetentionCount)
+                    ? _settings.cloudBackupRetentionCount
+                    : 30,
+                decoration: const InputDecoration(
+                  labelText: 'عدد النسخ السحابية المحتفظ بها',
+                  prefixIcon: Icon(Icons.cloud_queue_outlined),
+                ),
+                items: const [10, 30, 60]
+                    .map(
+                      (count) => DropdownMenuItem(
+                        value: count,
+                        child: Text('$count نسخة'),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (value) async {
+                  if (value == null) return;
+                  setState(() {
+                    _settings = _settings.copyWith(
+                      cloudBackupRetentionCount: value,
+                    );
+                  });
+                  await _saveSettings();
+                },
+              ),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.cloud_upload_outlined),
+                title: const Text('رفع نسخة مشفرة الآن'),
+                subtitle: const Text('لا يُرفع أي ملف غير مشفر'),
+                onTap: _dataActionBusy ? null : _performCloudBackup,
+              ),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.cloud_download_outlined),
+                title: const Text('استعادة من السحابة'),
+                subtitle: const Text('تنزيل النسخة ثم التحقق منها قبل الاستعادة'),
+                onTap: _dataActionBusy ? null : _performCloudRestore,
+              ),
+            ],
+            const Divider(height: 28),
+            DropdownButtonFormField<int>(
+              value: const [365, 730, 1825]
+                      .contains(_settings.auditLogRetentionDays)
+                  ? _settings.auditLogRetentionDays
+                  : 730,
+              decoration: const InputDecoration(
+                labelText: 'مدة الاحتفاظ بسجل التدقيق',
+                prefixIcon: Icon(Icons.history_outlined),
+              ),
+              items: const [
+                DropdownMenuItem(value: 365, child: Text('سنة واحدة')),
+                DropdownMenuItem(value: 730, child: Text('سنتان')),
+                DropdownMenuItem(value: 1825, child: Text('خمس سنوات')),
+              ],
+              onChanged: (value) async {
+                if (value == null) return;
+                setState(() {
+                  _settings = _settings.copyWith(
+                    auditLogRetentionDays: value,
+                  );
+                });
+                await _saveSettings();
+                await AuditLogService().prune(retentionDays: value);
+              },
+            ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.fact_check_outlined),
+              title: const Text('سجل التدقيق'),
+              subtitle: const Text('مراجعة النسخ والاستعادة والتغييرات الحساسة'),
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const AuditLogScreen()),
+              ),
+            ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.privacy_tip_outlined),
+              title: const Text('سياسة الخصوصية وإدارة البيانات'),
+              subtitle: const Text('ما يُجمع، ولماذا، وكيف يُحتفظ به ويُحذف'),
+              onTap: () => _openPrivacyPolicy(),
+            ),
             const Divider(height: 28),
             ListTile(
               contentPadding: EdgeInsets.zero,
@@ -1256,7 +1429,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               'حلقتي',
               style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
             ),
-            const Text('الإصدار 1.2.0'),
+            const Text('الإصدار 3.7.0-alpha'),
             const SizedBox(height: 8),
             Text(
               'تطبيق لإدارة الحلقات القرآنية',
@@ -1285,28 +1458,38 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _performBackup() async {
+    if (!await _ensurePassphraseConfigured()) return;
+    var progressOpen = false;
     try {
-      showDialog(
+      setState(() => _dataActionBusy = true);
+      progressOpen = true;
+      showDialog<void>(
         context: context,
         barrierDismissible: false,
         builder: (context) => const Center(child: CircularProgressIndicator()),
       );
-      
+
       final filePath = await _backup.exportBackup();
       await _refreshBackupStatus();
-      
-      if (mounted) Navigator.pop(context);
-      
+
+      if (mounted && progressOpen) {
+        Navigator.pop(context);
+        progressOpen = false;
+      }
+
       if (mounted) {
-        showDialog(
+        showDialog<void>(
           context: context,
           builder: (context) => AlertDialog(
-            title: const Text('تم النسخ الاحتياطي'),
+            title: const Text('تم إنشاء نسخة مشفرة'),
             content: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('تم حفظ النسخة الاحتياطية بنجاح'),
+                const Text(
+                  'تم تشفير النسخة والتحقق من سلامتها. ستحتاج إلى عبارة '
+                  'الحماية نفسها عند الاستعادة على جهاز آخر.',
+                ),
                 const SizedBox(height: 8),
                 Text(
                   'المسار: $filePath',
@@ -1318,7 +1501,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
               TextButton(
                 onPressed: () {
                   Navigator.pop(context);
-                  Share.shareXFiles([XFile(filePath)], text: 'نسخة احتياطية لقاعدة بيانات حلقتي');
+                  Share.shareXFiles(
+                    [XFile(filePath)],
+                    text: 'نسخة احتياطية مشفرة لتطبيق حلقتي',
+                  );
                 },
                 child: const Text('مشاركة الملف'),
               ),
@@ -1331,12 +1517,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
         );
       }
     } catch (e) {
-      if (mounted) Navigator.pop(context);
+      if (mounted && progressOpen) Navigator.pop(context);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('خطأ في النسخ الاحتياطي: $e'), backgroundColor: Colors.red),
-        );
+        _showDataError('تعذر إنشاء النسخة: $e');
       }
+    } finally {
+      if (mounted) setState(() => _dataActionBusy = false);
     }
   }
 
@@ -1344,11 +1530,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final lastRaw = await _db.getSetting('last_backup_at');
     final error = await _db.getSetting('last_automatic_backup_error');
     final files = await _backup.getBackupFiles();
+    final passphraseConfigured = await _backup.passphrases.isConfigured;
     if (!mounted) return;
     setState(() {
       _lastBackupAt = DateTime.tryParse(lastRaw ?? '');
       _lastAutomaticBackupError = error?.trim();
       _savedBackupCount = files.length;
+      _isPassphraseConfigured = passphraseConfigured;
     });
   }
 
@@ -1380,8 +1568,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 final file = files[index] as File;
                 final fileName = file.path.split('/').last.split('\\').last;
                 return ListTile(
-                  leading: const Icon(Icons.backup),
+                  leading: Icon(
+                    file.path.endsWith('.halaqah')
+                        ? Icons.lock_outline
+                        : Icons.warning_amber_outlined,
+                  ),
                   title: Text(fileName),
+                  subtitle: Text(
+                    file.path.endsWith('.halaqah')
+                        ? 'نسخة مشفرة'
+                        : 'نسخة قديمة غير مشفرة',
+                  ),
                   onTap: () => Navigator.pop(context, file),
                 );
               },
@@ -1395,56 +1592,358 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ],
         ),
       );
-      
+
       if (selectedFile == null) return;
-      
-      final confirm = await showDialog<bool>(
+      await _restoreFile(selectedFile);
+    } catch (e) {
+      if (mounted) {
+        _showDataError('تعذر فتح النسخ الاحتياطية: $e');
+      }
+    }
+  }
+
+  Future<bool> _ensurePassphraseConfigured() async {
+    if (await _backup.passphrases.isConfigured) return true;
+    await _configureBackupPassphrase();
+    return _backup.passphrases.isConfigured;
+  }
+
+  Future<void> _configureBackupPassphrase() async {
+    final formKey = GlobalKey<FormState>();
+    final passphraseController = TextEditingController();
+    final confirmationController = TextEditingController();
+    try {
+      final passphrase = await showDialog<String>(
         context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('تأكيد الاستعادة'),
-          content: const Text('سيتم استبدال البيانات الحالية. هل أنت متأكد؟'),
+        builder: (dialogContext) => AlertDialog(
+          title: Text(
+            _isPassphraseConfigured
+                ? 'تغيير عبارة حماية النسخ'
+                : 'إعداد عبارة حماية النسخ',
+          ),
+          content: Form(
+            key: formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (_isPassphraseConfigured)
+                  const Padding(
+                    padding: EdgeInsets.only(bottom: 12),
+                    child: Text(
+                      'تنبيه: النسخ السابقة تبقى مرتبطة بعبارتها القديمة. '
+                      'لا تغيّر العبارة قبل التأكد من حفظ القديمة.',
+                      style: TextStyle(color: Colors.orange),
+                    ),
+                  ),
+                TextFormField(
+                  controller: passphraseController,
+                  obscureText: true,
+                  enableSuggestions: false,
+                  autocorrect: false,
+                  decoration: const InputDecoration(
+                    labelText: 'عبارة الحماية',
+                    helperText: '10 أحرف على الأقل، ويفضل جملة يسهل تذكرها',
+                    prefixIcon: Icon(Icons.key_outlined),
+                  ),
+                  validator: (value) {
+                    final length = value?.runes.length ?? 0;
+                    if (length < 10) return 'أدخل 10 أحرف على الأقل';
+                    if (length > 256) return 'العبارة أطول من الحد المسموح';
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: confirmationController,
+                  obscureText: true,
+                  enableSuggestions: false,
+                  autocorrect: false,
+                  decoration: const InputDecoration(
+                    labelText: 'تأكيد العبارة',
+                    prefixIcon: Icon(Icons.verified_user_outlined),
+                  ),
+                  validator: (value) => value != passphraseController.text
+                      ? 'العبارتان غير متطابقتين'
+                      : null,
+                ),
+              ],
+            ),
+          ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(context, false),
+              onPressed: () => Navigator.pop(dialogContext),
               child: const Text('إلغاء'),
             ),
-            TextButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('استعادة'),
+            FilledButton(
+              onPressed: () {
+                if (formKey.currentState?.validate() != true) return;
+                Navigator.pop(dialogContext, passphraseController.text);
+              },
+              child: const Text('حفظ بأمان'),
             ),
           ],
         ),
       );
-      
-      if (confirm != true) return;
-      
-      if (mounted) {
-        showDialog(
+      if (passphrase == null) return;
+      await _backup.passphrases.save(passphrase);
+      await AuditLogService().record(
+        eventType: 'backup.passphrase_changed',
+        entityType: 'security_setting',
+      );
+      if (!mounted) return;
+      setState(() => _isPassphraseConfigured = true);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('تم حفظ عبارة الحماية في مخزن الجهاز الآمن'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } finally {
+      passphraseController.dispose();
+      confirmationController.dispose();
+    }
+  }
+
+  Future<String?> _requestBackupPassphrase() async {
+    final controller = TextEditingController();
+    try {
+      return await showDialog<String>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('عبارة حماية النسخة'),
+          content: TextField(
+            controller: controller,
+            obscureText: true,
+            enableSuggestions: false,
+            autocorrect: false,
+            autofocus: true,
+            decoration: const InputDecoration(
+              labelText: 'أدخل العبارة المستخدمة عند إنشاء النسخة',
+              prefixIcon: Icon(Icons.key_outlined),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('إلغاء'),
+            ),
+            FilledButton(
+              onPressed: () {
+                if (controller.text.runes.length < 10) return;
+                Navigator.pop(dialogContext, controller.text);
+              },
+              child: const Text('فتح النسخة'),
+            ),
+          ],
+        ),
+      );
+    } finally {
+      controller.dispose();
+    }
+  }
+
+  Future<void> _restoreFile(File file) async {
+    final inspection = await _backup.inspectBackup(file.path);
+    if (!mounted) return;
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('تأكيد الاستعادة'),
+        content: Text(
+          '${inspection.encrypted ? 'النسخة مشفرة وسيتم التحقق من سلامتها.' : 'تحذير: هذه نسخة قديمة غير مشفرة.'}\n\n'
+          'ستُستبدل البيانات المحلية الحالية داخل معاملة واحدة. يُنصح '
+          'بإنشاء نسخة حديثة قبل المتابعة.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('إلغاء'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('استعادة'),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true || !mounted) return;
+
+    setState(() => _dataActionBusy = true);
+    var progressOpen = true;
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+    );
+    try {
+      try {
+        await _backup.importBackup(file.path);
+      } on BackupAuthenticationException {
+        if (mounted && progressOpen) {
+          Navigator.pop(context);
+          progressOpen = false;
+        }
+        final passphrase = await _requestBackupPassphrase();
+        if (passphrase == null || !mounted) return;
+        progressOpen = true;
+        showDialog<void>(
           context: context,
           barrierDismissible: false,
-          builder: (context) => const Center(child: CircularProgressIndicator()),
+          builder: (_) => const Center(child: CircularProgressIndicator()),
         );
+        await _backup.importBackup(file.path, passphrase: passphrase);
+      } on BackupPassphraseRequiredException {
+        if (mounted && progressOpen) {
+          Navigator.pop(context);
+          progressOpen = false;
+        }
+        final passphrase = await _requestBackupPassphrase();
+        if (passphrase == null || !mounted) return;
+        progressOpen = true;
+        showDialog<void>(
+          context: context,
+          barrierDismissible: false,
+          builder: (_) => const Center(child: CircularProgressIndicator()),
+        );
+        await _backup.importBackup(file.path, passphrase: passphrase);
       }
-      
-      final success = await _backup.importBackup(selectedFile.path);
-      
-      if (mounted) Navigator.pop(context);
-      
+      if (mounted && progressOpen) {
+        Navigator.pop(context);
+        progressOpen = false;
+      }
+      await _refreshBackupStatus();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(success ? 'تم استعادة البيانات بنجاح' : 'فشل في استعادة البيانات'),
-            backgroundColor: success ? Colors.green : Colors.red,
+          const SnackBar(
+            content: Text('تم التحقق من النسخة واستعادة البيانات بنجاح'),
+            backgroundColor: Colors.green,
           ),
         );
       }
-    } catch (e) {
+    } catch (error) {
+      if (mounted && progressOpen) Navigator.pop(context);
+      if (mounted) _showDataError('فشلت الاستعادة: $error');
+    } finally {
+      if (mounted) setState(() => _dataActionBusy = false);
+    }
+  }
+
+  Future<void> _performCloudBackup() async {
+    if (!await _ensurePassphraseConfigured()) return;
+    setState(() => _dataActionBusy = true);
+    var progressOpen = true;
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+    );
+    try {
+      final entry = await CloudBackupService().createAndUpload(
+        retentionCount: _settings.cloudBackupRetentionCount,
+      );
+      await _refreshBackupStatus();
+      if (mounted && progressOpen) {
+        Navigator.pop(context);
+        progressOpen = false;
+      }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('خطأ: $e'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text('تم رفع النسخة المشفرة: ${entry.name}'),
+            backgroundColor: Colors.green,
+          ),
         );
       }
+    } catch (error) {
+      if (mounted && progressOpen) Navigator.pop(context);
+      if (mounted) {
+        _showDataError(
+          'تعذر رفع النسخة. تأكد من تنفيذ migration التخزين السحابي: $error',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _dataActionBusy = false);
     }
+  }
+
+  Future<void> _performCloudRestore() async {
+    setState(() => _dataActionBusy = true);
+    var progressOpen = false;
+    try {
+      final cloud = CloudBackupService();
+      final entries = await cloud.listBackups();
+      if (!mounted) return;
+      if (entries.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('لا توجد نسخ سحابية لهذا الحساب والمركز')),
+        );
+        return;
+      }
+      final selected = await showDialog<CloudBackupEntry>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('اختر نسخة سحابية'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: ListView.builder(
+              shrinkWrap: true,
+              itemCount: entries.length,
+              itemBuilder: (_, index) => ListTile(
+                leading: const Icon(Icons.cloud_done_outlined),
+                title: Text(entries[index].name),
+                onTap: () => Navigator.pop(dialogContext, entries[index]),
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('إلغاء'),
+            ),
+          ],
+        ),
+      );
+      if (selected == null || !mounted) return;
+      progressOpen = true;
+      showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => const Center(child: CircularProgressIndicator()),
+      );
+      final localPath = await cloud.download(selected);
+      if (mounted && progressOpen) {
+        Navigator.pop(context);
+        progressOpen = false;
+      }
+      if (!mounted) return;
+      setState(() => _dataActionBusy = false);
+      await _restoreFile(File(localPath));
+    } catch (error) {
+      if (mounted && progressOpen) Navigator.pop(context);
+      if (mounted) _showDataError('تعذر تحميل النسخة السحابية: $error');
+    } finally {
+      if (mounted) setState(() => _dataActionBusy = false);
+    }
+  }
+
+  Future<void> _openPrivacyPolicy() async {
+    await Navigator.push<void>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => PrivacyPolicyScreen(settings: _settings),
+      ),
+    );
+    await _db.saveSetting(
+      'privacy_policy_reviewed_at',
+      DateTime.now().toIso8601String(),
+    );
+  }
+
+  void _showDataError(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: Colors.red),
+    );
   }
 
   void _showCustomPointsConfigDialog() {
@@ -1464,7 +1963,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   const SizedBox(width: 8),
                   Text(
                     'قواعد النقاط والسلوك المخصصة',
-                    style: GoogleFonts.tajawal(fontWeight: FontWeight.bold, fontSize: 16),
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                   ),
                 ],
               ),
@@ -1476,7 +1975,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ElevatedButton.icon(
                       onPressed: () => _showAddEditRuleDialog(setDialogState),
                       icon: const Icon(Icons.add),
-                      label: Text('إضافة قاعدة جديدة', style: GoogleFonts.tajawal()),
+                      label: Text('إضافة قاعدة جديدة', style: TextStyle()),
                     ),
                     const SizedBox(height: 12),
                     if (customRules.isEmpty)
@@ -1485,7 +1984,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         child: Text(
                           'لا يوجد قواعد مخصصة حاليًا. أضف قواعدك الأولى كمعلم!',
                           textAlign: TextAlign.center,
-                          style: GoogleFonts.tajawal(color: Colors.grey),
+                          style: TextStyle(color: Colors.grey),
                         ),
                       )
                     else
@@ -1498,10 +1997,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             final label = rule.key.substring(2);
                             final points = rule.value;
                             return ListTile(
-                              title: Text(label, style: GoogleFonts.tajawal(fontWeight: FontWeight.w500)),
+                              title: Text(label, style: TextStyle(fontWeight: FontWeight.w500)),
                               subtitle: Text(
                                 '${points > 0 ? "+" : ""}$points نقطة',
-                                style: GoogleFonts.tajawal(
+                                style: TextStyle(
                                   color: points >= 0 ? Colors.green : Colors.red,
                                   fontWeight: FontWeight.bold,
                                 ),
@@ -1539,7 +2038,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(context),
-                  child: Text('إغلاق', style: GoogleFonts.tajawal()),
+                  child: Text('إغلاق', style: TextStyle()),
                 ),
               ],
             );
@@ -1563,7 +2062,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             return AlertDialog(
               title: Text(
                 isEditing ? 'تعديل القاعدة' : 'إضافة قاعدة جديدة',
-                style: GoogleFonts.tajawal(fontWeight: FontWeight.bold),
+                style: TextStyle(fontWeight: FontWeight.bold),
               ),
               content: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -1572,7 +2071,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     controller: nameController,
                     decoration: InputDecoration(
                       labelText: 'اسم القاعدة (مثال: صلاة الفجر في المسجد)',
-                      labelStyle: GoogleFonts.tajawal(),
+                      labelStyle: TextStyle(),
                       border: const OutlineInputBorder(),
                     ),
                     enabled: !isEditing,
@@ -1580,9 +2079,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   const SizedBox(height: 12),
                   Row(
                     children: [
-                      Text('نوع النقاط: ', style: GoogleFonts.tajawal()),
+                      Text('نوع النقاط: ', style: TextStyle()),
                       ChoiceChip(
-                        label: Text('إيجابي (+)', style: GoogleFonts.tajawal()),
+                        label: Text('إيجابي (+)', style: TextStyle()),
                         selected: isPositive,
                         onSelected: (val) {
                           setSubState(() => isPositive = true);
@@ -1590,7 +2089,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                       const SizedBox(width: 8),
                       ChoiceChip(
-                        label: Text('سلبي (-)', style: GoogleFonts.tajawal()),
+                        label: Text('سلبي (-)', style: TextStyle()),
                         selected: !isPositive,
                         onSelected: (val) {
                           setSubState(() => isPositive = false);
@@ -1603,7 +2102,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     controller: pointsController,
                     decoration: InputDecoration(
                       labelText: 'مقدار النقاط',
-                      labelStyle: GoogleFonts.tajawal(),
+                      labelStyle: TextStyle(),
                       border: const OutlineInputBorder(),
                     ),
                     keyboardType: TextInputType.number,
@@ -1613,7 +2112,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(context),
-                  child: Text('إلغاء', style: GoogleFonts.tajawal()),
+                  child: Text('إلغاء', style: TextStyle()),
                 ),
                 ElevatedButton(
                   onPressed: () {
@@ -1636,7 +2135,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     setParentState(() {});
                     Navigator.pop(context);
                   },
-                  child: Text('حفظ', style: GoogleFonts.tajawal()),
+                  child: Text('حفظ', style: TextStyle()),
                 ),
               ],
             );

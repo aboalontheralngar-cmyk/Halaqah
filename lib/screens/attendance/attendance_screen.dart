@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../../services/database_service.dart';
@@ -8,14 +7,18 @@ import '../../models/settings.dart';
 import '../../models/student.dart';
 import '../../models/daily_record.dart';
 import '../../models/vacation.dart';
+import '../../app/design_tokens.dart';
 import '../../utils/helpers.dart';
 import '../../utils/prayer_time_helper.dart';
+import '../../widgets/app_design_widgets.dart';
 import '../memorization/recitation_screen.dart';
 import '../memorization/revision_screen.dart';
 import '../settings/add_vacation_screen.dart';
 
 class AttendanceScreen extends StatefulWidget {
-  const AttendanceScreen({super.key});
+  final VoidCallback? onOpenMenu;
+
+  const AttendanceScreen({super.key, this.onOpenMenu});
 
   @override
   State<AttendanceScreen> createState() => _AttendanceScreenState();
@@ -314,6 +317,13 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
 
     return Scaffold(
       appBar: AppBar(
+        leading: widget.onOpenMenu == null
+            ? null
+            : IconButton(
+                onPressed: widget.onOpenMenu,
+                icon: const Icon(Icons.menu),
+                tooltip: 'القائمة الرئيسية',
+              ),
         title: const Text('الحضور اليومي'),
         actions: [
           IconButton(
@@ -355,10 +365,11 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     final classTimes = PrayerTimeHelper.calculateClassTimes(_settings, _selectedDate);
     final startTimeFormatted = Helpers.formatTime(classTimes.start, format: _settings.timeFormat, context: context);
     final sourceText = classTimes.calculationSource ?? '';
+    final scheme = Theme.of(context).colorScheme;
 
     return Container(
-      padding: const EdgeInsets.all(12),
-      color: Theme.of(context).primaryColor.withOpacity(0.1),
+      padding: const EdgeInsets.all(AppSpacing.sm),
+      color: scheme.primaryContainer.withOpacity(0.45),
       child: Column(
         children: [
           Row(
@@ -378,8 +389,8 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(8),
+                    color: scheme.surface,
+                    borderRadius: BorderRadius.circular(AppRadii.sm),
                     boxShadow: [
                       BoxShadow(
                         color: Colors.black.withOpacity(0.1),
@@ -395,7 +406,10 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                       ),
                       Text(
                         Helpers.getFullHijriDate(_selectedDate),
-                        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: scheme.onSurfaceVariant,
+                        ),
                       ),
                     ],
                   ),
@@ -417,7 +431,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
           const SizedBox(height: 6),
           Text(
             'وقت بدء اليوم: $startTimeFormatted ($sourceText)',
-            style: GoogleFonts.tajawal(
+            style: TextStyle(
               fontSize: 12,
               color: Theme.of(context).primaryColor,
               fontWeight: FontWeight.w600,
@@ -498,15 +512,10 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   }
 
   Widget _buildEmptyState() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.people_outline, size: 60, color: Colors.grey[400]),
-          const SizedBox(height: 16),
-          Text('لا يوجد طلاب', style: TextStyle(color: Colors.grey[600])),
-        ],
-      ),
+    return const AppEmptyState(
+      icon: Icons.people_outline,
+      title: 'لا يوجد طلاب',
+      message: 'أضف طالبًا إلى الحلقة ليظهر في سجل الحضور.',
     );
   }
 
@@ -995,12 +1004,12 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
               children: [
                 Text(
                   'الدراسة معلّقة في هذا اليوم.',
-                  style: GoogleFonts.tajawal(fontWeight: FontWeight.bold, color: Colors.orange[900]),
+                  style: TextStyle(fontWeight: FontWeight.bold, color: Colors.orange[900]),
                 ),
                 if (_suspensionReason != null && _suspensionReason!.isNotEmpty)
                   Text(
                     'السبب: $_suspensionReason',
-                    style: GoogleFonts.tajawal(fontSize: 12, color: Colors.orange[800]),
+                    style: TextStyle(fontSize: 12, color: Colors.orange[800]),
                   ),
               ],
             ),
@@ -1008,7 +1017,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
           TextButton.icon(
             onPressed: _toggleSuspension,
             icon: const Icon(Icons.play_circle_outline, size: 16),
-            label: Text('تفعيل الحلقة الآن', style: GoogleFonts.tajawal(fontWeight: FontWeight.bold)),
+            label: Text('تفعيل الحلقة الآن', style: TextStyle(fontWeight: FontWeight.bold)),
             style: TextButton.styleFrom(foregroundColor: Colors.teal),
           ),
         ],
@@ -1061,13 +1070,13 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
-          title: Text('تعليق الدراسة', style: GoogleFonts.tajawal(fontWeight: FontWeight.bold)),
+          title: Text('تعليق الدراسة', style: TextStyle(fontWeight: FontWeight.bold)),
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('سبب تعليق الدراسة (إلزامي):', style: GoogleFonts.tajawal(fontWeight: FontWeight.w600)),
+                Text('سبب تعليق الدراسة (إلزامي):', style: TextStyle(fontWeight: FontWeight.w600)),
                 const SizedBox(height: 8),
                 TextField(
                   controller: reasonController,
@@ -1075,12 +1084,12 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                   maxLines: 2,
                   decoration: InputDecoration(
                     hintText: 'مثال: امتحانات عامة، ظرف طارئ، إجازة رسمية...',
-                    hintStyle: GoogleFonts.tajawal(fontSize: 12),
+                    hintStyle: TextStyle(fontSize: 12),
                     border: const OutlineInputBorder(),
                   ),
                 ),
                 const SizedBox(height: 16),
-                Text('مدة التعليق:', style: GoogleFonts.tajawal(fontWeight: FontWeight.w600)),
+                Text('مدة التعليق:', style: TextStyle(fontWeight: FontWeight.w600)),
                 const SizedBox(height: 8),
                 Row(
                   children: [
@@ -1092,7 +1101,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                       child: Text(
                         days == 1 ? 'هذا اليوم فقط' : '$days أيام متتالية',
                         textAlign: TextAlign.center,
-                        style: GoogleFonts.tajawal(fontWeight: FontWeight.bold, fontSize: 15),
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
                       ),
                     ),
                     IconButton(
@@ -1104,7 +1113,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                 const SizedBox(height: 4),
                 Text(
                   'لن يُحتسب حضور أو غياب أو نقاط سلبية خلال أيام التعليق.',
-                  style: GoogleFonts.tajawal(fontSize: 11, color: Colors.grey[600]),
+                  style: TextStyle(fontSize: 11, color: Colors.grey[600]),
                 ),
               ],
             ),
@@ -1112,13 +1121,13 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
-              child: Text('إلغاء', style: GoogleFonts.tajawal()),
+              child: Text('إلغاء', style: TextStyle()),
             ),
             ElevatedButton(
               onPressed: () {
                 if (reasonController.text.trim().isEmpty) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('الرجاء إدخال سبب التعليق', style: GoogleFonts.tajawal())),
+                    SnackBar(content: Text('الرجاء إدخال سبب التعليق', style: TextStyle())),
                   );
                   return;
                 }
@@ -1127,7 +1136,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                   'days': days,
                 });
               },
-              child: Text('تأكيد التعليق', style: GoogleFonts.tajawal()),
+              child: Text('تأكيد التعليق', style: TextStyle()),
             ),
           ],
         ),

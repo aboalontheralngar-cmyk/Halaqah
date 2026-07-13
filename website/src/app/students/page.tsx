@@ -18,13 +18,15 @@ import {
   Map,
   History,
   Archive,
-  RotateCcw
+  RotateCcw,
+  Users
 } from "lucide-react";
 import { useStore, Student } from "@/store/useStore";
 import { QRCodeSVG } from "qrcode.react";
 import { encodeStudentQr } from "@/lib/studentQr";
 import MushafVisualizer from "@/components/MushafVisualizer";
 import { quranService } from "@/services/quranService";
+import { EmptyState, PageHeader, SearchField, Surface } from "@/components/ui/AppDesign";
 
 const levels = [
   { id: "الكل", label: "الكل" },
@@ -256,14 +258,14 @@ export default function StudentsPage() {
   };
 
   return (
-    <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-700">
+    <div className="page-enter space-y-8">
       {/* Header Section */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-        <div>
-          <h1 className="text-3xl font-black text-gray-900 dark:text-white tracking-tight">إدارة شؤون الطلاب 👨‍🎓</h1>
-          <p className="text-gray-500 dark:text-gray-400 mt-2 font-medium">متابعة دقيقة لبيانات الطلاب وخطط حفظهم اليومية.</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-3">
+      <PageHeader
+        title="إدارة شؤون الطلاب"
+        description="متابعة بيانات الطلاب وخطط الحفظ والتقدم والأرشيف من مكان واحد."
+        icon={Users}
+        actions={
+          <>
           <button
             onClick={() => setStatusView(statusView === 'current' ? 'archive' : 'current')}
             className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 px-5 py-4 rounded-3xl font-black text-sm text-gray-600 dark:text-gray-300 flex items-center gap-2"
@@ -282,8 +284,9 @@ export default function StudentsPage() {
               إضافة طالب جديد
             </button>
           )}
-        </div>
-      </div>
+          </>
+        }
+      />
 
       {statusView === 'archive' && (
         <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900 rounded-3xl px-6 py-4 text-sm font-bold text-amber-800 dark:text-amber-300">
@@ -292,17 +295,13 @@ export default function StudentsPage() {
       )}
 
       {/* Filters Bar */}
-      <div className="bg-white/60 dark:bg-gray-900/60 backdrop-blur-md rounded-[2.5rem] border border-white dark:border-gray-800 p-6 shadow-xl shadow-gray-200/30 dark:shadow-none flex flex-col lg:flex-row gap-6 items-center">
-        <div className="relative flex-1 w-full">
-          <Search className="absolute right-5 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-          <input 
-            type="text" 
-            placeholder="بحث باسم الطالب أو رقم الهاتف..." 
-            value={search} 
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full pr-14 pl-6 py-4 bg-white dark:bg-gray-800 border-none rounded-2xl shadow-sm outline-none focus:ring-2 ring-teal-500/20 text-sm font-bold text-gray-700 dark:text-gray-200 transition-all"
-          />
-        </div>
+      <Surface className="flex flex-col items-center gap-6 p-6 lg:flex-row">
+        <SearchField
+          value={search}
+          onChange={setSearch}
+          placeholder="بحث باسم الطالب أو رقم الهاتف..."
+          className="flex-1"
+        />
 
         <div className="flex items-center gap-4 w-full lg:w-auto">
           <div className="flex items-center gap-3 bg-white dark:bg-gray-800 px-4 py-2 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm flex-1 lg:flex-none">
@@ -342,9 +341,18 @@ export default function StudentsPage() {
             </button>
           </div>
         </div>
-      </div>
+      </Surface>
 
       {/* Students Grid */}
+      {filteredStudents.length === 0 ? (
+        <Surface>
+          <EmptyState
+            icon={Users}
+            title={statusView === "archive" ? "لا يوجد طلاب في الأرشيف" : "لم نجد طلابًا مطابقين"}
+            description="غيّر عبارة البحث أو المرشح، أو أضف طالبًا جديدًا إلى الحلقة."
+          />
+        </Surface>
+      ) : (
       <div className={viewMode === "grid" ? "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8" : "space-y-4"}>
         {filteredStudents.map(student => (
           <div 
@@ -431,6 +439,7 @@ export default function StudentsPage() {
           </div>
         ))}
       </div>
+      )}
 
       {/* Student Form Modal */}
       {showForm && (

@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import '../../services/database_service.dart';
 import '../../models/settings.dart';
 import '../../utils/prayer_time_helper.dart';
@@ -132,7 +131,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
           SnackBar(
             content: Text(
               'حدث خطأ أثناء حفظ الإعدادات: $e',
-              style: GoogleFonts.tajawal(),
+              style: TextStyle(),
             ),
             backgroundColor: Colors.red,
           ),
@@ -188,7 +187,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                       Text(
                         'مرحباً بك في تطبيق حلقتي',
                         textAlign: TextAlign.center,
-                        style: GoogleFonts.tajawal(
+                        style: TextStyle(
                           fontSize: 24,
                           fontWeight: FontWeight.bold,
                           color: theme.primaryColor,
@@ -198,7 +197,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                       Text(
                         'لنقم بتهيئة الإعدادات الأساسية لحلقتك أولاً',
                         textAlign: TextAlign.center,
-                        style: GoogleFonts.tajawal(
+                        style: TextStyle(
                           fontSize: 14,
                           color: Colors.grey[600],
                         ),
@@ -221,7 +220,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                       children: [
                         Text(
                           'معلومات الحلقة والمعلم',
-                          style: GoogleFonts.tajawal(
+                          style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.bold,
                             color: theme.primaryColor,
@@ -234,7 +233,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                           controller: _halaqahNameController,
                           decoration: InputDecoration(
                             labelText: 'اسم الحلقة *',
-                            labelStyle: GoogleFonts.tajawal(),
+                            labelStyle: TextStyle(),
                             prefixIcon: const Icon(Icons.mosque_outlined),
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(16),
@@ -254,7 +253,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                           controller: _mosqueNameController,
                           decoration: InputDecoration(
                             labelText: 'اسم المسجد / المركز',
-                            labelStyle: GoogleFonts.tajawal(),
+                            labelStyle: TextStyle(),
                             prefixIcon: const Icon(Icons.location_on_outlined),
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(16),
@@ -268,7 +267,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                           controller: _teacherNameController,
                           decoration: InputDecoration(
                             labelText: 'اسم المعلم / المعلمة *',
-                            labelStyle: GoogleFonts.tajawal(),
+                            labelStyle: TextStyle(),
                             prefixIcon: const Icon(Icons.person_outline),
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(16),
@@ -288,7 +287,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                           controller: _teacherPhoneController,
                           decoration: InputDecoration(
                             labelText: 'رقم جوال المعلم',
-                            labelStyle: GoogleFonts.tajawal(),
+                            labelStyle: TextStyle(),
                             prefixIcon: const Icon(Icons.phone_outlined),
                             hintText: '05xxxxxxxx',
                             border: OutlineInputBorder(
@@ -316,7 +315,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                       children: [
                         Text(
                           'تخصيص الإعدادات وجنس الحلقة',
-                          style: GoogleFonts.tajawal(
+                          style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.bold,
                             color: theme.primaryColor,
@@ -327,7 +326,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                         // Gender Selection
                         Text(
                           'جنس الحلقة:',
-                          style: GoogleFonts.tajawal(
+                          style: TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.bold,
                             color: Colors.grey[700],
@@ -342,12 +341,12 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                           segments: [
                             ButtonSegment(
                               value: 'male',
-                              label: Text('بنين (طلاب)', style: GoogleFonts.tajawal()),
+                              label: Text('بنين (طلاب)', style: TextStyle()),
                               icon: const Icon(Icons.male),
                             ),
                             ButtonSegment(
                               value: 'female',
-                              label: Text('بنات (طالبات)', style: GoogleFonts.tajawal()),
+                              label: Text('بنات (طالبات)', style: TextStyle()),
                               icon: const Icon(Icons.female),
                             ),
                           ],
@@ -361,7 +360,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                         // Halaqah timing selection
                         Text(
                           'طريقة تحديد وقت الحلقة:',
-                          style: GoogleFonts.tajawal(
+                          style: TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.bold,
                             color: Colors.grey[700],
@@ -378,12 +377,12 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                             segments: [
                               ButtonSegment(
                                 value: 'fixed',
-                                label: Text('وقت ثابت', style: GoogleFonts.tajawal(fontSize: 13)),
+                                label: Text('وقت ثابت', style: TextStyle(fontSize: 13)),
                                 icon: const Icon(Icons.timer_outlined),
                               ),
                               ButtonSegment(
                                 value: 'relative',
-                                label: Text('مرتبط بالصلوات', style: GoogleFonts.tajawal(fontSize: 13)),
+                                label: Text('مرتبط بالصلوات', style: TextStyle(fontSize: 13)),
                                 icon: const Icon(Icons.access_time_filled_outlined),
                               ),
                             ],
@@ -405,7 +404,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                                   child: InputDecorator(
                                     decoration: InputDecoration(
                                       labelText: 'البدء',
-                                      labelStyle: GoogleFonts.tajawal(),
+                                      labelStyle: TextStyle(),
                                       prefixIcon: const Icon(Icons.access_time_outlined),
                                       border: OutlineInputBorder(
                                         borderRadius: BorderRadius.circular(16),
@@ -413,7 +412,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                                     ),
                                     child: Text(
                                       _formatTimeDisplay(_normalStartTime),
-                                      style: GoogleFonts.tajawal(fontSize: 15),
+                                      style: TextStyle(fontSize: 15),
                                     ),
                                   ),
                                 ),
@@ -426,7 +425,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                                   child: InputDecorator(
                                     decoration: InputDecoration(
                                       labelText: 'الانتهاء',
-                                      labelStyle: GoogleFonts.tajawal(),
+                                      labelStyle: TextStyle(),
                                       prefixIcon: const Icon(Icons.access_time_outlined),
                                       border: OutlineInputBorder(
                                         borderRadius: BorderRadius.circular(16),
@@ -434,7 +433,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                                     ),
                                     child: Text(
                                       _formatTimeDisplay(_normalEndTime),
-                                      style: GoogleFonts.tajawal(fontSize: 15),
+                                      style: TextStyle(fontSize: 15),
                                     ),
                                   ),
                                 ),
@@ -447,14 +446,14 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                             value: _country,
                             decoration: InputDecoration(
                               labelText: 'الدولة *',
-                              labelStyle: GoogleFonts.tajawal(),
+                              labelStyle: TextStyle(),
                               prefixIcon: const Icon(Icons.public),
                               border: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(16),
                               ),
                             ),
                             items: PrayerTimeHelper.getSupportedCountries().entries.map((e) {
-                              return DropdownMenuItem(value: e.key, child: Text(e.value, style: GoogleFonts.tajawal()));
+                              return DropdownMenuItem(value: e.key, child: Text(e.value, style: TextStyle()));
                             }).toList(),
                             onChanged: (val) {
                               if (val != null) {
@@ -473,15 +472,15 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                             value: citiesList.contains(_city) ? _city : (citiesList.isNotEmpty ? citiesList.first : 'custom'),
                             decoration: InputDecoration(
                               labelText: 'المدينة *',
-                              labelStyle: GoogleFonts.tajawal(),
+                              labelStyle: TextStyle(),
                               prefixIcon: const Icon(Icons.location_city),
                               border: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(16),
                               ),
                             ),
                             items: [
-                              ...citiesList.map((c) => DropdownMenuItem(value: c, child: Text(c, style: GoogleFonts.tajawal()))),
-                              DropdownMenuItem(value: 'custom', child: Text('موقع مخصص', style: GoogleFonts.tajawal())),
+                              ...citiesList.map((c) => DropdownMenuItem(value: c, child: Text(c, style: TextStyle()))),
+                              DropdownMenuItem(value: 'custom', child: Text('موقع مخصص', style: TextStyle())),
                             ],
                             onChanged: (val) {
                               if (val != null) {
@@ -495,14 +494,14 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                             value: _relativeStartPrayer,
                             decoration: InputDecoration(
                               labelText: 'البداية نسبة إلى صلاة *',
-                              labelStyle: GoogleFonts.tajawal(),
+                              labelStyle: TextStyle(),
                               prefixIcon: const Icon(Icons.church_outlined),
                               border: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(16),
                               ),
                             ),
                             items: ['fajr', 'dhuhr', 'asr', 'maghrib', 'isha'].map((p) {
-                              return DropdownMenuItem(value: p, child: Text(PrayerTimeHelper.getPrayerLabel(p), style: GoogleFonts.tajawal()));
+                              return DropdownMenuItem(value: p, child: Text(PrayerTimeHelper.getPrayerLabel(p), style: TextStyle()));
                             }).toList(),
                             onChanged: (val) {
                               if (val != null) {
@@ -517,7 +516,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                             'إزاحة وقت البدء: ' +
                                 (_relativeStartOffset >= 0 ? '+' : '') +
                                 '$_relativeStartOffset دقيقة (${_relativeStartOffset >= 0 ? 'بعد الصلاة' : 'قبل الصلاة'})',
-                            style: GoogleFonts.tajawal(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.grey[700]),
+                            style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.grey[700]),
                           ),
                           Slider(
                             value: _relativeStartOffset.toDouble(),
@@ -537,7 +536,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                           value: _timeFormat,
                           decoration: InputDecoration(
                             labelText: 'تنسيق الوقت الافتراضي',
-                            labelStyle: GoogleFonts.tajawal(),
+                            labelStyle: TextStyle(),
                             prefixIcon: const Icon(Icons.av_timer),
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(16),
@@ -546,15 +545,15 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                           items: [
                             DropdownMenuItem(
                               value: '12h',
-                              child: Text('12 ساعة (ص / م)', style: GoogleFonts.tajawal()),
+                              child: Text('12 ساعة (ص / م)', style: TextStyle()),
                             ),
                             DropdownMenuItem(
                               value: '24h',
-                              child: Text('24 ساعة', style: GoogleFonts.tajawal()),
+                              child: Text('24 ساعة', style: TextStyle()),
                             ),
                             DropdownMenuItem(
                               value: 'device',
-                              child: Text('تلقائي (مع إعداد الجوال)', style: GoogleFonts.tajawal()),
+                              child: Text('تلقائي (مع إعداد الجوال)', style: TextStyle()),
                             ),
                           ],
                           onChanged: (val) {
@@ -592,7 +591,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                         )
                       : Text(
                           'حفظ الإعدادات والبدء',
-                          style: GoogleFonts.tajawal(
+                          style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.bold,
                           ),

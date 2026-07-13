@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
@@ -8,6 +9,7 @@ import '../models/exam.dart';
 import '../models/plan.dart';
 import '../models/behavior_point.dart';
 import '../models/student_period_report.dart';
+import '../models/halaqah_period_report.dart';
 import '../models/vacation.dart';
 import '../services/quran_service.dart';
 import '../utils/helpers.dart';
@@ -24,7 +26,8 @@ class PdfService {
   Future<void> _loadFonts() async {
     if (_fontsLoaded) return;
     try {
-      _arabicFont = await PdfGoogleFonts.tajawalRegular();
+      final fontData = await rootBundle.load('assets/fonts/Tajawal-400.ttf');
+      _arabicFont = pw.Font.ttf(fontData);
       _fontsLoaded = true;
     } catch (e) {
       _arabicFont = pw.Font.helvetica();
@@ -84,31 +87,125 @@ class PdfService {
   }) async {
     await _loadFonts();
     final pdf = pw.Document();
+    _addStudentPeriodReportPages(
+      pdf: pdf,
+      report: report,
+      pageFormat: pageFormat,
+      halaqahName: halaqahName,
+      mosqueName: mosqueName,
+    );
+    return pdf.save();
+  }
+
+  /// ينشئ ملفًا واحدًا لجميع الطلاب، مع بدء تقرير كل طالب في صفحة مستقلة.
+  Future<Uint8List> generateAllStudentPeriodReports({
+    required List<StudentPeriodReport> reports,
+    required PdfPageFormat pageFormat,
+    required String halaqahName,
+    String mosqueName = '',
+  }) async {
+    if (reports.isEmpty) {
+      throw ArgumentError('لا توجد تقارير طلاب للتصدير');
+    }
+    await _loadFonts();
+    final pdf = pw.Document();
+    for (var index = 0; index < reports.length; index++) {
+      _addStudentPeriodReportPages(
+        pdf: pdf,
+        report: reports[index],
+        pageFormat: pageFormat,
+        halaqahName: halaqahName,
+        mosqueName: mosqueName,
+        batchPosition: index + 1,
+        batchTotal: reports.length,
+      );
+    }
+    return pdf.save();
+  }
+
+  Future<Uint8List> generateHalaqahPeriodReport({
+    required HalaqahPeriodReport report,
+    required String halaqahName,
+    String mosqueName = '',
+    PdfPageFormat pageFormat = PdfPageFormat.a4,
+  }) async {
+    await _loadFonts();
+    final pdf = pw.Document();
+    final scoreColor = _scorePdfColor(report.performanceScore);
     pdf.addPage(
       pw.MultiPage(
         pageFormat: pageFormat,
-        margin: const pw.EdgeInsets.all(22),
+        margin: const pw.EdgeInsets.all(24),
         textDirection: pw.TextDirection.rtl,
-        build: (context) => [
-          _buildHeader(halaqahName, 'تقرير أداء الطالب خلال فترة'),
-          if (mosqueName.isNotEmpty)
-            pw.Text('مسجد $mosqueName', style: _textStyle(fontSize: 9)),
-          pw.SizedBox(height: 8),
-          pw.Container(
-            padding: const pw.EdgeInsets.all(8),
-            decoration: pw.BoxDecoration(
-              color: PdfColors.blue50,
-              borderRadius: pw.BorderRadius.circular(6),
+        footer: (context) => pw.Row(
+          mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+          children: [
+            pw.Text(
+              'صفحة ${context.pageNumber} من ${context.pagesCount}',
+              style: _textStyle(fontSize: 7, color: PdfColors.grey600),
             ),
-            child: pw.Column(
+            pw.Text(
+              'تقرير الحلقة — ${_reportDate(report.startDate)} إلى ${_reportDate(report.endDate)}',
+              style: _textStyle(fontSize: 7, color: PdfColors.grey600),
+            ),
+          ],
+        ),
+        build: (_) => [
+          pw.Container(
+            padding: const pw.EdgeInsets.all(12),
+            decoration: pw.BoxDecoration(
+              color: PdfColors.teal50,
+              border: pw.Border.all(color: PdfColors.teal200),
+              borderRadius: pw.BorderRadius.circular(8),
+            ),
+            child: pw.Row(
               children: [
-                pw.Text(
-                  report.student.name,
-                  style: _textStyle(fontSize: 15, fontWeight: pw.FontWeight.bold),
+                pw.Expanded(
+                  child: pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      pw.Text(
+                        'التقرير التجميعي للحلقة',
+                        style: _textStyle(
+                          fontSize: 18,
+                          fontWeight: pw.FontWeight.bold,
+                          color: PdfColors.teal900,
+                        ),
+                      ),
+                      pw.Text(
+                        'حلقة $halaqahName${mosqueName.isEmpty ? '' : ' — مسجد $mosqueName'}',
+                        style: _textStyle(fontSize: 10),
+                      ),
+                      pw.Text(
+                        '${_reportDate(report.startDate)} — ${_reportDate(report.endDate)} · '
+                        '${report.studyDays} أيام دراسية',
+                        style: _textStyle(fontSize: 8, color: PdfColors.grey700),
+                      ),
+                    ],
+                  ),
                 ),
-                pw.Text(
-                  'من ${_reportDate(report.startDate)} إلى ${_reportDate(report.endDate)}',
-                  style: _textStyle(fontSize: 9),
+                pw.Container(
+                  width: 74,
+                  height: 74,
+                  decoration: pw.BoxDecoration(
+                    shape: pw.BoxShape.circle,
+                    color: PdfColors.white,
+                    border: pw.Border.all(color: scoreColor, width: 2),
+                  ),
+                  child: pw.Column(
+                    mainAxisAlignment: pw.MainAxisAlignment.center,
+                    children: [
+                      pw.Text(
+                        '${report.performanceScore}%',
+                        style: _textStyle(
+                          fontSize: 18,
+                          fontWeight: pw.FontWeight.bold,
+                          color: scoreColor,
+                        ),
+                      ),
+                      pw.Text('مستوى الحلقة', style: _textStyle(fontSize: 7)),
+                    ],
+                  ),
                 ),
               ],
             ),
@@ -118,91 +215,476 @@ class PdfService {
             spacing: 6,
             runSpacing: 6,
             children: [
-              _periodStat('الحفظ', '${report.memorizedAyahs} آية', PdfColors.green),
-              _periodStat('المراجعة', '${report.revisedAyahs} آية', PdfColors.blue),
-              _periodStat('صفحات منجزة', report.memorizedPages.toStringAsFixed(1), PdfColors.purple),
-              _periodStat('الحضور', '${report.attendanceRate}%', PdfColors.teal),
-              _periodStat('لم يسمّع', '${report.noRecitationDays}', PdfColors.orange),
-              _periodStat('الأداء العام', '${report.performanceScore}%', PdfColors.indigo),
-              _periodStat('الإيجابيات', '+${report.positivePoints}', PdfColors.green),
-              _periodStat('السلبيات', '-${report.negativePoints}', PdfColors.red),
+              _periodStat('الطلاب النشطون', '${report.studentCount}', PdfColors.teal),
+              _periodStat('سمّعوا خلال الفترة', '${report.recitedStudentCount}', PdfColors.green),
+              _periodStat('الحفظ الجديد', '${report.totalMemorizedAyahs} آية', PdfColors.green),
+              _periodStat('المراجعة', '${report.totalRevisedAyahs} آية', PdfColors.blue),
+              _periodStat('صفحات الحفظ', report.totalMemorizedPages.toStringAsFixed(1), PdfColors.purple),
+              _periodStat('أجزاء الحفظ', report.totalMemorizedJuz.toStringAsFixed(2), PdfColors.indigo),
+              _periodStat('نسبة الحضور', '${report.attendanceRate}%', PdfColors.teal),
+              _periodStat('يحتاجون متابعة', '${report.attentionStudents.length}', PdfColors.orange),
             ],
           ),
           pw.SizedBox(height: 12),
-          pw.Text('مؤشر الأداء اليومي', style: _textStyle(fontSize: 11, fontWeight: pw.FontWeight.bold)),
-          pw.SizedBox(height: 5),
-          ...report.days
-              .where((day) => day.isRecitationRequiredDay && day.record != null)
-              .map(
-                (day) => pw.Padding(
-                  padding: const pw.EdgeInsets.only(bottom: 3),
-                  child: pw.Row(
+          _periodSectionTitle('الحضور والانضباط'),
+          pw.SizedBox(height: 6),
+          pw.Row(
+            mainAxisAlignment: pw.MainAxisAlignment.spaceAround,
+            children: [
+              _compactAggregateValue('حاضر', report.presentDays, PdfColors.green),
+              _compactAggregateValue('متأخر', report.lateDays, PdfColors.orange),
+              _compactAggregateValue('غائب', report.absentDays, PdfColors.red),
+              _compactAggregateValue('مستأذن', report.excusedDays, PdfColors.blue),
+              _compactAggregateValue('لم يسمّع', report.noRecitationDays, PdfColors.deepOrange),
+              _compactAggregateValue('رصيد النقاط', report.positivePoints - report.negativePoints, PdfColors.purple),
+            ],
+          ),
+          pw.SizedBox(height: 12),
+          _periodSectionTitle('المتميزون خلال الفترة'),
+          pw.SizedBox(height: 6),
+          if (report.topStudents.isEmpty)
+            pw.Text('لا توجد بيانات كافية', style: _textStyle(fontSize: 8))
+          else
+            pw.Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: report.topStudents.asMap().entries.map((entry) {
+                final item = entry.value;
+                return pw.Container(
+                  width: 150,
+                  padding: const pw.EdgeInsets.all(7),
+                  decoration: pw.BoxDecoration(
+                    color: entry.key == 0 ? PdfColors.amber50 : PdfColors.grey100,
+                    borderRadius: pw.BorderRadius.circular(5),
+                  ),
+                  child: pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
                     children: [
-                      pw.SizedBox(width: 52, child: pw.Text(_reportDate(day.date), style: _textStyle(fontSize: 7))),
-                      pw.Container(
-                        width: 120,
-                        height: 7,
-                        alignment: pw.Alignment.centerRight,
-                        decoration: pw.BoxDecoration(
-                          color: PdfColors.grey200,
-                          borderRadius: pw.BorderRadius.circular(3),
-                        ),
-                        child: pw.Container(
-                          width: 1.2 * day.performanceScore,
-                          decoration: pw.BoxDecoration(
-                            color: _scorePdfColor(day.performanceScore),
-                            borderRadius: pw.BorderRadius.circular(3),
-                          ),
-                        ),
+                      pw.Text(
+                        '${entry.key + 1}. ${item.student.name}',
+                        style: _textStyle(fontSize: 9, fontWeight: pw.FontWeight.bold),
                       ),
-                      pw.SizedBox(width: 28, child: pw.Text('${day.performanceScore}%', style: _textStyle(fontSize: 7), textAlign: pw.TextAlign.left)),
+                      pw.Text(
+                        '${item.performanceScore}% · ${item.memorizedAyahs} آية · ${item.attendanceRate}% حضور',
+                        style: _textStyle(fontSize: 7),
+                      ),
                     ],
                   ),
-                ),
-              ),
+                );
+              }).toList(),
+            ),
           pw.SizedBox(height: 12),
-          pw.Text('التفاصيل اليومية', style: _textStyle(fontSize: 11, fontWeight: pw.FontWeight.bold)),
-          pw.SizedBox(height: 5),
-          pw.Table(
-            border: pw.TableBorder.all(color: PdfColors.grey400, width: 0.4),
-            columnWidths: const {
-              0: pw.FixedColumnWidth(45),
-              1: pw.FixedColumnWidth(43),
-              2: pw.FlexColumnWidth(2.4),
-              3: pw.FlexColumnWidth(2.4),
-              4: pw.FixedColumnWidth(35),
-              5: pw.FlexColumnWidth(2),
-            },
-            children: [
-              pw.TableRow(
-                decoration: const pw.BoxDecoration(color: PdfColors.grey200),
-                children: ['التاريخ', 'الحالة', 'الحفظ', 'المراجعة', 'النقاط', 'الملاحظة']
-                    .map((text) => _periodCell(text, bold: true))
-                    .toList(),
-              ),
-              ...report.days.map((day) => pw.TableRow(children: [
-                    _periodCell(_reportDate(day.date)),
-                    _periodCell(_periodAttendance(day)),
-                    _periodCell(_progressText(day.memorization)),
-                    _periodCell(_progressText(day.revision)),
-                    _periodCell('${day.positivePoints - day.negativePoints}'),
-                    _periodCell(_periodNote(day)),
-                  ])),
-            ],
-          ),
-          pw.SizedBox(height: 10),
-          pw.Text(
-            'الإنجاز التقريبي: ${report.memorizedPages.toStringAsFixed(1)} صفحة، '
-            '${report.memorizedJuz.toStringAsFixed(2)} جزء. متوسط جودة التسميع: '
-            '${report.averageQuality.toStringAsFixed(1)} من 5.',
-            style: _textStyle(fontSize: 8),
-          ),
-          pw.SizedBox(height: 12),
-          _buildFooter(),
+          _periodSectionTitle('ملخص الطلاب'),
+          pw.SizedBox(height: 6),
+          _buildAggregateStudentsTable(report),
+          if (report.attentionStudents.isNotEmpty) ...[
+            pw.SizedBox(height: 12),
+            _periodSectionTitle('طلاب يحتاجون متابعة'),
+            pw.SizedBox(height: 6),
+            pw.Text(
+              report.attentionStudents
+                  .map((item) =>
+                      '${item.student.name}: أداء ${item.performanceScore}%، '
+                      'غياب ${item.absentDays}، ولم يسمّع ${item.noRecitationDays}')
+                  .join(' · '),
+              style: _textStyle(fontSize: 8, color: PdfColors.deepOrange),
+            ),
+          ],
         ],
       ),
     );
     return pdf.save();
+  }
+
+  pw.Widget _compactAggregateValue(
+    String label,
+    int value,
+    PdfColor color,
+  ) =>
+      pw.Column(
+        children: [
+          pw.Text(
+            '$value',
+            style: _textStyle(
+              fontSize: 12,
+              fontWeight: pw.FontWeight.bold,
+              color: color,
+            ),
+          ),
+          pw.Text(label, style: _textStyle(fontSize: 7)),
+        ],
+      );
+
+  pw.Widget _buildAggregateStudentsTable(HalaqahPeriodReport report) => pw.Table(
+        border: pw.TableBorder.all(color: PdfColors.grey400, width: 0.4),
+        columnWidths: const {
+          0: pw.FixedColumnWidth(38),
+          1: pw.FixedColumnWidth(38),
+          2: pw.FixedColumnWidth(38),
+          3: pw.FixedColumnWidth(45),
+          4: pw.FixedColumnWidth(45),
+          5: pw.FixedColumnWidth(45),
+          6: pw.FixedColumnWidth(42),
+          7: pw.FlexColumnWidth(2),
+        },
+        children: [
+          pw.TableRow(
+            decoration: const pw.BoxDecoration(color: PdfColors.teal100),
+            children: const [
+              'النقاط',
+              'الغياب',
+              'لم يسمّع',
+              'المراجعة',
+              'الحفظ',
+              'الحضور',
+              'الأداء',
+              'الطالب',
+            ].map((text) => _periodCell(text, bold: true)).toList(),
+          ),
+          ...report.students.map(
+            (item) => pw.TableRow(
+              decoration: item.needsAttention
+                  ? const pw.BoxDecoration(color: PdfColors.orange50)
+                  : null,
+              children: [
+                _periodCell('${item.pointBalance}'),
+                _periodCell('${item.absentDays}'),
+                _periodCell('${item.noRecitationDays}'),
+                _periodCell('${item.revisedAyahs}'),
+                _periodCell('${item.memorizedAyahs}'),
+                _periodCell('${item.attendanceRate}%'),
+                _periodCell('${item.performanceScore}%'),
+                _periodCell(item.student.name),
+              ],
+            ),
+          ),
+        ],
+      );
+
+  void _addStudentPeriodReportPages({
+    required pw.Document pdf,
+    required StudentPeriodReport report,
+    required PdfPageFormat pageFormat,
+    required String halaqahName,
+    required String mosqueName,
+    int? batchPosition,
+    int? batchTotal,
+  }) {
+    pdf.addPage(
+      pw.MultiPage(
+        pageFormat: pageFormat,
+        margin: const pw.EdgeInsets.fromLTRB(22, 20, 22, 20),
+        textDirection: pw.TextDirection.rtl,
+        build: (context) => _studentPeriodReportContent(
+          report: report,
+          halaqahName: halaqahName,
+          mosqueName: mosqueName,
+          batchPosition: batchPosition,
+          batchTotal: batchTotal,
+        ),
+        footer: (context) => pw.Container(
+          margin: const pw.EdgeInsets.only(top: 8),
+          padding: const pw.EdgeInsets.only(top: 5),
+          decoration: const pw.BoxDecoration(
+            border: pw.Border(
+              top: pw.BorderSide(color: PdfColors.grey300, width: 0.5),
+            ),
+          ),
+          child: pw.Row(
+            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+            children: [
+              pw.Text(
+                'صفحة ${context.pageNumber} من ${context.pagesCount}',
+                style: _textStyle(fontSize: 7, color: PdfColors.grey600),
+              ),
+              pw.Text(
+                'تقرير ${report.student.name} — ${report.student.displayCode}',
+                style: _textStyle(fontSize: 7, color: PdfColors.grey600),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  List<pw.Widget> _studentPeriodReportContent({
+    required StudentPeriodReport report,
+    required String halaqahName,
+    required String mosqueName,
+    int? batchPosition,
+    int? batchTotal,
+  }) {
+    final scoreColor = _scorePdfColor(report.performanceScore);
+    final scoredDays = report.days
+        .where((day) => day.isRecitationRequiredDay && day.record != null)
+        .toList();
+
+    return [
+      pw.Container(
+        width: double.infinity,
+        padding: const pw.EdgeInsets.all(11),
+        decoration: pw.BoxDecoration(
+          color: PdfColors.teal50,
+          border: pw.Border.all(color: PdfColors.teal200, width: 0.7),
+          borderRadius: pw.BorderRadius.circular(8),
+        ),
+        child: pw.Row(
+          crossAxisAlignment: pw.CrossAxisAlignment.center,
+          children: [
+            pw.Expanded(
+              child: pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Text(
+                    'تقرير مستوى الطالب',
+                    style: _textStyle(
+                      fontSize: 17,
+                      fontWeight: pw.FontWeight.bold,
+                      color: PdfColors.teal900,
+                    ),
+                  ),
+                  pw.SizedBox(height: 2),
+                  pw.Text(
+                    'حلقة $halaqahName${mosqueName.isEmpty ? '' : ' — مسجد $mosqueName'}',
+                    style: _textStyle(fontSize: 9, color: PdfColors.grey700),
+                  ),
+                  if (batchPosition != null && batchTotal != null)
+                    pw.Text(
+                      'التقرير $batchPosition من $batchTotal',
+                      style: _textStyle(fontSize: 7, color: PdfColors.grey600),
+                    ),
+                ],
+              ),
+            ),
+            pw.SizedBox(width: 10),
+            pw.Container(
+              width: 72,
+              height: 72,
+              decoration: pw.BoxDecoration(
+                color: PdfColors.white,
+                border: pw.Border.all(color: scoreColor, width: 2),
+                shape: pw.BoxShape.circle,
+              ),
+              child: pw.Column(
+                mainAxisAlignment: pw.MainAxisAlignment.center,
+                children: [
+                  pw.Text(
+                    '${report.performanceScore}%',
+                    style: _textStyle(
+                      fontSize: 18,
+                      fontWeight: pw.FontWeight.bold,
+                      color: scoreColor,
+                    ),
+                  ),
+                  pw.Text('تقييم الفترة', style: _textStyle(fontSize: 7)),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+      pw.SizedBox(height: 9),
+      pw.Container(
+        width: double.infinity,
+        padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: pw.BoxDecoration(
+          color: PdfColors.grey100,
+          borderRadius: pw.BorderRadius.circular(6),
+        ),
+        child: pw.Row(
+          children: [
+            pw.Expanded(
+              flex: 3,
+              child: _periodIdentityItem('اسم الطالب', report.student.name),
+            ),
+            pw.Expanded(
+              flex: 2,
+              child: _periodIdentityItem('كود الطالب', report.student.displayCode),
+            ),
+            pw.Expanded(
+              flex: 3,
+              child: _periodIdentityItem(
+                'الفترة',
+                '${_reportDate(report.startDate)} — ${_reportDate(report.endDate)}',
+              ),
+            ),
+          ],
+        ),
+      ),
+      pw.SizedBox(height: 10),
+      _periodSectionTitle('ملخص الإنجاز والمواظبة'),
+      pw.SizedBox(height: 6),
+      pw.Wrap(
+        spacing: 6,
+        runSpacing: 6,
+        children: [
+          _periodStat('الحفظ الجديد', '${report.memorizedAyahs} آية', PdfColors.green),
+          _periodStat('المراجعة', '${report.revisedAyahs} آية', PdfColors.blue),
+          _periodStat('صفحات منجزة', report.memorizedPages.toStringAsFixed(1), PdfColors.purple),
+          _periodStat('أجزاء منجزة', report.memorizedJuz.toStringAsFixed(2), PdfColors.indigo),
+          _periodStat('نسبة الحضور', '${report.attendanceRate}%', PdfColors.teal),
+          _periodStat('حاضر ولم يسمّع', '${report.noRecitationDays} يوم', PdfColors.orange),
+          _periodStat('الإيجابيات', '+${report.positivePoints}', PdfColors.green),
+          _periodStat('السلبيات', '-${report.negativePoints}', PdfColors.red),
+        ],
+      ),
+      pw.SizedBox(height: 10),
+      _periodSectionTitle('مؤشر الأداء اليومي'),
+      pw.SizedBox(height: 6),
+      if (scoredDays.isEmpty)
+        pw.Container(
+          width: double.infinity,
+          padding: const pw.EdgeInsets.all(8),
+          color: PdfColors.grey100,
+          child: pw.Text(
+            'لا توجد أيام دراسية مسجلة لحساب المؤشر خلال هذه الفترة.',
+            style: _textStyle(fontSize: 8, color: PdfColors.grey700),
+            textAlign: pw.TextAlign.center,
+          ),
+        )
+      else
+        ...scoredDays.map(
+          (day) => pw.Padding(
+            padding: const pw.EdgeInsets.only(bottom: 3),
+            child: pw.Row(
+              children: [
+                pw.SizedBox(
+                  width: 58,
+                  child: pw.Text(
+                    _reportDate(day.date),
+                    style: _textStyle(fontSize: 7),
+                    textAlign: pw.TextAlign.right,
+                  ),
+                ),
+                pw.SizedBox(width: 5),
+                pw.Container(
+                  width: 160,
+                  height: 8,
+                  alignment: pw.Alignment.centerRight,
+                  decoration: pw.BoxDecoration(
+                    color: PdfColors.grey200,
+                    borderRadius: pw.BorderRadius.circular(4),
+                  ),
+                  child: pw.Container(
+                    width: 1.6 * day.performanceScore,
+                    decoration: pw.BoxDecoration(
+                      color: _scorePdfColor(day.performanceScore),
+                      borderRadius: pw.BorderRadius.circular(4),
+                    ),
+                  ),
+                ),
+                pw.SizedBox(width: 5),
+                pw.SizedBox(
+                  width: 30,
+                  child: pw.Text(
+                    '${day.performanceScore}%',
+                    style: _textStyle(fontSize: 7, fontWeight: pw.FontWeight.bold),
+                    textAlign: pw.TextAlign.left,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      pw.SizedBox(height: 10),
+      _periodSectionTitle('التفاصيل اليومية'),
+      pw.SizedBox(height: 6),
+      _buildRtlPeriodTable(report),
+      pw.SizedBox(height: 10),
+      pw.Container(
+        width: double.infinity,
+        padding: const pw.EdgeInsets.all(8),
+        decoration: pw.BoxDecoration(
+          color: PdfColors.amber50,
+          border: pw.Border.all(color: PdfColors.amber200, width: 0.5),
+          borderRadius: pw.BorderRadius.circular(5),
+        ),
+        child: pw.Text(
+          'خلاصة الفترة: ${report.memorizedPages.toStringAsFixed(1)} صفحة حفظ، '
+          '${report.revisedPages.toStringAsFixed(1)} صفحة مراجعة، '
+          'ومتوسط جودة ${report.averageQuality.toStringAsFixed(1)} من 5. '
+          'الحضور: ${report.presentDays}، التأخر: ${report.lateDays}، '
+          'الغياب: ${report.absentDays}، والاستئذان: ${report.excusedDays}.',
+          style: _textStyle(fontSize: 8),
+        ),
+      ),
+      pw.SizedBox(height: 10),
+      pw.Row(
+        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+        children: [
+          pw.Text('توقيع المعلم: ________________', style: _textStyle(fontSize: 8)),
+          pw.Text('توقيع ولي الأمر: ________________', style: _textStyle(fontSize: 8)),
+        ],
+      ),
+    ];
+  }
+
+  pw.Widget _periodIdentityItem(String label, String value) => pw.Padding(
+        padding: const pw.EdgeInsets.symmetric(horizontal: 4),
+        child: pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: [
+            pw.Text(label, style: _textStyle(fontSize: 7, color: PdfColors.grey600)),
+            pw.Text(
+              value,
+              style: _textStyle(fontSize: 9, fontWeight: pw.FontWeight.bold),
+            ),
+          ],
+        ),
+      );
+
+  pw.Widget _periodSectionTitle(String title) => pw.Container(
+        width: double.infinity,
+        padding: const pw.EdgeInsets.symmetric(horizontal: 7, vertical: 4),
+        decoration: const pw.BoxDecoration(
+          border: pw.Border(
+            right: pw.BorderSide(color: PdfColors.teal, width: 3),
+          ),
+        ),
+        child: pw.Text(
+          title,
+          style: _textStyle(fontSize: 10, fontWeight: pw.FontWeight.bold),
+        ),
+      );
+
+  /// جدول PDF لا يعكس ترتيب أعمدته تلقائيًا؛ لذلك نرتبه ماديًا من اليسار
+  /// إلى اليمين: الملاحظة ... التاريخ، ليُقرأ بصريًا من أقصى اليمين.
+  pw.Widget _buildRtlPeriodTable(StudentPeriodReport report) {
+    return pw.Table(
+      border: pw.TableBorder.all(color: PdfColors.grey400, width: 0.4),
+      columnWidths: const {
+        0: pw.FlexColumnWidth(2),
+        1: pw.FixedColumnWidth(35),
+        2: pw.FlexColumnWidth(2.3),
+        3: pw.FlexColumnWidth(2.3),
+        4: pw.FixedColumnWidth(46),
+        5: pw.FixedColumnWidth(50),
+      },
+      children: [
+        pw.TableRow(
+          decoration: const pw.BoxDecoration(color: PdfColors.teal100),
+          children: const ['الملاحظة', 'النقاط', 'المراجعة', 'الحفظ', 'الحالة', 'التاريخ']
+              .map((text) => _periodCell(text, bold: true))
+              .toList(),
+        ),
+        ...report.days.map(
+          (day) => pw.TableRow(
+            decoration: day.isSuspended || day.isWeeklyHoliday
+                ? const pw.BoxDecoration(color: PdfColors.grey100)
+                : null,
+            children: [
+              _periodCell(_periodNote(day)),
+              _periodCell('${day.positivePoints - day.negativePoints}'),
+              _periodCell(_progressText(day.revision)),
+              _periodCell(_progressText(day.memorization)),
+              _periodCell(_periodAttendance(day)),
+              _periodCell(_reportDate(day.date)),
+            ],
+          ),
+        ),
+      ],
+    );
   }
 
   Future<Uint8List> generateSmartPlan({
@@ -1219,6 +1701,14 @@ class PdfService {
   }) async {
     await _loadFonts();
     final pdf = pw.Document();
+    final assessedQuestions = questions
+        .where((question) => question['is_assessed'] == true)
+        .toList();
+    final assessedScore = assessedQuestions.fold<double>(
+      0,
+      (sum, question) =>
+          sum + ((question['question_score'] as num?)?.toDouble() ?? 0),
+    );
 
     pdf.addPage(
       pw.MultiPage(
@@ -1247,6 +1737,7 @@ class PdfService {
               mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
               children: [
                 pw.Text('اسم الطالب: ${student.name}', style: _textStyle(fontSize: 11)),
+                pw.Text('كود الطالب: ${student.displayCode}', style: _textStyle(fontSize: 9)),
                 pw.Text('الفئة: $category', style: _textStyle(fontSize: 10)),
                 pw.Text('النموذج: ........', style: _textStyle(fontSize: 10)),
               ],
@@ -1287,15 +1778,21 @@ class PdfService {
                   _ => 'اقرأ من قوله تعالى في سورة ${question['surah_name']}',
                 };
                 final prompt = '$instruction: «${question['start_text']} ...»';
+                final assessed = question['is_assessed'] == true;
+                String count(String field) =>
+                    assessed ? '${(question[field] as num?)?.toInt() ?? 0}' : '';
                 return pw.TableRow(
                   children: [
                     '${entry.key + 1}',
                     prompt,
-                    '',
-                    '',
-                    '',
-                    '',
-                    '',
+                    count('memorization_errors'),
+                    count('tashkeel_errors'),
+                    count('recitation_errors'),
+                    count('prompt_count'),
+                    assessed
+                        ? ((question['question_score'] as num?) ?? 0)
+                            .toStringAsFixed(1)
+                        : '',
                   ].map((text) => pw.Container(
                         constraints: const pw.BoxConstraints(minHeight: 42),
                         padding: const pw.EdgeInsets.all(5),
@@ -1312,7 +1809,12 @@ class PdfService {
           ),
           pw.SizedBox(height: 14),
           pw.Text(
-            'النتيجة: ........ / ........    التقدير: ....................',
+            assessedQuestions.isEmpty
+                ? 'النتيجة: ........ / ........    التقدير: ....................'
+                : 'النتيجة: ${assessedScore.toStringAsFixed(1)} / '
+                    '${assessedQuestions.length * 10}    '
+                    'نسبة الأسئلة المرصودة: '
+                    '${(assessedScore / (assessedQuestions.length * 10) * 100).toStringAsFixed(0)}٪',
             style: _textStyle(fontSize: 10),
           ),
           pw.SizedBox(height: 12),

@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart' as intl;
 import '../../models/vacation.dart';
 import '../../models/student.dart';
@@ -91,7 +90,7 @@ class _VacationsScreenState extends State<VacationsScreen> {
                     children: [
                       Text(
                         isEditing ? 'تعديل بيانات الإجازة' : 'تسجيل إجازة / غياب عذر',
-                        style: GoogleFonts.tajawal(
+                        style: TextStyle(
                           fontSize: 20,
                           fontWeight: FontWeight.bold,
                         ),
@@ -417,7 +416,7 @@ class _VacationsScreenState extends State<VacationsScreen> {
                           const SizedBox(height: 16),
                           Text(
                             'لا توجد طلبات إجازة مسجلة',
-                            style: GoogleFonts.tajawal(
+                            style: TextStyle(
                               color: Colors.grey[600],
                               fontSize: 15,
                             ),

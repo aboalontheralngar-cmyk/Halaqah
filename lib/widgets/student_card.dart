@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../models/student.dart';
+import '../app/design_tokens.dart';
 
 class StudentCard extends StatelessWidget {
   final Student student;
@@ -47,13 +48,13 @@ class StudentCard extends StatelessWidget {
     final statusColor = _getStatusColor(student.status);
 
     return Card(
-      margin: const EdgeInsets.only(bottom: 12),
+      margin: const EdgeInsets.only(bottom: AppSpacing.sm),
       child: InkWell(
         onTap: onTap,
         onLongPress: onLongPress,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(AppRadii.md),
         child: Padding(
-          padding: const EdgeInsets.all(16),
+          padding: AppSpacing.card,
           child: Row(
             children: [
               _buildAvatar(context, 28),
@@ -79,10 +80,9 @@ class StudentCard extends StatelessWidget {
                     const SizedBox(height: 4),
                     Text(
                       subtitle ?? 'الحفظ: ${student.totalMemorized} آية | المقرر: ${student.planAmount} ${_getPlanLabel(student.planType)}',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey[600],
-                      ),
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: Theme.of(context).colorScheme.onSurfaceVariant,
+                          ),
                     ),
                   ],
                 ),
@@ -104,7 +104,7 @@ class StudentCard extends StatelessWidget {
   Widget _buildAvatar(BuildContext context, double radius) {
     return CircleAvatar(
       radius: radius,
-      backgroundColor: Theme.of(context).primaryColor.withOpacity(0.1),
+      backgroundColor: Theme.of(context).colorScheme.primaryContainer,
       child: student.photoPath != null
           ? ClipOval(
               child: Image.asset(
@@ -123,7 +123,7 @@ class StudentCard extends StatelessWidget {
     return Text(
       student.name.isNotEmpty ? student.name[0] : '؟',
       style: TextStyle(
-        color: Theme.of(context).primaryColor,
+        color: Theme.of(context).colorScheme.onPrimaryContainer,
         fontWeight: FontWeight.bold,
       ),
     );
@@ -134,7 +134,7 @@ class StudentCard extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
       decoration: BoxDecoration(
         color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(AppRadii.pill),
       ),
       child: Text(
         _getStatusLabel(student.status),
@@ -169,7 +169,11 @@ class StudentCard extends StatelessWidget {
       case 'inactive':
         return Colors.orange;
       case 'suspended':
+        return Colors.orange;
+      case 'expelled':
         return Colors.red;
+      case 'graduated':
+        return Colors.blue;
       default:
         return Colors.grey;
     }
@@ -183,6 +187,10 @@ class StudentCard extends StatelessWidget {
         return 'غير نشط';
       case 'suspended':
         return 'موقوف';
+      case 'expelled':
+        return 'مفصول';
+      case 'graduated':
+        return 'خاتم';
       default:
         return status;
     }

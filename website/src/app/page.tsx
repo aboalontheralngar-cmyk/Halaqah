@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { 
   Users, 
@@ -11,14 +11,7 @@ import {
   UserPlus,
   Calendar,
   Sparkles,
-  TrendingUp,
-  Gift,
-  Zap,
   CheckCircle2,
-  AlertTriangle,
-  Moon,
-  Clock,
-  ArrowUpRight,
   ShieldCheck,
   Bell,
   Activity,
@@ -30,7 +23,7 @@ import {
   Palmtree
 } from "lucide-react";
 import { useStore } from "@/store/useStore";
-import { StatCard, ActionButton } from "@/components/ui/DashboardCards";
+import { StatCard } from "@/components/ui/DashboardCards";
 import { getHijriDate } from "@/utils/dateUtils";
 
 export default function Dashboard() {
@@ -141,7 +134,7 @@ export default function Dashboard() {
             <Activity className="w-5 h-5 text-teal-600" />
           </div>
           <div className="space-y-6 flex-1">
-            {activities.length > 0 ? activities.slice(0, 3).map((act, i) => (
+            {activities.length > 0 ? activities.slice(0, 3).map((act) => (
               <div key={act.id} className="relative pr-6 border-r-2 border-teal-500/20 py-2">
                 <div className="absolute -right-[7px] top-1/2 -translate-y-1/2 w-3 h-3 bg-teal-500 rounded-full" />
                 <p className="text-sm font-black text-gray-800 dark:text-white">{act.description}</p>

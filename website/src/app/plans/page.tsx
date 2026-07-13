@@ -236,8 +236,12 @@ export default function PlansPage() {
     const popup = window.open("", "_blank", "width=700,height=800");
     if (!popup) return setError("اسمح بفتح نافذة الطباعة من إعدادات المتصفح.");
     popup.document.write(`<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>خطة ${student.name}</title><style>
+      @font-face{font-family:Tajawal;font-style:normal;font-weight:400;src:url('/fonts/tajawal-arabic-400.woff2') format('woff2');unicode-range:U+0600-06FF,U+0750-077F,U+0870-088E,U+0890-0891,U+0897-08FF,U+FB50-FDFF,U+FE70-FEFC}
+      @font-face{font-family:Tajawal;font-style:normal;font-weight:400;src:url('/fonts/tajawal-latin-400.woff2') format('woff2')}
+      @font-face{font-family:Tajawal;font-style:normal;font-weight:700;src:url('/fonts/tajawal-arabic-700.woff2') format('woff2');unicode-range:U+0600-06FF,U+0750-077F,U+0870-088E,U+0890-0891,U+0897-08FF,U+FB50-FDFF,U+FE70-FEFC}
+      @font-face{font-family:Tajawal;font-style:normal;font-weight:700;src:url('/fonts/tajawal-latin-700.woff2') format('woff2')}
       @page { size: ${cashier ? "80mm auto" : "A4"}; margin: ${cashier ? "4mm" : "15mm"}; }
-      *{box-sizing:border-box} body{font-family:Tahoma,Arial,sans-serif;color:#111;margin:0;${cashier ? "width:72mm;font-size:10px" : "font-size:14px"}}
+      *{box-sizing:border-box} body{font-family:Tajawal,Arial,sans-serif;color:#111;margin:0;${cashier ? "width:72mm;font-size:10px" : "font-size:14px"}}
       h1,p{text-align:center;margin:4px}.info{background:#ecfdf5;border:1px solid #99f6e4;padding:8px;margin:10px 0}table{width:100%;border-collapse:collapse}th,td{border:1px solid #777;padding:${cashier ? "3px" : "7px"};text-align:center}th{background:#0f766e;color:white}.notes{margin-top:10px}.sign{display:flex;justify-content:space-between;margin-top:18px}
       </style></head><body><h1>خطة الحفظ ${PERIOD_LABEL[plan.period]}</h1><p>${student.name}</p><div class="info">من ${plan.startDate} إلى ${plan.endDate}<br>الحفظ: ${plan.newAmount} ${UNIT_LABEL[plan.unit]} — المراجعة: ${plan.reviewAmount} ${UNIT_LABEL[plan.unit]}</div><table><thead><tr><th>اليوم</th><th>الحفظ</th><th>المراجعة</th><th>تم</th></tr></thead><tbody>${rows}</tbody></table>${plan.notes ? `<div class="notes">ملاحظات: ${escapeHtml(plan.notes)}</div>` : ""}<div class="sign"><span>المعلم: ______</span><span>ولي الأمر: ______</span></div><script>onload=()=>print()</script></body></html>`);
     popup.document.close();

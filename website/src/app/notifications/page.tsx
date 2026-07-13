@@ -4,14 +4,11 @@ import { useState, useMemo } from "react";
 import {
   Bell,
   Check,
-  X,
   Trash2,
-  MessageSquare,
   AlertCircle,
   CheckCircle,
   Info,
   Clock,
-  Filter,
   Archive,
 } from "lucide-react";
 import { useStore } from "@/store/useStore";

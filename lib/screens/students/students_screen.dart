@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import '../../services/database_service.dart';
 import '../../models/student.dart';
 import '../../models/settings.dart';
@@ -7,9 +6,14 @@ import '../../utils/helpers.dart';
 import 'student_form_screen.dart';
 import 'student_detail_screen.dart';
 import 'student_archive_screen.dart';
+import 'families_screen.dart';
+import '../../widgets/app_design_widgets.dart';
+import '../../widgets/student_card.dart';
 
 class StudentsScreen extends StatefulWidget {
-  const StudentsScreen({super.key});
+  final VoidCallback? onOpenMenu;
+
+  const StudentsScreen({super.key, this.onOpenMenu});
 
   @override
   State<StudentsScreen> createState() => _StudentsScreenState();
@@ -104,8 +108,26 @@ class _StudentsScreenState extends State<StudentsScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
+        leading: widget.onOpenMenu == null
+            ? null
+            : IconButton(
+                onPressed: widget.onOpenMenu,
+                icon: const Icon(Icons.menu),
+                tooltip: 'القائمة الرئيسية',
+              ),
         title: Text(GenderHelper.students(_settings.gender)),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.family_restroom_outlined),
+            onPressed: () async {
+              await Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const FamiliesScreen()),
+              );
+              await _loadStudents();
+            },
+            tooltip: 'العائلات وأولياء الأمور',
+          ),
           IconButton(
             icon: Badge(
               isLabelVisible: _archiveCount > 0,
@@ -169,11 +191,9 @@ class _StudentsScreenState extends State<StudentsScreen> {
           children: [
             Padding(
               padding: const EdgeInsets.all(16),
-              child: TextField(
-                decoration: InputDecoration(
-                  hintText: 'بحث عن اسم ${GenderHelper.student(_settings.gender)} أو رقم الهاتف...',
-                  prefixIcon: const Icon(Icons.search),
-                ),
+              child: AppSearchField(
+                hintText:
+                    'بحث عن اسم ${GenderHelper.student(_settings.gender)} أو رقم الهاتف...',
                 onChanged: (value) {
                   setState(() {
                     _searchQuery = value;
@@ -201,24 +221,21 @@ class _StudentsScreenState extends State<StudentsScreen> {
   }
 
   Widget _buildEmptyState() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.people_outline, size: 80, color: Colors.grey[400]),
-          const SizedBox(height: 16),
-          Text(
-            _searchQuery.isNotEmpty ? 'لا توجد نتائج' : 'لا يوجد ${GenderHelper.students(_settings.gender)}',
-            style: TextStyle(fontSize: 18, color: Colors.grey[600]),
-          ),
-          const SizedBox(height: 8),
-          if (_searchQuery.isEmpty)
-            Text(
-              'اضغط + لإضافة ${GenderHelper.student(_settings.gender)} جديد',
-              style: TextStyle(color: Colors.grey[500]),
+    return AppEmptyState(
+      icon: _searchQuery.isEmpty ? Icons.people_outline : Icons.search_off,
+      title: _searchQuery.isNotEmpty
+          ? 'لا توجد نتائج مطابقة'
+          : 'لا يوجد ${GenderHelper.students(_settings.gender)} بعد',
+      message: _searchQuery.isNotEmpty
+          ? 'جرّب اسمًا آخر أو امسح فلاتر الحالة والترتيب.'
+          : 'ابدأ بإضافة ${GenderHelper.student(_settings.gender)} لتظهر بياناته وخطته هنا.',
+      action: _searchQuery.isNotEmpty
+          ? null
+          : FilledButton.icon(
+              onPressed: () => _navigateToForm(null),
+              icon: const Icon(Icons.person_add_alt_1),
+              label: Text(GenderHelper.addStudent(_settings.gender)),
             ),
-        ],
-      ),
     );
   }
 
@@ -237,123 +254,32 @@ class _StudentsScreenState extends State<StudentsScreen> {
   }
 
   Widget _buildStudentCard(Student student) {
-    final statusColor = _getStatusColor(student.status);
-    
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      child: InkWell(
-        onTap: () => _navigateToDetail(student),
-        borderRadius: BorderRadius.circular(24),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            children: [
-              CircleAvatar(
-                radius: 28,
-                backgroundColor: Theme.of(context).primaryColor.withOpacity(0.1),
-                child: student.photoPath != null
-                    ? ClipOval(
-                        child: Image.asset(
-                          student.photoPath!,
-                          fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => _buildAvatarText(student),
-                        ),
-                      )
-                    : _buildAvatarText(student),
+    final needsFollowUp = _isPastClassEndTime &&
+        _leftOutStudentIds.contains(student.id);
+    final phone = student.phone.isEmpty ? '' : '\n${student.phone}';
+    return StudentCard(
+      student: student,
+      onTap: () => _navigateToDetail(student),
+      subtitle:
+          'الحفظ: ${student.totalMemorized} آية • المقرر: ${student.planAmount} ${_getPlanLabel(student.planType)}$phone',
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (needsFollowUp)
+            Tooltip(
+              message: 'لم يسمّع في آخر يوم حضره',
+              child: Icon(
+                Icons.warning_amber_rounded,
+                color: Theme.of(context).colorScheme.tertiary,
               ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            student.name,
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                        if (_isPastClassEndTime && _leftOutStudentIds.contains(student.id)) ...[
-                          Container(
-                            margin: const EdgeInsets.symmetric(horizontal: 4),
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: Colors.amber.shade100,
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(color: Colors.amber.shade300),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Icon(Icons.warning_amber_rounded, size: 10, color: Colors.orange),
-                                const SizedBox(width: 4),
-                                Text(
-                                  'لم يسمّع',
-                                  style: GoogleFonts.tajawal(fontSize: 9, color: Colors.brown, fontWeight: FontWeight.bold),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 2,
-                          ),
-                          decoration: BoxDecoration(
-                            color: statusColor.withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Text(
-                            _getStatusLabel(student.status),
-                            style: TextStyle(
-                              fontSize: 10,
-                              color: statusColor,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'الحفظ: ${student.totalMemorized} آية | المقرر: ${student.planAmount} ${_getPlanLabel(student.planType)}',
-                      style: TextStyle(
-                        color: Colors.grey[600],
-                        fontSize: 12,
-                      ),
-                    ),
-                    if (student.phone.isNotEmpty) ...[
-                      const SizedBox(height: 2),
-                      Text(
-                        student.phone,
-                        style: TextStyle(
-                          color: Colors.grey[500],
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              const Icon(Icons.arrow_forward_ios, size: 16),
-            ],
+            ),
+          const SizedBox(width: 4),
+          Icon(
+            Icons.arrow_forward_ios,
+            size: 14,
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
           ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildAvatarText(Student student) {
-    return Text(
-      student.name.isNotEmpty ? student.name[0] : '؟',
-      style: TextStyle(
-        color: Theme.of(context).primaryColor,
-        fontWeight: FontWeight.bold,
-        fontSize: 20,
+        ],
       ),
     );
   }
@@ -436,36 +362,6 @@ class _StudentsScreenState extends State<StudentsScreen> {
       ),
     );
     _loadStudents();
-  }
-
-  Color _getStatusColor(String status) {
-    switch (status) {
-      case 'active':
-        return Colors.green;
-      case 'suspended':
-        return Colors.orange;
-      case 'expelled':
-        return Colors.red;
-      case 'graduated':
-        return Colors.blue;
-      default:
-        return Colors.grey;
-    }
-  }
-
-  String _getStatusLabel(String status) {
-    switch (status) {
-      case 'active':
-        return 'نشط';
-      case 'suspended':
-        return 'موقوف';
-      case 'expelled':
-        return 'مفصول';
-      case 'graduated':
-        return 'متخرج';
-      default:
-        return status;
-    }
   }
 
   String _getPlanLabel(String type) {

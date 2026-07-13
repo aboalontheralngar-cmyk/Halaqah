@@ -9,15 +9,17 @@ import {
   Filter,
   Lightbulb,
   Share2,
-  Copy,
   PlusCircle,
   MinusCircle,
   MessageCircle,
   CheckCircle,
-  AlertCircle
+  Pencil,
+  Trash2,
+  CalendarRange,
 } from "lucide-react";
-import { useStore, HomeworkGrade } from "@/store/useStore";
+import { useStore, HomeworkGrade, type Student } from "@/store/useStore";
 import { quranService, Surah } from "@/services/quranService";
+import { EmptyState, PageHeader, Surface } from "@/components/ui/AppDesign";
 
 const DEFAULT_GRADING_TEMPLATE = "السلام عليكم ورحمة الله وبركاته، تسميع الطالب {اسم_الطالب} اليوم في سورة {السورة} من آية {من} إلى آية {إلى}:\n- التقييم: {التقييم}\n- الأخطاء: {الأخطاء}\n- ملاحظة: {الملاحظة}";
 
@@ -26,11 +28,12 @@ export default function MemorizationPage() {
     students, 
     homeworkGrades, 
     addHomeworkGrade, 
+    updateHomeworkGrade,
+    deleteHomeworkGrade,
     fetchHomeworkGrades, 
     fetchStudents, 
     messageTemplates, 
     fetchMessageTemplates,
-    loading,
     addPoints,
     pointsConfig,
     fetchPointsConfig
@@ -39,6 +42,11 @@ export default function MemorizationPage() {
   const [surahs, setSurahs] = useState<Surah[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [studentFilter, setStudentFilter] = useState("");
+  const [typeFilter, setTypeFilter] = useState<"all" | "memorization" | "revision">("all");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [editingGrade, setEditingGrade] = useState<HomeworkGrade | null>(null);
+  const [saving, setSaving] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const [formData, setFormData] = useState({
@@ -49,8 +57,16 @@ export default function MemorizationPage() {
     gradeMark: "excellent" as HomeworkGrade["gradeMark"],
     mistakesCount: 0,
     isRevision: false,
-    remark: ""
+    remark: "",
+    date: new Date().toISOString().slice(0, 10),
   });
+
+  const sortedActiveStudents = useMemo(
+    () => students
+      .filter(student => student.status === "active" || student.status === "graduated")
+      .sort((a, b) => a.name.localeCompare(b.name, "ar")),
+    [students],
+  );
 
   useEffect(() => {
     quranService.initialize().then(() => {
@@ -102,8 +118,9 @@ export default function MemorizationPage() {
   // الطالب الذي ختم القرآن (إجمالي محفوظه >= 6236 آية): يُغلق عليه الحفظ الجديد وتبقى المراجعة فقط
   const selectedStudentFinishedQuran = useMemo(() => {
     if (!formData.studentId) return false;
-    return getMemorizedAyahCount(formData.studentId) >= 6236;
-  }, [formData.studentId, homeworkGrades]);
+    const student = students.find(item => item.id === formData.studentId);
+    return student?.status === "graduated" || getMemorizedAyahCount(formData.studentId) >= 6236;
+  }, [formData.studentId, homeworkGrades, students]);
 
   const getTemplateText = (type: "assignment" | "grading") => {
     const template = messageTemplates.find(t => t.type === type);
@@ -133,10 +150,10 @@ export default function MemorizationPage() {
       .replace(/{الملاحظة}/g, grade.remark || "لا يوجد");
   };
 
-  const getNextAyahForStudent = (student: any, lastGrade?: HomeworkGrade) => {
+  const getNextAyahForStudent = (student: Student, lastGrade?: HomeworkGrade) => {
     const dir = student.memorizationDirection || 'desc';
-    let defSurah = dir === 'desc' ? 114 : 1;
-    let defAyah = 1;
+    const defSurah = dir === 'desc' ? 114 : 1;
+    const defAyah = 1;
     
     if (lastGrade) {
       const lastSurahObj = surahs.find(s => s.name === lastGrade.surah);
@@ -200,30 +217,131 @@ export default function MemorizationPage() {
     }
   };
 
+  const resetForm = () => {
+    setEditingGrade(null);
+    setShowForm(false);
+    setFormData({
+      studentId: "",
+      surahNum: "",
+      fromAyah: 1,
+      toAyah: 1,
+      gradeMark: "excellent",
+      mistakesCount: 0,
+      isRevision: false,
+      remark: "",
+      date: new Date().toISOString().slice(0, 10),
+    });
+  };
+
+  const selectStudentForNewRecord = (studentId: string) => {
+    if (!studentId) {
+      setFormData(current => ({
+        ...current,
+        studentId: "",
+        surahNum: "",
+        fromAyah: 1,
+        toAyah: 1,
+      }));
+      return;
+    }
+    const student = students.find(item => item.id === studentId);
+    if (!student) return;
+    const lastGrade = homeworkGrades
+      .filter(grade =>
+        grade.studentId === studentId &&
+        !grade.isRevision &&
+        grade.gradeMark !== "absent"
+      )
+      .sort((a, b) =>
+        b.date.localeCompare(a.date) ||
+        (b.createdAt ?? "").localeCompare(a.createdAt ?? "")
+      )[0];
+    const next = getNextAyahForStudent(student, lastGrade);
+    const finishedQuran = student.status === "graduated" ||
+      getMemorizedAyahCount(studentId) >= 6236;
+    setFormData(current => ({
+      ...current,
+      studentId,
+      surahNum: next.surahNum,
+      fromAyah: next.ayahNum,
+      toAyah: next.ayahNum,
+      isRevision: finishedQuran ? true : current.isRevision,
+    }));
+  };
+
+  useEffect(() => {
+    if (surahs.length === 0 || students.length === 0) return;
+    const studentId = localStorage.getItem("memorization_prefill_student_id");
+    if (!studentId || !students.some(student => student.id === studentId)) return;
+    localStorage.removeItem("memorization_prefill_student_id");
+    setEditingGrade(null);
+    setShowForm(true);
+    selectStudentForNewRecord(studentId);
+  }, [students, surahs, homeworkGrades]);
+
+  const openEditForm = (grade: HomeworkGrade) => {
+    const surah = surahs.find(item => item.name === grade.surah);
+    if (!surah) {
+      showToast("تعذر العثور على السورة في بيانات المصحف");
+      return;
+    }
+    setEditingGrade(grade);
+    setFormData({
+      studentId: grade.studentId,
+      surahNum: surah.number,
+      fromAyah: grade.fromAyah,
+      toAyah: grade.toAyah,
+      gradeMark: grade.gradeMark,
+      mistakesCount: grade.mistakesCount,
+      isRevision: grade.isRevision,
+      remark: grade.remark ?? "",
+      date: grade.date,
+    });
+    setShowForm(true);
+  };
+
+  const handleDelete = async (grade: HomeworkGrade) => {
+    const studentName = students.find(student => student.id === grade.studentId)?.name ?? "الطالب";
+    if (!confirm(`حذف سجل ${studentName} بتاريخ ${grade.date}؟ سيعاد حساب خريطة المصحف.`)) return;
+    const deleted = await deleteHomeworkGrade(grade.id);
+    if (deleted) showToast("تم حذف السجل وإعادة حساب خريطة المصحف");
+  };
+
   const handleSave = async (e: React.FormEvent, shouldShare = false) => {
     e.preventDefault();
-    if (!formData.studentId || !formData.surahNum) return;
+    if (!formData.studentId || !formData.surahNum || saving) return;
 
     const surah = surahs.find(s => s.number === formData.surahNum);
+    if (!surah || formData.fromAyah < 1 || formData.toAyah < formData.fromAyah || formData.toAyah > surah.totalAyahs) {
+      showToast("نطاق الآيات غير صحيح للسورة المحددة");
+      return;
+    }
     const newGrade = {
       studentId: formData.studentId,
       surah: surah?.name || "",
       fromAyah: formData.fromAyah,
       toAyah: formData.toAyah,
-      date: new Date().toISOString().split("T")[0],
+      date: formData.date,
       gradeMark: formData.gradeMark,
       mistakesCount: formData.mistakesCount,
       isRevision: formData.isRevision,
       remark: formData.remark,
     };
 
-    await addHomeworkGrade(newGrade);
+    setSaving(true);
+    const saved = editingGrade
+      ? await updateHomeworkGrade(editingGrade.id, newGrade)
+      : await addHomeworkGrade(newGrade);
+    if (!saved) {
+      setSaving(false);
+      return;
+    }
 
     // Auto-points reward logic for exceeding target
     const student = students.find(s => s.id === formData.studentId);
     let addedExtraPoints = false;
     let extraPoints = 0;
-    if (student && !formData.isRevision && formData.gradeMark !== 'absent') {
+    if (!editingGrade && student && !formData.isRevision && formData.gradeMark !== 'absent') {
       const completedAmount = getGradeAmount(Number(formData.surahNum), formData.fromAyah, formData.toAyah, student.planType);
       if (completedAmount > student.planAmount) {
         extraPoints = pointsConfig['extra_memorization'] ?? 2;
@@ -253,7 +371,7 @@ export default function MemorizationPage() {
           showToast(addedExtraPoints 
             ? `تمت المشاركة وإضافة ${extraPoints} نقاط للزيادة 🎉` 
             : "تمت المشاركة بنجاح");
-        } catch (err) {
+        } catch {
           navigator.clipboard.writeText(msg);
           showToast(addedExtraPoints 
             ? `تم نسخ التقرير وإضافة ${extraPoints} نقاط للزيادة 🎉` 
@@ -277,17 +395,8 @@ export default function MemorizationPage() {
         : "تم حفظ التقييم بنجاح");
     }
 
-    setShowForm(false);
-    setFormData({
-      studentId: "",
-      surahNum: "",
-      fromAyah: 1,
-      toAyah: 1,
-      gradeMark: "excellent",
-      mistakesCount: 0,
-      isRevision: false,
-      remark: ""
-    });
+    setSaving(false);
+    resetForm();
   };
 
   const handleShareExisting = (grade: HomeworkGrade) => {
@@ -455,8 +564,14 @@ export default function MemorizationPage() {
   const filteredGrades = useMemo(() => {
     return homeworkGrades
       .filter(m => !studentFilter || m.studentId === studentFilter)
-      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }, [homeworkGrades, studentFilter]);
+      .filter(m => typeFilter === "all" || (typeFilter === "revision" ? m.isRevision : !m.isRevision))
+      .filter(m => !dateFrom || m.date >= dateFrom)
+      .filter(m => !dateTo || m.date <= dateTo)
+      .sort((a, b) =>
+        b.date.localeCompare(a.date) ||
+        (b.createdAt ?? "").localeCompare(a.createdAt ?? "")
+      );
+  }, [homeworkGrades, studentFilter, typeFilter, dateFrom, dateTo]);
 
   const stats = useMemo(() => {
     const count = filteredGrades.length;
@@ -489,7 +604,7 @@ export default function MemorizationPage() {
   };
 
   return (
-    <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-700 pb-20 relative">
+    <div className="page-enter relative space-y-8 pb-20">
       {/* Toast Alert */}
       {toastMessage && (
         <div className="fixed bottom-10 left-10 z-50 bg-gray-900 text-white px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-3 animate-in fade-in slide-in-from-left-4">
@@ -499,18 +614,20 @@ export default function MemorizationPage() {
       )}
 
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-        <div>
-          <h1 className="text-3xl font-black text-gray-900 dark:text-white tracking-tight">سجل التقييم والتسميع المطور 📖</h1>
-          <p className="text-gray-500 dark:text-gray-400 mt-2 font-medium">نظام التقييم التفصيلي بخمسة مستويات، ومتابعة الأخطاء والمشاركة مع أولياء الأمور.</p>
-        </div>
-      </div>
+      <PageHeader
+        title="سجل التقييم والتسميع"
+        description="تقييم الحفظ والمراجعة، ومتابعة الأخطاء، ومشاركة النتائج مع أولياء الأمور."
+        icon={BookOpen}
+      />
 
       <div className="grid lg:grid-cols-3 gap-10">
         {/* Sidebar Info */}
         <div className="space-y-8 flex flex-col items-start order-2 lg:order-1">
           <button 
-            onClick={() => setShowForm(true)}
+            onClick={() => {
+              resetForm();
+              setShowForm(true);
+            }}
             className="w-full bg-teal-600 text-white px-8 py-5 rounded-[2rem] font-black text-sm hover:bg-teal-700 shadow-xl shadow-teal-100 dark:shadow-none transition-all flex items-center justify-center gap-2 group"
           >
             <Plus className="w-5 h-5 group-hover:rotate-90 transition-transform" />
@@ -549,7 +666,8 @@ export default function MemorizationPage() {
 
         {/* Main Records List */}
         <div className="lg:col-span-2 space-y-6 order-1 lg:order-2">
-          <div className="flex items-center justify-between">
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-3">
             <h2 className="text-xl font-black text-gray-900 dark:text-white">آخر التقييمات</h2>
             <div className="flex items-center gap-3 bg-white dark:bg-gray-900 px-4 py-2 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm">
               <Filter className="w-4 h-4 text-gray-400" />
@@ -559,18 +677,45 @@ export default function MemorizationPage() {
                 className="text-xs font-bold text-gray-600 outline-none bg-transparent"
               >
                 <option value="">كل الطلاب</option>
-                {students.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                {sortedActiveStudents.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
+            </div>
+            </div>
+            <div className="grid sm:grid-cols-2 xl:grid-cols-4 gap-2">
+              <select
+                value={typeFilter}
+                onChange={event => setTypeFilter(event.target.value as typeof typeFilter)}
+                className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl px-4 py-3 text-xs font-bold"
+              >
+                <option value="all">الحفظ والمراجعة</option>
+                <option value="memorization">الحفظ الجديد فقط</option>
+                <option value="revision">المراجعة فقط</option>
+              </select>
+              <label className="flex items-center gap-2 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl px-3">
+                <CalendarRange className="w-4 h-4 text-gray-400" />
+                <input type="date" value={dateFrom} onChange={event => setDateFrom(event.target.value)} className="w-full bg-transparent py-3 text-xs" aria-label="من تاريخ" />
+              </label>
+              <label className="flex items-center gap-2 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl px-3">
+                <CalendarRange className="w-4 h-4 text-gray-400" />
+                <input type="date" value={dateTo} onChange={event => setDateTo(event.target.value)} className="w-full bg-transparent py-3 text-xs" aria-label="إلى تاريخ" />
+              </label>
+              <button
+                onClick={() => { setStudentFilter(""); setTypeFilter("all"); setDateFrom(""); setDateTo(""); }}
+                className="rounded-xl bg-gray-100 dark:bg-gray-800 px-4 py-3 text-xs font-black text-gray-600 dark:text-gray-300"
+              >
+                مسح الفلاتر
+              </button>
             </div>
           </div>
 
           {filteredGrades.length === 0 ? (
-            <div className="bg-white/40 dark:bg-gray-900/40 backdrop-blur-md rounded-[3.5rem] border-2 border-dashed border-gray-200 dark:border-gray-800 p-24 text-center flex flex-col items-center justify-center space-y-4">
-              <div className="w-20 h-20 bg-gray-50 dark:bg-gray-800 rounded-full flex items-center justify-center">
-                <BookOpen className="w-10 h-10 text-gray-300" />
-              </div>
-              <p className="text-sm font-bold text-gray-400">لا يوجد تقييمات مسجلة حالياً</p>
-            </div>
+            <Surface>
+              <EmptyState
+                icon={BookOpen}
+                title="لا توجد تقييمات مسجلة"
+                description="سجّل أول تسميع، أو غيّر مرشحات الطالب والنوع والفترة."
+              />
+            </Surface>
           ) : (
             <div className="grid gap-6">
               {filteredGrades.map((grade) => {
@@ -615,6 +760,22 @@ export default function MemorizationPage() {
                     </div>
 
                     <div className="flex items-center gap-2 self-end md:self-center">
+                      <button
+                        onClick={() => openEditForm(grade)}
+                        className="bg-blue-50 hover:bg-blue-100 text-blue-700 dark:bg-blue-900/20 dark:text-blue-300 p-3 rounded-2xl transition-colors"
+                        title="تعديل السجل"
+                        aria-label="تعديل السجل"
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => handleDelete(grade)}
+                        className="bg-rose-50 hover:bg-rose-100 text-rose-700 dark:bg-rose-900/20 dark:text-rose-300 p-3 rounded-2xl transition-colors"
+                        title="حذف السجل"
+                        aria-label="حذف السجل"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
                       <button 
                         onClick={() => handleShareExisting(grade)}
                         className="bg-teal-50 hover:bg-teal-100 text-teal-700 dark:bg-teal-900/20 dark:hover:bg-teal-900/40 dark:text-teal-400 p-3 rounded-2xl text-xs font-bold flex items-center gap-2 transition-colors"
@@ -645,12 +806,14 @@ export default function MemorizationPage() {
         <div className="fixed inset-0 bg-gray-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white dark:bg-gray-900 rounded-[3rem] p-10 w-full max-w-xl shadow-2xl relative overflow-y-auto max-h-[90vh] border border-gray-100 dark:border-gray-800">
             <button 
-              onClick={() => setShowForm(false)} 
+              onClick={resetForm}
               className="absolute top-8 left-8 p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors"
             >
               <X className="w-6 h-6 text-gray-400" />
             </button>
-            <h3 className="text-2xl font-black text-gray-900 dark:text-white mb-8 text-center">تسجيل تقييم جديد</h3>
+            <h3 className="text-2xl font-black text-gray-900 dark:text-white mb-8 text-center">
+              {editingGrade ? "تعديل سجل التسميع" : "تسجيل تسميع جديد"}
+            </h3>
             
             <form onSubmit={(e) => handleSave(e, false)} className="space-y-6">
               {/* Student */}
@@ -658,39 +821,26 @@ export default function MemorizationPage() {
                 <label className="block text-xs font-black text-gray-400 mb-2 mr-1 uppercase tracking-widest">الطالب</label>
                 <select 
                   value={formData.studentId} 
-                  onChange={e => {
-                    const studentId = e.target.value;
-                    if (!studentId) {
-                      setFormData({
-                        ...formData,
-                        studentId: "",
-                        surahNum: "",
-                        fromAyah: 1,
-                        toAyah: 1
-                      });
-                      return;
-                    }
-                    const student = students.find(s => s.id === studentId);
-                    if (!student) return;
-                    const studentGrades = homeworkGrades.filter(g => g.studentId === studentId && g.gradeMark !== 'absent');
-                    const lastGrade = studentGrades.length > 0 ? studentGrades[studentGrades.length - 1] : undefined;
-                    const next = getNextAyahForStudent(student, lastGrade);
-                    const finishedQuran = getMemorizedAyahCount(studentId) >= 6236;
-                    setFormData({
-                      ...formData,
-                      studentId,
-                      surahNum: next.surahNum,
-                      fromAyah: next.ayahNum,
-                      toAyah: next.ayahNum,
-                      isRevision: finishedQuran ? true : formData.isRevision
-                    });
-                  }} 
+                  onChange={e => selectStudentForNewRecord(e.target.value)}
+                  disabled={Boolean(editingGrade)}
                   required 
                   className="w-full bg-gray-50 dark:bg-gray-800 border-none rounded-2xl px-6 py-4 text-sm font-bold outline-none"
                 >
                   <option value="">اختر الطالب</option>
-                  {students.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  {sortedActiveStudents.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                 </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-black text-gray-400 mb-2 mr-1 uppercase tracking-widest">تاريخ التسميع</label>
+                <input
+                  type="date"
+                  value={formData.date}
+                  max={new Date().toISOString().slice(0, 10)}
+                  onChange={event => setFormData({ ...formData, date: event.target.value })}
+                  required
+                  className="w-full bg-gray-50 dark:bg-gray-800 border-none rounded-2xl px-6 py-4 text-sm font-bold outline-none"
+                />
               </div>
 
               {/* Type Chip selector */}
@@ -807,19 +957,23 @@ export default function MemorizationPage() {
               <div>
                 <label className="block text-xs font-black text-gray-400 mb-2 mr-1 uppercase tracking-widest">التقييم</label>
                 <div className="grid grid-cols-5 gap-2">
-                  {[
+                  {([
                     { key: "excellent", label: "ممتاز", style: "bg-emerald-500 hover:bg-emerald-600 text-white" },
                     { key: "very_good", label: "جيد جداً", style: "bg-green-500 hover:bg-green-600 text-white" },
                     { key: "good", label: "جيد", style: "bg-amber-500 hover:bg-amber-600 text-white" },
                     { key: "needs_work", label: "مقبول", style: "bg-orange-500 hover:bg-orange-600 text-white" },
                     { key: "absent", label: "غائب", style: "bg-rose-500 hover:bg-rose-600 text-white" }
-                  ].map(item => {
+                  ] satisfies Array<{
+                    key: HomeworkGrade["gradeMark"];
+                    label: string;
+                    style: string;
+                  }>).map(item => {
                     const isSelected = formData.gradeMark === item.key;
                     return (
                       <button
                         key={item.key}
                         type="button"
-                        onClick={() => setFormData({ ...formData, gradeMark: item.key as any })}
+                        onClick={() => setFormData({ ...formData, gradeMark: item.key })}
                         className={`py-3 rounded-xl font-black text-[11px] transition-all border ${
                           isSelected 
                             ? `${item.style} border-transparent shadow-lg shadow-black/10 scale-[1.03]`
@@ -875,17 +1029,19 @@ export default function MemorizationPage() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-gray-50 dark:border-gray-800">
                 <button 
                   type="submit" 
+                  disabled={saving}
                   className="w-full bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-750 text-gray-800 dark:text-white py-5 rounded-[2rem] font-black text-xs transition-all flex items-center justify-center gap-2"
                 >
-                  حفظ التقييم فقط
+                  {saving ? "جاري الحفظ…" : editingGrade ? "حفظ التعديل" : "حفظ التسميع"}
                 </button>
                 <button 
                   type="button"
                   onClick={(e) => handleSave(e, true)}
+                  disabled={saving}
                   className="w-full bg-teal-600 hover:bg-teal-700 text-white py-5 rounded-[2rem] font-black text-xs transition-all flex items-center justify-center gap-2 shadow-lg shadow-teal-100 dark:shadow-none"
                 >
                   <MessageCircle className="w-4 h-4" />
-                  حفظ وإرسال لولي الأمر
+                  {editingGrade ? "حفظ التعديل وإرساله" : "حفظ وإرسال لولي الأمر"}
                 </button>
               </div>
             </form>

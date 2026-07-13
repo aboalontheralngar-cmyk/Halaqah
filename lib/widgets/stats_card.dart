@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../app/design_tokens.dart';
 
 class StatsCard extends StatelessWidget {
   final String title;
@@ -25,9 +26,9 @@ class StatsCard extends StatelessWidget {
     return Card(
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(AppRadii.md),
         child: Padding(
-          padding: const EdgeInsets.all(16),
+          padding: AppSpacing.card,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -37,30 +38,30 @@ class StatsCard extends StatelessWidget {
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
                       color: color.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(8),
+                      borderRadius: BorderRadius.circular(AppRadii.sm),
                     ),
                     child: Icon(icon, color: color, size: 20),
                   ),
                   const Spacer(),
                   if (onTap != null)
-                    Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey[400]),
+                    Icon(
+                      Icons.arrow_forward_ios,
+                      size: 14,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
                 ],
               ),
               const SizedBox(height: 12),
               Text(
                 value,
-                style: const TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                ),
+                style: Theme.of(context).textTheme.headlineSmall,
               ),
               const SizedBox(height: 4),
               Text(
                 title,
-                style: TextStyle(
-                  color: Colors.grey[600],
-                  fontSize: 12,
-                ),
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
               ),
               if (subtitle != null) ...[
                 const SizedBox(height: 4),
@@ -100,20 +101,22 @@ class StatsRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-      children: stats.map((stat) => _buildStatChip(stat)).toList(),
+    return Wrap(
+      alignment: WrapAlignment.spaceEvenly,
+      spacing: AppSpacing.md,
+      runSpacing: AppSpacing.sm,
+      children: stats.map((stat) => _buildStatChip(context, stat)).toList(),
     );
   }
 
-  Widget _buildStatChip(StatItem stat) {
+  Widget _buildStatChip(BuildContext context, StatItem stat) {
     return Column(
       children: [
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
           decoration: BoxDecoration(
             color: stat.color.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(AppRadii.pill),
           ),
           child: Text(
             stat.value,
@@ -126,7 +129,9 @@ class StatsRow extends StatelessWidget {
         const SizedBox(height: 4),
         Text(
           stat.label,
-          style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
         ),
       ],
     );
@@ -165,7 +170,7 @@ class MiniStatsCard extends StatelessWidget {
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(AppRadii.md),
       ),
       child: Column(
         children: [
@@ -184,10 +189,9 @@ class MiniStatsCard extends StatelessWidget {
           const SizedBox(height: 2),
           Text(
             title,
-            style: TextStyle(
-              fontSize: 10,
-              color: Colors.grey[600],
-            ),
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
           ),
         ],
       ),

@@ -6,6 +6,7 @@ import '../../services/database_service.dart';
 import '../../services/quran_service.dart';
 import '../../models/student.dart';
 import '../../models/settings.dart';
+import '../../models/family.dart';
 import '../../utils/helpers.dart';
 
 class StudentFormScreen extends StatefulWidget {
@@ -32,7 +33,9 @@ class _StudentFormScreenState extends State<StudentFormScreen> {
   HalaqahSettings _settings = HalaqahSettings();
 
   List<Student> _allStudents = [];
+  List<Family> _families = [];
   List<Student> _suggestedSiblings = [];
+  String? _familyId;
   int? _startSurahId;
   int? _startAyah;
   int? _endSurahId;
@@ -50,6 +53,7 @@ class _StudentFormScreenState extends State<StudentFormScreen> {
       _phoneController.text = widget.student!.phone;
       _guardianPhoneController.text = widget.student!.guardianPhone;
       _notesController.text = widget.student!.notes ?? '';
+      _familyId = widget.student!.familyId;
       _planType = widget.student!.planType;
       _planAmount = widget.student!.planAmount;
       _memorizationDirection = widget.student!.memorizationDirection;
@@ -63,11 +67,27 @@ class _StudentFormScreenState extends State<StudentFormScreen> {
   Future<void> _loadAllStudents() async {
     try {
       await QuranService.instance.initialize();
-      final students = await _db.getStudents();
+      final values = await Future.wait<dynamic>([
+        _db.getStudents(),
+        _db.getFamilies(),
+      ]);
       setState(() {
-        _allStudents = students;
+        _allStudents = values[0] as List<Student>;
+        _families = values[1] as List<Family>;
       });
     } catch (_) {}
+  }
+
+  Future<void> _selectFamily(String? familyId) async {
+    setState(() => _familyId = familyId);
+    if (familyId == null) return;
+    final guardians = await _db.getFamilyGuardians(familyId);
+    if (!mounted || guardians.isEmpty) return;
+    final primary = guardians.firstWhere(
+      (guardian) => guardian.isPrimary,
+      orElse: () => guardians.first,
+    );
+    setState(() => _guardianPhoneController.text = primary.phone);
   }
 
   Future<void> _loadSettings() async {
@@ -249,6 +269,7 @@ class _StudentFormScreenState extends State<StudentFormScreen> {
           name: _nameController.text.trim(),
           phone: _phoneController.text.trim(),
           guardianPhone: _guardianPhoneController.text.trim(),
+          familyId: _familyId,
           planType: _planType,
           planAmount: _planAmount,
           notes: _notesController.text.trim(),
@@ -259,6 +280,7 @@ class _StudentFormScreenState extends State<StudentFormScreen> {
           preMemorizedEndSurah: _endSurahId,
           preMemorizedEndAyah: _endAyah,
           clearPreMemorized: !hasRange,
+          clearFamily: _familyId == null,
         );
         await _db.updateStudent(updated);
       } else {
@@ -279,6 +301,7 @@ class _StudentFormScreenState extends State<StudentFormScreen> {
           name: _nameController.text.trim(),
           phone: _phoneController.text.trim(),
           guardianPhone: _guardianPhoneController.text.trim(),
+          familyId: _familyId,
           planType: _planType,
           planAmount: _planAmount,
           notes: _notesController.text.trim(),
@@ -378,6 +401,34 @@ class _StudentFormScreenState extends State<StudentFormScreen> {
                 ),
                 keyboardType: TextInputType.phone,
                 textInputAction: TextInputAction.next,
+              ),
+              const SizedBox(height: 16),
+              DropdownButtonFormField<String>(
+                value: _familyId ?? '',
+                isExpanded: true,
+                decoration: const InputDecoration(
+                  labelText: 'العائلة',
+                  prefixIcon: Icon(Icons.family_restroom_outlined),
+                  helperText: 'الربط الصريح أدق من الاعتماد على تشابه الاسم',
+                ),
+                items: [
+                  const DropdownMenuItem(
+                    value: '',
+                    child: Text('بدون عائلة مرتبطة'),
+                  ),
+                  ..._families.map(
+                    (family) => DropdownMenuItem(
+                      value: family.id,
+                      child: Text(
+                        '${family.name} — ${family.displayCode}',
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ),
+                ],
+                onChanged: (value) => _selectFamily(
+                  value == null || value.isEmpty ? null : value,
+                ),
               ),
               const SizedBox(height: 24),
               
@@ -587,6 +638,7 @@ class _StudentFormScreenState extends State<StudentFormScreen> {
                           _nameController.text = '$firstName $siblingSuffix';
                         }
                         _guardianPhoneController.text = sibling.guardianPhone;
+                        _familyId = sibling.familyId;
                         _suggestedSiblings = [];
                       });
                       

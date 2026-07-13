@@ -10,9 +10,7 @@ import {
   BookOpen, 
   ArrowRight,
   Search,
-  Plus,
   Loader2,
-  MoreVertical,
   X,
   UserCheck
 } from "lucide-react";
@@ -21,7 +19,7 @@ import { useStore } from "@/store/useStore";
 export default function TeachersPage() {
   const { 
     teachers, fetchTeachers, addTeacher, removeTeacher, 
-    halaqat, fetchHalaqat, currentCenter, profile 
+    halaqat, fetchHalaqat,
   } = useStore();
   
   const [loading, setLoading] = useState(true);

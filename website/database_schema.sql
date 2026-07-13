@@ -7,7 +7,9 @@ DROP TABLE IF EXISTS exams CASCADE;
 DROP TABLE IF EXISTS points CASCADE;
 DROP TABLE IF EXISTS memorization CASCADE;
 DROP TABLE IF EXISTS attendance CASCADE;
+DROP TABLE IF EXISTS family_guardians CASCADE;
 DROP TABLE IF EXISTS students CASCADE;
+DROP TABLE IF EXISTS families CASCADE;
 DROP TABLE IF EXISTS halaqat CASCADE;
 DROP TABLE IF EXISTS centers CASCADE;
 DROP TABLE IF EXISTS supervisors CASCADE;
@@ -66,7 +68,19 @@ CREATE TABLE center_members (
     UNIQUE(center_id, email)
 );
 
--- 3. جدول الطلاب (Students)
+-- 3. جدول العائلات (Families)
+CREATE TABLE families (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    center_id UUID NOT NULL REFERENCES centers(id) ON DELETE CASCADE,
+    halaqa_id UUID NOT NULL REFERENCES halaqat(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    reference_name TEXT,
+    notes TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- 4. جدول الطلاب (Students)
 CREATE TABLE students (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     center_id UUID REFERENCES centers(id) ON DELETE CASCADE,
@@ -74,6 +88,7 @@ CREATE TABLE students (
     name TEXT NOT NULL,
     phone TEXT,
     parent_phone TEXT,
+    family_id UUID REFERENCES families(id) ON DELETE SET NULL,
     qr_code TEXT UNIQUE NOT NULL DEFAULT gen_random_uuid()::text,
     age INTEGER,
     level TEXT,
@@ -92,6 +107,24 @@ CREATE TABLE students (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+
+CREATE TABLE family_guardians (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    family_id UUID NOT NULL REFERENCES families(id) ON DELETE CASCADE,
+    center_id UUID NOT NULL REFERENCES centers(id) ON DELETE CASCADE,
+    halaqa_id UUID NOT NULL REFERENCES halaqat(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    phone TEXT NOT NULL,
+    email TEXT,
+    relationship TEXT NOT NULL DEFAULT 'guardian',
+    is_primary BOOLEAN NOT NULL DEFAULT FALSE,
+    notes TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX idx_family_one_primary_guardian
+    ON family_guardians(family_id) WHERE is_primary;
 
 -- 4. جدول الحضور (Attendance)
 CREATE TABLE attendance (
@@ -118,9 +151,12 @@ CREATE TABLE memorization (
     from_ayah INTEGER,
     to_ayah INTEGER,
     degree INTEGER CHECK (degree BETWEEN 1 AND 5),
+    session_type TEXT CHECK (session_type IN ('new', 'review')) DEFAULT 'new',
     date DATE NOT NULL,
     notes TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    deleted_at TIMESTAMP WITH TIME ZONE
 );
 
 -- 6. جدول النقاط والسلوك (Points & Behavior)
@@ -188,6 +224,8 @@ ALTER TABLE center_members ENABLE ROW LEVEL SECURITY;
 ALTER TABLE centers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE halaqat ENABLE ROW LEVEL SECURITY;
 ALTER TABLE students ENABLE ROW LEVEL SECURITY;
+ALTER TABLE families ENABLE ROW LEVEL SECURITY;
+ALTER TABLE family_guardians ENABLE ROW LEVEL SECURITY;
 ALTER TABLE attendance ENABLE ROW LEVEL SECURITY;
 ALTER TABLE memorization ENABLE ROW LEVEL SECURITY;
 ALTER TABLE points ENABLE ROW LEVEL SECURITY;
@@ -243,6 +281,16 @@ CREATE POLICY "Access halaqat by center_id" ON halaqat FOR ALL USING (
 -- سياسات الطلاب (Students) - بدون recursion
 DROP POLICY IF EXISTS "Access students by center_id" ON students;
 CREATE POLICY "Access students by center_id" ON students FOR ALL USING (
+    center_id = ANY(ARRAY(SELECT id FROM centers WHERE owner_id = auth.uid()))
+);
+
+DROP POLICY IF EXISTS "Access families by center_id" ON families;
+CREATE POLICY "Access families by center_id" ON families FOR ALL USING (
+    center_id = ANY(ARRAY(SELECT id FROM centers WHERE owner_id = auth.uid()))
+);
+
+DROP POLICY IF EXISTS "Access family guardians by center_id" ON family_guardians;
+CREATE POLICY "Access family guardians by center_id" ON family_guardians FOR ALL USING (
     center_id = ANY(ARRAY(SELECT id FROM centers WHERE owner_id = auth.uid()))
 );
 

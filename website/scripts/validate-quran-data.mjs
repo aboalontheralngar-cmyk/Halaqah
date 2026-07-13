@@ -61,10 +61,30 @@ if (Math.min(...pages) !== 1 || Math.max(...pages) !== 604) {
 if (numberedAyahs.some(ayah => typeof ayah.text !== "string" || ayah.text.trim() === "")) {
   failures.push("One or more numbered ayahs have empty text.");
 }
+const invalidQuarterRows = numberedAyahs.filter(ayah => {
+  const firstQuarterInHizb = (ayah.hizb - 1) * 4 + 1;
+  return ayah.quarter < firstQuarterInHizb ||
+    ayah.quarter > firstQuarterInHizb + 3;
+});
+if (invalidQuarterRows.length > 0) {
+  failures.push(
+    `${invalidQuarterRows.length} ayahs have a quarter outside their hizb.`,
+  );
+}
+const availableQuarters = new Set(numberedAyahs.map(ayah => ayah.quarter));
+const missingQuarters = Array.from(
+  { length: 240 },
+  (_, index) => index + 1,
+).filter(quarter => !availableQuarters.has(quarter));
+if (missingQuarters.length > 0) {
+  failures.push(`Missing Quran quarters: ${missingQuarters.join(", ")}.`);
+}
 
 if (failures.length > 0) {
   console.error(failures.map(message => `- ${message}`).join("\n"));
   process.exitCode = 1;
 } else {
-  console.log("Quran data integrity check passed: 114 surahs, 6236 numbered ayahs, 604 pages.");
+  console.log(
+    "Quran data integrity check passed: 114 surahs, 6236 numbered ayahs, 604 pages, and 240 consistent quarters.",
+  );
 }

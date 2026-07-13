@@ -4,16 +4,9 @@ import { useState, useMemo, useEffect } from "react";
 import { 
   FileText, 
   Plus, 
-  Save, 
   X, 
-  Search, 
-  CheckCircle, 
-  Clock, 
-  Edit2, 
   Trophy,
-  GraduationCap,
   CalendarDays,
-  Target
 } from "lucide-react";
 import { useStore } from "@/store/useStore";
 

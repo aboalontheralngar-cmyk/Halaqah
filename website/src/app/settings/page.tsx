@@ -4,20 +4,19 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { 
   Settings as SettingsIcon, 
-  Bell, 
   Moon, 
   Sun, 
   ShieldCheck, 
   ChevronLeft, 
   LogOut, 
-  User, 
   Zap, 
   Star, 
   Clock, 
   Flame, 
   AlertTriangle,
   Users,
-  VenetianMask
+  VenetianMask,
+  FileText
 } from "lucide-react";
 import { useStore } from "@/store/useStore";
 
@@ -226,6 +225,36 @@ export default function SettingsPage() {
                   <div>
                     <p className="font-black text-gray-800 dark:text-white text-sm group-hover:text-teal-600 transition-colors">قوالب الرسائل لولي الأمر 💬</p>
                     <p className="text-[10px] text-gray-400 font-bold mt-1">تخصيص قوالب رسائل تكليف الحفظ وتسميع الواجبات ومشاركتها اليومية</p>
+                  </div>
+                </div>
+                <ChevronLeft className="w-5 h-5 text-gray-400 group-hover:-translate-x-1 transition-transform" />
+              </Link>
+              <Link
+                href="/audit-log"
+                className="p-8 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors cursor-pointer group"
+              >
+                <div className="flex items-center gap-6">
+                  <div className="w-12 h-12 bg-teal-50 dark:bg-teal-900/20 rounded-2xl flex items-center justify-center">
+                    <ShieldCheck className="w-6 h-6 text-teal-600" />
+                  </div>
+                  <div>
+                    <p className="font-black text-gray-800 dark:text-white text-sm group-hover:text-teal-600 transition-colors">سجل التدقيق والحماية</p>
+                    <p className="text-[10px] text-gray-400 font-bold mt-1">مراجعة التغييرات الحساسة دون عرض كلمات المرور أو محتوى النسخ</p>
+                  </div>
+                </div>
+                <ChevronLeft className="w-5 h-5 text-gray-400 group-hover:-translate-x-1 transition-transform" />
+              </Link>
+              <Link
+                href="/privacy"
+                className="p-8 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors cursor-pointer group"
+              >
+                <div className="flex items-center gap-6">
+                  <div className="w-12 h-12 bg-blue-50 dark:bg-blue-900/20 rounded-2xl flex items-center justify-center">
+                    <FileText className="w-6 h-6 text-blue-600" />
+                  </div>
+                  <div>
+                    <p className="font-black text-gray-800 dark:text-white text-sm group-hover:text-blue-600 transition-colors">سياسة الخصوصية وإدارة البيانات</p>
+                    <p className="text-[10px] text-gray-400 font-bold mt-1">بيان الجمع والاستخدام والحماية والاحتفاظ والتصدير والحذف</p>
                   </div>
                 </div>
                 <ChevronLeft className="w-5 h-5 text-gray-400 group-hover:-translate-x-1 transition-transform" />

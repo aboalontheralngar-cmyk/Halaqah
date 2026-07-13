@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'theme.dart';
 import '../screens/home/home_screen.dart';
 import '../screens/settings/setup_wizard_screen.dart';
@@ -33,9 +34,32 @@ class HalaqahApp extends StatelessWidget {
           themeMode: currentMode,
           locale: const Locale('ar'),
           builder: (context, child) {
-            return Directionality(
-              textDirection: TextDirection.rtl,
-              child: child!,
+            final theme = Theme.of(context);
+            final isDark = theme.brightness == Brightness.dark;
+            return AnnotatedRegion<SystemUiOverlayStyle>(
+              value: SystemUiOverlayStyle(
+                statusBarColor: Colors.transparent,
+                statusBarIconBrightness:
+                    isDark ? Brightness.light : Brightness.dark,
+                statusBarBrightness:
+                    isDark ? Brightness.dark : Brightness.light,
+                systemNavigationBarColor: theme.scaffoldBackgroundColor,
+                systemNavigationBarIconBrightness:
+                    isDark ? Brightness.light : Brightness.dark,
+                systemNavigationBarDividerColor: Colors.transparent,
+              ),
+              child: Directionality(
+                textDirection: TextDirection.rtl,
+                child: ColoredBox(
+                  color: theme.scaffoldBackgroundColor,
+                  // حجز المساحة السفلية مركزيًا يحمي جميع الشاشات والحوارات
+                  // من أزرار Android ومنطقة الإيماءة، بما فيها المسارات القديمة.
+                  child: SafeArea(
+                    top: false,
+                    child: child ?? const SizedBox.shrink(),
+                  ),
+                ),
+              ),
             );
           },
           home: FutureBuilder<bool>(

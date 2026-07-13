@@ -54,7 +54,7 @@ for (const fragment of [
 for (const fragment of [
   "table: 'memorization'",
   "table: 'homework_grades'",
-  "'session_type': e.isRevision ? 'review' : 'new'",
+  "'session_type': progress.isRevision ? 'review' : 'new'",
 ]) {
   if (!sync.includes(fragment)) {
     throw new Error(`Recitation synchronization is missing: ${fragment}`);

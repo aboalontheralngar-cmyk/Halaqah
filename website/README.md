@@ -1,36 +1,46 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# حلقتي — واجهة الويب
 
-## Getting Started
+لوحة إدارة حلقات القرآن المبنية بـ Next.js وSupabase. المصدر العام للمتصفح
+يستخدم مفتاح Supabase العام فقط، وتعتمد حماية البيانات الفعلية على سياسات RLS
+الموجودة في `supabase/migrations`.
 
-First, run the development server:
+## التشغيل المحلي
+
+1. انسخ `.env.example` إلى `.env.local`.
+2. ضع رابط مشروع Supabase والمفتاح العام `anon` أو `publishable`.
+3. لا تضع مفتاح `service_role` في أي متغير يبدأ بـ `NEXT_PUBLIC_`.
+4. نفذ:
 
 ```bash
+npm ci
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+ثم افتح `http://localhost:3000`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## فحوص الإصدار
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm run quality:ci
+```
 
-## Learn More
+ينفذ الأمر تدقيق الثغرات الإنتاجية عالية الخطورة، وحد ESLint المتناقص،
+وفحوص العقود العشرين، وفحص TypeScript، وبناء Next.js الإنتاجي.
 
-To learn more about Next.js, take a look at the following resources:
+أوامر مفيدة:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+npm run lint:strict
+npm run validate:all
+npm run audit:production
+npm run build
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## الأمان والنشر
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- لا تنشر إلا عبر HTTPS.
+- شغّل migrations بالترتيب واختبر RLS بحسابين من حلقتين مختلفتين.
+- نفّذ migration P6.2 قبل فتح `/audit-log` أو تفعيل النسخ السحابي في Android.
+- عرّف المتغيرات العامة أثناء البناء؛ قيم `NEXT_PUBLIC_` تثبت داخل الحزمة.
+- لا تتجاوز فشل `quality:ci` ولا تستخدم `npm audit fix --force` دون مراجعة.
+- راجع `docs/phase6_1_handoff.md` و`docs/phase6_2_handoff.md` و`docs/release_security_checklist.md` قبل الإنتاج.

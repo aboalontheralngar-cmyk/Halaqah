@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import '../../models/student.dart';
 import '../../services/database_service.dart';
 
@@ -103,7 +102,7 @@ class _HonorBoardScreenState extends State<HonorBoardScreen> {
                           const SizedBox(height: 16),
                           Text(
                             'لا تتوفر إحصائيات للطلاب حالياً',
-                            style: GoogleFonts.tajawal(color: Colors.grey[600]),
+                            style: TextStyle(color: Colors.grey[600]),
                           ),
                         ],
                       ),
@@ -123,7 +122,7 @@ class _HonorBoardScreenState extends State<HonorBoardScreen> {
                             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                             child: Text(
                               'جدول الصدارة والترتيب العام',
-                              style: GoogleFonts.tajawal(
+                              style: TextStyle(
                                 fontSize: 16,
                                 fontWeight: FontWeight.bold,
                               ),
@@ -231,7 +230,7 @@ class _HonorBoardScreenState extends State<HonorBoardScreen> {
           const SizedBox(height: 4),
           Text(
             shortName,
-            style: GoogleFonts.tajawal(
+            style: TextStyle(
               fontSize: rank == 1 ? 14 : 12,
               fontWeight: FontWeight.bold,
               color: isDark ? Colors.white : const Color(0xFF0F172A),
@@ -243,7 +242,7 @@ class _HonorBoardScreenState extends State<HonorBoardScreen> {
           const SizedBox(height: 2),
           Text(
             _formatScore(score),
-            style: GoogleFonts.outfit(
+            style: TextStyle(
               fontSize: rank == 1 ? 18 : 15,
               fontWeight: FontWeight.w900,
               color: color,
@@ -263,7 +262,7 @@ class _HonorBoardScreenState extends State<HonorBoardScreen> {
             child: Center(
               child: Text(
                 '$rank',
-                style: GoogleFonts.outfit(
+                style: TextStyle(
                   fontSize: rank == 1 ? 32 : 24,
                   fontWeight: FontWeight.w900,
                   color: color,
@@ -316,7 +315,7 @@ class _HonorBoardScreenState extends State<HonorBoardScreen> {
                 ? Text(rankLabel, style: const TextStyle(fontSize: 16))
                 : Text(
                     rankLabel,
-                    style: GoogleFonts.outfit(
+                    style: TextStyle(
                       fontWeight: FontWeight.bold,
                       color: isDark ? Colors.grey[400] : const Color(0xFF334155),
                       fontSize: 13,
@@ -346,7 +345,7 @@ class _HonorBoardScreenState extends State<HonorBoardScreen> {
           ),
           child: Text(
             _formatScore(score),
-            style: GoogleFonts.outfit(
+            style: TextStyle(
               fontWeight: FontWeight.bold,
               color: index < 3 ? rankColor : (isDark ? Colors.white : const Color(0xFF0F172A)),
               fontSize: 14,

@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import type { User } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 import { quranService } from '@/services/quranService';
 
@@ -36,6 +37,7 @@ export interface Teacher {
 
 export interface Student {
   id: string;
+  familyId?: string;
   qrCode?: string;
   name: string;
   phone: string;
@@ -73,6 +75,7 @@ export interface MemorizationRecord {
   date: string;
   degree: number;
   notes: string;
+  isRevision?: boolean;
 }
 
 export interface PointRecord {
@@ -83,6 +86,35 @@ export interface PointRecord {
   reason: string;
   date: string;
   resolved?: boolean; // For violations
+}
+
+export interface DailyAchievement {
+  id: string;
+  studentId: string;
+  date: string;
+  source: 'automatic' | 'manual';
+  reason: string;
+  actualAmount: number;
+  planAmount: number;
+  unit: 'ayahs' | 'pages' | 'lines';
+  rewardType?: 'points' | 'certificate' | 'gift' | 'meal' | 'other';
+  rewardDetails?: string;
+  rewardPoints: number;
+  awardedAt?: string;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DailyAchievementInput {
+  studentId: string;
+  date: string;
+  source: 'automatic' | 'manual';
+  reason: string;
+  actualAmount: number;
+  planAmount: number;
+  unit: 'ayahs' | 'pages' | 'lines';
+  notes?: string;
 }
 
 export interface Vacation {
@@ -158,6 +190,136 @@ export interface MessageTemplate {
   content: string;
 }
 
+export type AppUser = Pick<User, 'id' | 'email'> & {
+  name?: string;
+  user_metadata?: User['user_metadata'];
+};
+
+type MushafProgressRow = {
+  id: string;
+  student_id: string;
+  hizb_number: number;
+  thumun_number: number;
+  average_grade: number | string;
+  last_graded_date?: string | null;
+  is_pre_memorized: boolean;
+};
+
+type TeacherRow = {
+  id: string;
+  email: string;
+  role: Teacher['role'];
+  halaqah_id?: string | null;
+  invitation_code?: string;
+  halaqat?: { name: string } | { name: string }[] | null;
+};
+
+type StudentRow = {
+  id: string;
+  qr_code?: string;
+  name: string;
+  phone: string;
+  parent_phone: string;
+  family_id?: string | null;
+  age: number;
+  level: string;
+  join_date: string;
+  photo_url?: string;
+  plan_type: Student['planType'];
+  plan_amount: number;
+  status: Student['status'];
+  memorization_direction?: Student['memorizationDirection'];
+  pre_memorized_start_surah?: number;
+  pre_memorized_start_ayah?: number;
+  pre_memorized_end_surah?: number;
+  pre_memorized_end_ayah?: number;
+};
+
+type AttendanceRow = {
+  id: string;
+  student_id: string;
+  date: string;
+  status: AttendanceRecord['status'];
+  arrival_time?: string;
+  absence_reason?: string;
+  notes?: string;
+};
+
+type MemorizationRow = {
+  id: string;
+  student_id: string;
+  surah: string;
+  from_ayah: number;
+  to_ayah: number;
+  date: string;
+  degree: number;
+  notes: string;
+  session_type?: string;
+};
+
+type PointRow = {
+  id: string;
+  student_id: string;
+  type: PointRecord['type'];
+  amount: number;
+  reason: string;
+  date: string;
+  resolved?: boolean;
+};
+
+type VacationRow = {
+  id: string;
+  student_id: string;
+  start_date: string;
+  end_date: string;
+  reason: string;
+  approved: boolean;
+};
+
+type ExamScoreRow = { student_id: string; degree: number; notes: string };
+type ExamRow = {
+  id: string;
+  title: string;
+  date: string;
+  type: Exam['type'];
+  max_degree: number;
+  exam_scores?: ExamScoreRow[];
+};
+
+type PlanRow = {
+  id: string;
+  student_id: string;
+  period: SmartPlan['period'];
+  start_date: string;
+  end_date: string;
+  unit: SmartPlan['unit'];
+  new_amount: number;
+  review_amount: number;
+  status: SmartPlan['status'];
+  test_status?: SmartPlan['testStatus'];
+  completion_exam_id?: string | null;
+  completed_at?: string | null;
+  notes?: string | null;
+  created_at: string;
+  updated_at?: string | null;
+};
+
+type HomeworkGradeRow = {
+  id: string;
+  student_id: string;
+  surah: string;
+  from_ayah: number;
+  to_ayah: number;
+  date: string;
+  grade_mark: HomeworkGrade['gradeMark'];
+  mistakes_count: number;
+  is_revision: boolean;
+  remark?: string;
+  created_at?: string;
+};
+
+type MessageTemplateRow = { center_id: string; name: string; body: string };
+
 interface HalaqahStore {
   students: Student[];
   attendance: AttendanceRecord[];
@@ -170,11 +332,12 @@ interface HalaqahStore {
   homeworkGrades: HomeworkGrade[];
   mushafProgress: MushafProgress[];
   messageTemplates: MessageTemplate[];
+  dailyAchievements: DailyAchievement[];
   currencySymbol: string;
   loading: boolean;
   darkMode: boolean;
   centerType: 'men' | 'women' | 'mixed';
-  user: any | null;
+  user: AppUser | null;
   profile: Profile | null;
   currentCenter: { id: string, name: string, type: 'men' | 'women' | 'mixed', activeHalaqa?: { id: string, name: string } } | null;
   userCenters: { id: string, name: string, type: 'men' | 'women' | 'mixed' }[];
@@ -183,7 +346,7 @@ interface HalaqahStore {
   halaqat: { id: string, name: string, teacher_name?: string }[];
 
   // Actions
-  setUser: (user: any) => void;
+  setUser: (user: AppUser | null) => void;
   fetchProfile: () => Promise<void>;
   setProfile: (profile: Profile | null) => void;
   createSupervisor: (name: string) => Promise<string | null>;
@@ -192,7 +355,12 @@ interface HalaqahStore {
   addTeacher: (email: string, halaqahId?: string) => Promise<void>;
   removeTeacher: (id: string) => Promise<void>;
   setUserCenters: (centers: { id: string, name: string, type: 'men' | 'women' | 'mixed' }[]) => void;
-  setCurrentCenter: (center: { id: string, name: string, type: 'men' | 'women' | 'mixed' } | null) => void;
+  setCurrentCenter: (center: {
+    id: string;
+    name: string;
+    type: 'men' | 'women' | 'mixed';
+    activeHalaqa?: { id: string; name: string };
+  } | null) => void;
   setCenterType: (type: 'men' | 'women' | 'mixed') => void;
   fetchStudents: () => Promise<void>;
   addStudent: (student: Omit<Student, 'id'>) => Promise<void>;
@@ -219,6 +387,14 @@ interface HalaqahStore {
   addPoints: (record: Omit<PointRecord, 'id'>) => Promise<void>;
   reassignPoint: (pointId: string, studentId: string, reason: string) => Promise<void>;
   deletePointWithAudit: (pointId: string, reason: string) => Promise<void>;
+  fetchDailyAchievements: () => Promise<void>;
+  saveDailyAchievement: (achievement: DailyAchievementInput) => Promise<void>;
+  awardDailyAchievement: (
+    achievement: DailyAchievementInput,
+    rewardType: NonNullable<DailyAchievement['rewardType']>,
+    rewardDetails?: string,
+    rewardPoints?: number
+  ) => Promise<void>;
   resolveViolation: (pointId: string) => Promise<void>;
 
   addVacation: (vacation: Omit<Vacation, 'id'>) => Promise<void>;
@@ -242,7 +418,12 @@ interface HalaqahStore {
   fetchCenterData: () => Promise<void>;
 
   fetchHomeworkGrades: () => Promise<void>;
-  addHomeworkGrade: (record: Omit<HomeworkGrade, 'id'>) => Promise<void>;
+  addHomeworkGrade: (record: Omit<HomeworkGrade, 'id'>) => Promise<boolean>;
+  updateHomeworkGrade: (
+    id: string,
+    record: Omit<HomeworkGrade, 'id' | 'createdAt'>
+  ) => Promise<boolean>;
+  deleteHomeworkGrade: (id: string) => Promise<boolean>;
   fetchMushafProgress: (studentId: string) => Promise<void>;
   togglePreMemorized: (studentId: string, hizbNumber: number, thumunNumber: number, isPre: boolean) => Promise<void>;
   fetchMessageTemplates: () => Promise<void>;
@@ -259,6 +440,106 @@ interface HalaqahStore {
   toggleSuspendedDate: (date: string) => void;
 }
 
+const gradeValue = (mark: HomeworkGrade['gradeMark']) => {
+  switch (mark) {
+    case 'excellent': return 5;
+    case 'very_good': return 4;
+    case 'good': return 3;
+    case 'needs_work': return 2;
+    default: return 0;
+  }
+};
+
+async function rebuildWebMushafProgress(
+  studentId: string,
+  centerId: string,
+  grades: HomeworkGrade[],
+): Promise<MushafProgress[]> {
+  if (!supabase || quranService.getSurahs().length === 0) return [];
+  const { data: existingRows, error: existingError } = await supabase
+    .from('mushaf_progress')
+    .select('*')
+    .eq('student_id', studentId);
+  if (existingError) throw existingError;
+
+  const existing = (existingRows ?? []) as MushafProgressRow[];
+  const aggregates = new Map<string, { total: number; count: number; lastDate: string }>();
+  for (const grade of grades) {
+    if (grade.studentId !== studentId || grade.gradeMark === 'absent') continue;
+    const surah = quranService.getSurahs().find(item => item.name === grade.surah);
+    if (!surah) continue;
+    const covered = new Set<string>();
+    for (const ayah of quranService.getAyahRange(
+      surah.number,
+      grade.fromAyah,
+      grade.toAyah,
+    )) {
+      const hizb = ayah.hizb ?? 0;
+      const quarter = ayah.quarter ?? 0;
+      if (hizb < 1 || hizb > 60 || quarter < 1 || quarter > 240) continue;
+      const quarterInHizb = ((quarter - 1) % 4) + 1;
+      covered.add(`${hizb}_${(quarterInHizb - 1) * 2 + 1}`);
+      covered.add(`${hizb}_${(quarterInHizb - 1) * 2 + 2}`);
+    }
+    for (const key of covered) {
+      const current = aggregates.get(key) ?? { total: 0, count: 0, lastDate: grade.date };
+      current.total += gradeValue(grade.gradeMark);
+      current.count += 1;
+      if (grade.date > current.lastDate) current.lastDate = grade.date;
+      aggregates.set(key, current);
+    }
+  }
+
+  const existingByKey = new Map(
+    existing.map(row => [`${row.hizb_number}_${row.thumun_number}`, row]),
+  );
+  const staleIds = existing
+    .filter(row => !row.is_pre_memorized && !aggregates.has(`${row.hizb_number}_${row.thumun_number}`))
+    .map(row => row.id);
+  if (staleIds.length > 0) {
+    const { error } = await supabase
+      .from('mushaf_progress')
+      .delete()
+      .in('id', staleIds);
+    if (error) throw error;
+  }
+
+  const payload = Array.from(aggregates.entries()).map(([key, aggregate]) => {
+    const [hizbNumber, thumunNumber] = key.split('_').map(Number);
+    const previous = existingByKey.get(key);
+    return {
+      student_id: studentId,
+      center_id: centerId,
+      hizb_number: hizbNumber,
+      thumun_number: thumunNumber,
+      average_grade: aggregate.total / aggregate.count,
+      last_graded_date: aggregate.lastDate,
+      is_pre_memorized: previous?.is_pre_memorized ?? false,
+    };
+  });
+  if (payload.length > 0) {
+    const { error } = await supabase
+      .from('mushaf_progress')
+      .upsert(payload, { onConflict: 'student_id,hizb_number,thumun_number' });
+    if (error) throw error;
+  }
+
+  const { data: rebuilt, error: rebuiltError } = await supabase
+    .from('mushaf_progress')
+    .select('*')
+    .eq('student_id', studentId);
+  if (rebuiltError) throw rebuiltError;
+  return ((rebuilt ?? []) as MushafProgressRow[]).map((row) => ({
+    id: row.id,
+    studentId: row.student_id,
+    hizbNumber: row.hizb_number,
+    thumunNumber: row.thumun_number,
+    averageGrade: Number(row.average_grade),
+    lastGradedDate: row.last_graded_date || undefined,
+    isPreMemorized: row.is_pre_memorized,
+  }));
+}
+
 export const useStore = create<HalaqahStore>((set, get) => ({
   students: [],
   attendance: [],
@@ -271,6 +552,7 @@ export const useStore = create<HalaqahStore>((set, get) => ({
   homeworkGrades: [],
   mushafProgress: [],
   messageTemplates: [],
+  dailyAchievements: [],
   currencySymbol: 'ر.س',
   pointsConfig: {},
   suspendedDates: [],
@@ -409,12 +691,12 @@ export const useStore = create<HalaqahStore>((set, get) => ({
       .eq('center_id', center.id);
 
     if (!error && data) {
-      const mapped = data.map((t: any) => ({
+      const mapped = (data as TeacherRow[]).map((t) => ({
         id: t.id,
         email: t.email,
         role: t.role,
         halaqahId: t.halaqah_id,
-        halaqahName: t.halaqat?.name,
+        halaqahName: Array.isArray(t.halaqat) ? t.halaqat[0]?.name : t.halaqat?.name,
         invitation_code: t.invitation_code
       }));
       set({ teachers: mapped as Teacher[] });
@@ -534,12 +816,13 @@ export const useStore = create<HalaqahStore>((set, get) => ({
       if (error) throw error;
       
       if (data) {
-        const mapped = data.map((s: any) => ({
+        const mapped = (data as StudentRow[]).map((s) => ({
           id: s.id,
           qrCode: s.qr_code,
           name: s.name,
           phone: s.phone,
           parentPhone: s.parent_phone,
+          familyId: s.family_id || undefined,
           age: s.age,
           level: s.level,
           joinDate: s.join_date,
@@ -561,7 +844,7 @@ export const useStore = create<HalaqahStore>((set, get) => ({
       } else {
         set({ students: [] });
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Fetch students error:", err);
       set({ students: [] });
     } finally {
@@ -579,6 +862,7 @@ export const useStore = create<HalaqahStore>((set, get) => ({
           name: student.name,
           phone: student.phone,
           parent_phone: student.parentPhone,
+          family_id: student.familyId || null,
           age: student.age,
           level: student.level,
           join_date: student.joinDate,
@@ -608,6 +892,7 @@ export const useStore = create<HalaqahStore>((set, get) => ({
           name: data.name,
           phone: data.phone,
           parentPhone: data.parent_phone,
+          familyId: data.family_id || undefined,
           age: data.age,
           level: data.level,
           joinDate: data.join_date,
@@ -632,7 +917,7 @@ export const useStore = create<HalaqahStore>((set, get) => ({
 
   updateStudent: async (id, student) => {
     if (supabase) {
-      const mapped: any = {
+      const mapped: Record<string, string | number | null | undefined> = {
         name: student.name,
         phone: student.phone,
         parent_phone: student.parentPhone,
@@ -643,6 +928,9 @@ export const useStore = create<HalaqahStore>((set, get) => ({
         plan_amount: student.planAmount,
         status: student.status,
       };
+      if (student.familyId !== undefined) {
+        mapped.family_id = student.familyId || null;
+      }
       if (student.memorizationDirection !== undefined) {
         mapped.memorization_direction = student.memorizationDirection;
       }
@@ -793,7 +1081,7 @@ export const useStore = create<HalaqahStore>((set, get) => ({
       const { data, error } = await query.order('date', { ascending: false });
       if (error) throw error;
       if (data) {
-        const mapped = data.map((a: any) => ({
+        const mapped = (data as AttendanceRow[]).map((a) => ({
           id: a.id,
           studentId: a.student_id,
           date: a.date,
@@ -819,7 +1107,7 @@ export const useStore = create<HalaqahStore>((set, get) => ({
       const { data, error } = await query.order('date', { ascending: false });
       if (error) throw error;
       if (data) {
-        const mapped = data.map((m: any) => ({
+        const mapped = (data as MemorizationRow[]).map((m) => ({
           id: m.id,
           studentId: m.student_id,
           surah: m.surah,
@@ -827,7 +1115,8 @@ export const useStore = create<HalaqahStore>((set, get) => ({
           toAyah: m.to_ayah,
           date: m.date,
           degree: m.degree,
-          notes: m.notes
+          notes: m.notes,
+          isRevision: m.session_type === 'review',
         }));
         set({ memorization: mapped as MemorizationRecord[] });
       }
@@ -846,7 +1135,7 @@ export const useStore = create<HalaqahStore>((set, get) => ({
       const { data, error } = await query.order('date', { ascending: false });
       if (error) throw error;
       if (data) {
-        const mapped = data.map((p: any) => ({
+        const mapped = (data as PointRow[]).map((p) => ({
           id: p.id,
           studentId: p.student_id,
           type: p.type,
@@ -868,6 +1157,7 @@ export const useStore = create<HalaqahStore>((set, get) => ({
     memorization: [], 
     points: [], 
     plans: [],
+    dailyAchievements: [],
     activities: [],
     loading: true 
   }),
@@ -987,7 +1277,8 @@ export const useStore = create<HalaqahStore>((set, get) => ({
           to_ayah: record.toAyah,
           date: record.date,
           degree: record.degree,
-          notes: record.notes
+          notes: record.notes,
+          session_type: record.isRevision ? 'review' : 'new',
         }])
         .select()
         .single();
@@ -1004,7 +1295,8 @@ export const useStore = create<HalaqahStore>((set, get) => ({
           toAyah: data.to_ayah,
           date: data.date,
           degree: data.degree,
-          notes: data.notes
+          notes: data.notes,
+          isRevision: data.session_type === 'review',
         } as MemorizationRecord] }));
       }
     }
@@ -1085,7 +1377,6 @@ export const useStore = create<HalaqahStore>((set, get) => ({
 
   addActivity: async (type, description) => {
     const center = get().currentCenter;
-    const date = new Date().toISOString();
     if (supabase && center) {
       const { data, error } = await supabase
         .from('activities')
@@ -1249,7 +1540,7 @@ export const useStore = create<HalaqahStore>((set, get) => ({
       .order('start_date', { ascending: false });
     if (!error && data) {
       set({
-        vacations: data.map((v: any) => ({
+        vacations: (data as VacationRow[]).map((v) => ({
           id: v.id,
           studentId: v.student_id,
           startDate: v.start_date,
@@ -1271,13 +1562,13 @@ export const useStore = create<HalaqahStore>((set, get) => ({
       .order('date', { ascending: false });
     if (!error && data) {
       set({
-        exams: data.map((e: any) => ({
+        exams: (data as ExamRow[]).map((e) => ({
           id: e.id,
           title: e.title,
           date: e.date,
           type: e.type,
           maxDegree: e.max_degree,
-          studentScores: (e.exam_scores || []).map((s: any) => ({
+          studentScores: (e.exam_scores || []).map((s) => ({
             studentId: s.student_id,
             degree: s.degree,
             notes: s.notes,
@@ -1301,7 +1592,7 @@ export const useStore = create<HalaqahStore>((set, get) => ({
     const { data, error } = await query.order('created_at', { ascending: false });
     if (error) throw error;
     set({
-      plans: (data || []).map((plan: any) => ({
+      plans: ((data || []) as PlanRow[]).map((plan) => ({
         id: plan.id,
         studentId: plan.student_id,
         period: plan.period,
@@ -1388,6 +1679,86 @@ export const useStore = create<HalaqahStore>((set, get) => ({
     set((state) => ({ plans: state.plans.filter((plan) => plan.id !== id) }));
   },
 
+  fetchDailyAchievements: async () => {
+    const center = get().currentCenter;
+    if (!supabase || !center) return;
+    let query = supabase
+      .from('daily_achievements')
+      .select('*')
+      .eq('center_id', center.id);
+    if (center.activeHalaqa?.id) {
+      query = query.eq('halaqa_id', center.activeHalaqa.id);
+    }
+    const { data, error } = await query.order('date', { ascending: false });
+    if (error) {
+      console.error('Fetch daily achievements error:', error);
+      return;
+    }
+    set({
+      dailyAchievements: (data || []).map((row: Record<string, unknown>) => ({
+        id: String(row.id),
+        studentId: String(row.student_id),
+        date: String(row.date),
+        source: (row.source === 'automatic' ? 'automatic' : 'manual') as DailyAchievement['source'],
+        reason: String(row.reason || 'تميز يومي'),
+        actualAmount: Number(row.actual_amount || 0),
+        planAmount: Number(row.plan_amount || 0),
+        unit: (row.unit || 'ayahs') as DailyAchievement['unit'],
+        rewardType: row.reward_type as DailyAchievement['rewardType'],
+        rewardDetails: row.reward_details ? String(row.reward_details) : undefined,
+        rewardPoints: Number(row.reward_points || 0),
+        awardedAt: row.awarded_at ? String(row.awarded_at) : undefined,
+        notes: row.notes ? String(row.notes) : undefined,
+        createdAt: String(row.created_at),
+        updatedAt: String(row.updated_at || row.created_at),
+      })),
+    });
+  },
+
+  saveDailyAchievement: async (achievement) => {
+    const center = get().currentCenter;
+    if (!supabase || !center) throw new Error('الاتصال بقاعدة البيانات غير متاح');
+    const { error } = await supabase.from('daily_achievements').upsert({
+      student_id: achievement.studentId,
+      center_id: center.id,
+      halaqa_id: center.activeHalaqa?.id,
+      date: achievement.date,
+      source: achievement.source,
+      reason: achievement.reason,
+      actual_amount: achievement.actualAmount,
+      plan_amount: achievement.planAmount,
+      unit: achievement.unit,
+      notes: achievement.notes,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'student_id,date' });
+    if (error) throw error;
+    await get().fetchDailyAchievements();
+  },
+
+  awardDailyAchievement: async (
+    achievement,
+    rewardType,
+    rewardDetails,
+    rewardPoints = 0
+  ) => {
+    if (!supabase) throw new Error('الاتصال بقاعدة البيانات غير متاح');
+    const { error } = await supabase.rpc('award_daily_achievement', {
+      p_student_id: achievement.studentId,
+      p_date: achievement.date,
+      p_source: achievement.source,
+      p_reason: achievement.reason,
+      p_actual_amount: achievement.actualAmount,
+      p_plan_amount: achievement.planAmount,
+      p_unit: achievement.unit,
+      p_reward_type: rewardType,
+      p_reward_details: rewardDetails || null,
+      p_reward_points: rewardType === 'points' ? rewardPoints : 0,
+      p_notes: achievement.notes || null,
+    });
+    if (error) throw error;
+    await Promise.all([get().fetchDailyAchievements(), get().fetchPoints()]);
+  },
+
   fetchCenterData: async () => {
     const g = get();
     await Promise.all([
@@ -1402,6 +1773,7 @@ export const useStore = create<HalaqahStore>((set, get) => ({
       g.fetchHomeworkGrades(),
       g.fetchMessageTemplates(),
       g.fetchCenterSettings(),
+      g.fetchDailyAchievements(),
     ]);
   },
 
@@ -1428,14 +1800,18 @@ export const useStore = create<HalaqahStore>((set, get) => ({
     const center = get().currentCenter;
     if (!supabase || !center) return;
     try {
-      let query = supabase.from('homework_grades').select('*').eq('center_id', center.id);
+      let query = supabase
+        .from('homework_grades')
+        .select('*')
+        .eq('center_id', center.id)
+        .is('deleted_at', null);
       if (center.activeHalaqa?.id) {
         query = query.eq('halaqa_id', center.activeHalaqa.id);
       }
       const { data, error } = await query.order('date', { ascending: false }).order('created_at', { ascending: false });
       if (error) throw error;
       if (data) {
-        const mapped = data.map((g: any) => ({
+        const mapped = (data as HomeworkGradeRow[]).map((g) => ({
           id: g.id,
           studentId: g.student_id,
           surah: g.surah,
@@ -1457,138 +1833,136 @@ export const useStore = create<HalaqahStore>((set, get) => ({
 
   addHomeworkGrade: async (record) => {
     const center = get().currentCenter;
-    if (!supabase || !center) return;
+    if (!supabase || !center) return false;
     try {
-      const { data, error } = await supabase
-        .from('homework_grades')
-        .insert([{
-          student_id: record.studentId,
-          center_id: center.id,
-          halaqa_id: center.activeHalaqa?.id,
-          surah: record.surah,
-          from_ayah: record.fromAyah,
-          to_ayah: record.toAyah,
-          date: record.date,
-          grade_mark: record.gradeMark,
-          mistakes_count: record.mistakesCount,
-          is_revision: record.isRevision,
-          remark: record.remark,
-        }])
-        .select()
-        .single();
-      
+      const recordId = crypto.randomUUID();
+      const { error } = await supabase.rpc('save_recitation_record', {
+        p_record_id: recordId,
+        p_student_id: record.studentId,
+        p_surah: record.surah,
+        p_from_ayah: record.fromAyah,
+        p_to_ayah: record.toAyah,
+        p_date: record.date,
+        p_grade_mark: record.gradeMark,
+        p_mistakes_count: record.mistakesCount,
+        p_is_revision: record.isRevision,
+        p_remark: record.remark || null,
+      });
       if (error) {
-        alert("فشل تسجيل التقييم: " + error.message);
-        return;
+        alert(
+          'فشل تسجيل التسميع. تأكد من تنفيذ migration المرحلة P5.6: ' +
+          error.message,
+        );
+        return false;
       }
-      
-      if (data) {
-        const newRecord: HomeworkGrade = {
-          id: data.id,
-          studentId: data.student_id,
-          surah: data.surah,
-          fromAyah: data.from_ayah,
-          toAyah: data.to_ayah,
-          date: data.date,
-          gradeMark: data.grade_mark,
-          mistakesCount: data.mistakes_count,
-          isRevision: data.is_revision,
-          remark: data.remark,
-          createdAt: data.created_at,
-        };
-        
-        set((state) => ({ homeworkGrades: [newRecord, ...state.homeworkGrades] }));
-        
-        // Add log activity
-        const isMen = get().centerType === 'men';
-        const studentName = get().students.find(s => s.id === record.studentId)?.name || '';
-        get().addActivity('grade_added', `تم تسجيل تقييم لـ ${isMen ? 'الطالب' : 'الطالبة'}: ${studentName}`);
-
-        // Update mushaf progress logic!
-        if (record.gradeMark !== 'absent') {
-          // Find surah number
-          const surahObj = quranService.getSurahs().find(s => s.name === record.surah);
-          if (surahObj) {
-            const ayahs = quranService.getAyahRange(surahObj.number, record.fromAyah, record.toAyah);
-            if (ayahs.length > 0) {
-              let gradeVal = 3.0;
-              switch (record.gradeMark) {
-                case 'excellent': gradeVal = 5.0; break;
-                case 'very_good': gradeVal = 4.0; break;
-                case 'good': gradeVal = 3.0; break;
-                case 'needs_work': gradeVal = 2.0; break;
-              }
-
-              // Keep track of unique (hizb, thumun) covered by this grade
-              const coveredKeys = new Set<string>();
-              for (const ayah of ayahs) {
-                const hizb = ayah.hizb ?? 0;
-                const quarter = ayah.quarter ?? 0;
-                if (hizb < 1 || hizb > 60 || quarter < 1 || quarter > 240) continue;
-
-                const quarterInHizb = ((quarter - 1) % 4) + 1;
-                const thumun1 = (quarterInHizb - 1) * 2 + 1;
-                const thumun2 = (quarterInHizb - 1) * 2 + 2;
-
-                coveredKeys.add(`${hizb}_${thumun1}`);
-                coveredKeys.add(`${hizb}_${thumun2}`);
-              }
-
-              for (const key of coveredKeys) {
-                const [hizbStr, thumunStr] = key.split('_');
-                const hizb = parseInt(hizbStr);
-                const thumun = parseInt(thumunStr);
-
-                // Fetch or compute new progress
-                const existing = get().mushafProgress.find(
-                  p => p.studentId === record.studentId && p.hizbNumber === hizb && p.thumunNumber === thumun
-                );
-
-                let newAvg = gradeVal;
-                if (existing && existing.lastGradedDate) {
-                  newAvg = (existing.averageGrade + gradeVal) / 2.0;
-                }
-
-                const { data: progData, error: progErr } = await supabase
-                  .from('mushaf_progress')
-                  .upsert([{
-                    student_id: record.studentId,
-                    center_id: center.id,
-                    hizb_number: hizb,
-                    thumun_number: thumun,
-                    average_grade: newAvg,
-                    last_graded_date: record.date,
-                    is_pre_memorized: false
-                  }], { onConflict: 'student_id,hizb_number,thumun_number' })
-                  .select()
-                  .single();
-
-                if (!progErr && progData) {
-                  const mappedProg: MushafProgress = {
-                    id: progData.id,
-                    studentId: progData.student_id,
-                    hizbNumber: progData.hizb_number,
-                    thumunNumber: progData.thumun_number,
-                    averageGrade: Number(progData.average_grade),
-                    lastGradedDate: progData.last_graded_date,
-                    isPreMemorized: progData.is_pre_memorized
-                  };
-
-                  set((state) => {
-                    const filtered = state.mushafProgress.filter(
-                      p => !(p.studentId === record.studentId && p.hizbNumber === hizb && p.thumunNumber === thumun)
-                    );
-                    return { mushafProgress: [...filtered, mappedProg] };
-                  });
-                }
-              }
-            }
-          }
-        }
+      const now = new Date().toISOString();
+      const newRecord: HomeworkGrade = { id: recordId, ...record, createdAt: now };
+      set((state) => ({ homeworkGrades: [newRecord, ...state.homeworkGrades] }));
+      const isMen = get().centerType === 'men';
+      const studentName = get().students.find(s => s.id === record.studentId)?.name || '';
+      get().addActivity(
+        'grade_added',
+        `تم تسجيل تقييم لـ ${isMen ? 'الطالب' : 'الطالبة'}: ${studentName}`,
+      );
+      try {
+        const rebuilt = await rebuildWebMushafProgress(
+          record.studentId,
+          center.id,
+          get().homeworkGrades,
+        );
+        set((state) => ({
+          mushafProgress: [
+            ...state.mushafProgress.filter(item => item.studentId !== record.studentId),
+            ...rebuilt,
+          ],
+        }));
+      } catch (rebuildError) {
+        console.warn('Mushaf rebuild after recitation failed:', rebuildError);
       }
+      return true;
     } catch (err) {
       console.error("Add homework grade error:", err);
+      return false;
     }
+  },
+
+  updateHomeworkGrade: async (id, record) => {
+    const center = get().currentCenter;
+    if (!supabase || !center) return false;
+    const existing = get().homeworkGrades.find(item => item.id === id);
+    if (!existing) return false;
+    const { error } = await supabase.rpc('save_recitation_record', {
+      p_record_id: id,
+      p_student_id: record.studentId,
+      p_surah: record.surah,
+      p_from_ayah: record.fromAyah,
+      p_to_ayah: record.toAyah,
+      p_date: record.date,
+      p_grade_mark: record.gradeMark,
+      p_mistakes_count: record.mistakesCount,
+      p_is_revision: record.isRevision,
+      p_remark: record.remark || null,
+    });
+    if (error) {
+      alert('فشل تعديل سجل التسميع: ' + error.message);
+      return false;
+    }
+    set((state) => ({
+      homeworkGrades: state.homeworkGrades.map(item =>
+        item.id === id ? { ...item, ...record } : item
+      ),
+    }));
+    try {
+      const rebuilt = await rebuildWebMushafProgress(
+        record.studentId,
+        center.id,
+        get().homeworkGrades,
+      );
+      set((state) => ({
+        mushafProgress: [
+          ...state.mushafProgress.filter(item => item.studentId !== record.studentId),
+          ...rebuilt,
+        ],
+      }));
+    } catch (rebuildError) {
+      console.warn('Mushaf rebuild after edit failed:', rebuildError);
+    }
+    get().addActivity('grade_updated', `تم تعديل سجل تسميع: ${existing.surah}`);
+    return true;
+  },
+
+  deleteHomeworkGrade: async (id) => {
+    const center = get().currentCenter;
+    if (!supabase || !center) return false;
+    const existing = get().homeworkGrades.find(item => item.id === id);
+    if (!existing) return false;
+    const { error } = await supabase.rpc('delete_recitation_record', {
+      p_record_id: id,
+    });
+    if (error) {
+      alert('فشل حذف سجل التسميع: ' + error.message);
+      return false;
+    }
+    set((state) => ({
+      homeworkGrades: state.homeworkGrades.filter(item => item.id !== id),
+    }));
+    try {
+      const rebuilt = await rebuildWebMushafProgress(
+        existing.studentId,
+        center.id,
+        get().homeworkGrades,
+      );
+      set((state) => ({
+        mushafProgress: [
+          ...state.mushafProgress.filter(item => item.studentId !== existing.studentId),
+          ...rebuilt,
+        ],
+      }));
+    } catch (rebuildError) {
+      console.warn('Mushaf rebuild after deletion failed:', rebuildError);
+    }
+    get().addActivity('grade_deleted', `تم حذف سجل تسميع: ${existing.surah}`);
+    return true;
   },
 
   fetchMushafProgress: async (studentId) => {
@@ -1602,13 +1976,13 @@ export const useStore = create<HalaqahStore>((set, get) => ({
       
       if (error) throw error;
       if (data) {
-        const mapped = data.map((p: any) => ({
+        const mapped = (data as MushafProgressRow[]).map((p) => ({
           id: p.id,
           studentId: p.student_id,
           hizbNumber: p.hizb_number,
           thumunNumber: p.thumun_number,
           averageGrade: Number(p.average_grade),
-          lastGradedDate: p.last_graded_date,
+          lastGradedDate: p.last_graded_date || undefined,
           isPreMemorized: p.is_pre_memorized,
         }));
         
@@ -1679,7 +2053,7 @@ export const useStore = create<HalaqahStore>((set, get) => ({
 
       if (error) throw error;
       if (data) {
-        const mapped = data.map((t: any) => ({
+        const mapped = (data as MessageTemplateRow[]).map((t) => ({
           centerId: t.center_id,
           type: t.name as 'assignment' | 'grading',
           content: t.body,
@@ -1759,7 +2133,8 @@ export const useStore = create<HalaqahStore>((set, get) => ({
       set({ currencySymbol: symbol });
     } catch (err) {
       console.error("Update currency symbol error:", err);
-      alert("فشل تحديث رمز العملة: " + (err as any).message);
+      const message = err instanceof Error ? err.message : String(err);
+      alert("فشل تحديث رمز العملة: " + message);
     }
   },
 

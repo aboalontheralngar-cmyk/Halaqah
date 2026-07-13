@@ -18,7 +18,7 @@ import { supabase } from "@/lib/supabase";
 
 export default function OnboardingPage() {
   const router = useRouter();
-  const { user, setUser } = useStore();
+  const { user } = useStore();
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
   
@@ -75,8 +75,8 @@ export default function OnboardingPage() {
       }
 
       router.push("/select-center");
-    } catch (error: any) {
-      alert(error.message || "حدث خطأ أثناء إعداد الحساب");
+    } catch (error: unknown) {
+      alert(error instanceof Error ? error.message : "حدث خطأ أثناء إعداد الحساب");
     } finally {
       setLoading(false);
     }

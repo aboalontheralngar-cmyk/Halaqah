@@ -51,6 +51,7 @@ class ExamTemplateQuestion {
   final String templateId;
   final int questionOrder;
   final int surahId;
+  final int toSurahId;
   final int fromAyah;
   final int toAyah;
   final String questionType;
@@ -61,6 +62,12 @@ class ExamTemplateQuestion {
   final int hizb;
   final int difficulty;
   final double lines;
+  final bool isAssessed;
+  final int memorizationErrors;
+  final int tashkeelErrors;
+  final int recitationErrors;
+  final int promptCount;
+  final double questionScore;
   final DateTime createdAt;
 
   ExamTemplateQuestion({
@@ -68,6 +75,7 @@ class ExamTemplateQuestion {
     required this.templateId,
     required this.questionOrder,
     required this.surahId,
+    int? toSurahId,
     required this.fromAyah,
     required this.toAyah,
     this.questionType = 'recite_from',
@@ -78,8 +86,15 @@ class ExamTemplateQuestion {
     required this.hizb,
     required this.difficulty,
     required this.lines,
+    this.isAssessed = false,
+    this.memorizationErrors = 0,
+    this.tashkeelErrors = 0,
+    this.recitationErrors = 0,
+    this.promptCount = 0,
+    this.questionScore = 0,
     DateTime? createdAt,
-  })  : id = id ?? const Uuid().v4(),
+  })  : toSurahId = toSurahId ?? surahId,
+        id = id ?? const Uuid().v4(),
         createdAt = createdAt ?? DateTime.now();
 
   Map<String, dynamic> toMap() => {
@@ -87,6 +102,7 @@ class ExamTemplateQuestion {
         'template_id': templateId,
         'question_order': questionOrder,
         'surah_id': surahId,
+        'to_surah_id': toSurahId,
         'from_ayah': fromAyah,
         'to_ayah': toAyah,
         'question_type': questionType,
@@ -97,6 +113,12 @@ class ExamTemplateQuestion {
         'hizb': hizb,
         'difficulty': difficulty,
         'lines': lines,
+        'is_assessed': isAssessed ? 1 : 0,
+        'memorization_errors': memorizationErrors,
+        'tashkeel_errors': tashkeelErrors,
+        'recitation_errors': recitationErrors,
+        'prompt_count': promptCount,
+        'question_score': questionScore,
         'created_at': createdAt.toIso8601String(),
       };
 
@@ -106,6 +128,7 @@ class ExamTemplateQuestion {
         templateId: map['template_id'],
         questionOrder: map['question_order'],
         surahId: map['surah_id'],
+        toSurahId: map['to_surah_id'] ?? map['surah_id'],
         fromAyah: map['from_ayah'],
         toAyah: map['to_ayah'],
         questionType: map['question_type'] ?? 'recite_from',
@@ -116,6 +139,12 @@ class ExamTemplateQuestion {
         hizb: map['hizb'] ?? 0,
         difficulty: map['difficulty'] ?? 0,
         lines: (map['lines'] as num?)?.toDouble() ?? 0,
+        isAssessed: map['is_assessed'] == true || map['is_assessed'] == 1,
+        memorizationErrors: map['memorization_errors'] ?? 0,
+        tashkeelErrors: map['tashkeel_errors'] ?? 0,
+        recitationErrors: map['recitation_errors'] ?? 0,
+        promptCount: map['prompt_count'] ?? 0,
+        questionScore: (map['question_score'] as num?)?.toDouble() ?? 0,
         createdAt: DateTime.parse(map['created_at']),
       );
 }

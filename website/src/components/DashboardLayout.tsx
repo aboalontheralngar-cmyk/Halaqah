@@ -63,12 +63,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       { id: "vacations", label: "الإجازات", icon: Palmtree, href: "/vacations" },
       { id: "exams", label: "الامتحانات", icon: FileText, href: "/exams" },
       { id: "honor-board", label: "لوحة الشرف", icon: Trophy, href: "/honor-board" },
+      { id: "daily-excellence", label: "متميزو اليوم", icon: Award, href: "/daily-excellence" },
       { id: "reports", label: "التقارير", icon: BarChart3, href: "/reports" },
       { id: "notifications", label: "الإشعارات", icon: Bell, href: "/notifications" },
     ];
 
     if (profile?.role === 'center_admin' || profile?.role === 'supervisor') {
       items.push({ id: "teachers", label: "المعلمون", icon: Users, href: "/teachers" });
+      items.push({ id: "audit-log", label: "سجل التدقيق", icon: ShieldCheck, href: "/audit-log" });
     }
 
     items.push({ id: "settings", label: "الإعدادات", icon: Settings, href: "/settings" });
@@ -81,6 +83,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     );
     return current?.id || "home";
   }, [pathname, navItems]);
+
+  const mobileNavItems = useMemo(() => {
+    const primaryIds = new Set(["home", "students", "attendance", "memorization", "reports"]);
+    return navItems.filter((item) => primaryIds.has(item.id));
+  }, [navItems]);
 
   useEffect(() => {
     const checkUser = async () => {
@@ -133,13 +140,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   // --- RENDER LOGIC STARTS HERE ---
 
   if (isAuthPage || pathname.startsWith("/manage-center")) {
-    return <div dir="rtl" className="min-h-screen bg-gray-50 dark:bg-gray-950">{children}</div>;
+    return <div dir="rtl" className={`${darkMode ? "dark" : ""} min-h-screen bg-[var(--background)] text-[var(--foreground)]`}>{children}</div>;
   }
 
   if (!user || !currentCenter) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-950">
-        <Loader2 className="w-10 h-10 text-teal-600 animate-spin" />
+      <div className={`${darkMode ? "dark" : ""} min-h-screen flex items-center justify-center bg-[var(--background)]`}>
+        <Loader2 className="w-9 h-9 text-[#1f6b5d] animate-spin" />
       </div>
     );
   }
@@ -148,7 +155,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const centerInitial = centerNameSafe[0] || "?";
 
   return (
-    <div className={`${darkMode ? "dark" : ""} min-h-screen bg-gray-50 dark:bg-gray-950 flex flex-col lg:flex-row transition-colors duration-500`} dir="rtl">
+    <div className={`${darkMode ? "dark" : ""} min-h-screen bg-[var(--background)] text-[var(--foreground)] flex flex-col lg:flex-row transition-colors duration-300`} dir="rtl">
       <style dangerouslySetInnerHTML={{__html: `
         .sidebar-scroll::-webkit-scrollbar {
           width: 5px;
@@ -171,12 +178,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         }
       `}} />
       {/* Mobile Header */}
-      <header className="lg:hidden bg-white/80 dark:bg-gray-900/80 backdrop-blur-md border-b border-gray-200 dark:border-gray-800 px-4 py-3 flex items-center justify-between sticky top-0 z-50">
-        <button onClick={() => setMobileMenuOpen(true)} className="p-2 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-xl transition-colors">
+      <header className="safe-top lg:hidden bg-[color:var(--surface)]/95 backdrop-blur-md border-b border-[var(--border)] px-4 pb-3 flex items-center justify-between sticky top-0 z-50">
+        <button aria-label="فتح القائمة الرئيسية" onClick={() => setMobileMenuOpen(true)} className="p-2 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-xl transition-colors">
           <Menu className="w-6 h-6" />
         </button>
-        <h1 className="text-xl font-bold bg-gradient-to-r from-teal-700 to-teal-500 bg-clip-text text-transparent">حلقتي</h1>
-        <button onClick={toggleDarkMode} className="p-2 text-gray-600 dark:text-gray-300">
+        <h1 className="text-xl font-extrabold text-[#1f6b5d] dark:text-[#8ed7c5]">حلقتي</h1>
+        <button aria-label={darkMode ? "تفعيل الوضع الفاتح" : "تفعيل الوضع الداكن"} onClick={toggleDarkMode} className="p-2 text-gray-600 dark:text-gray-300">
           {darkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
         </button>
       </header>
@@ -184,10 +191,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {/* Mobile Drawer */}
       {mobileMenuOpen && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 lg:hidden" onClick={() => setMobileMenuOpen(false)}>
-          <div className="bg-white dark:bg-gray-900 w-72 h-full p-4 flex flex-col shadow-2xl animate-in slide-in-from-right duration-300" onClick={(e) => e.stopPropagation()}>
+          <div className="safe-top safe-bottom bg-[var(--surface)] w-72 h-full px-4 flex flex-col shadow-2xl animate-in slide-in-from-right duration-300" onClick={(e) => e.stopPropagation()}>
             <div className="flex justify-between items-center mb-8 px-2">
-              <h2 className="text-xl font-bold text-teal-700 dark:text-teal-500">حلقتي</h2>
-              <button onClick={() => setMobileMenuOpen(false)} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors">
+              <h2 className="text-xl font-extrabold text-[#1f6b5d] dark:text-[#8ed7c5]">حلقتي</h2>
+              <button aria-label="إغلاق القائمة الرئيسية" onClick={() => setMobileMenuOpen(false)} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors">
                 <X className="w-5 h-5 text-gray-500 dark:text-gray-400" />
               </button>
             </div>
@@ -196,9 +203,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 <button
                   key={item.id}
                   onClick={() => handleNavClick(item.href)}
+                  aria-current={activeNav === item.id ? "page" : undefined}
                   className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl transition-all duration-200 ${
                     activeNav === item.id
-                      ? "bg-teal-50 dark:bg-teal-900/20 text-teal-700 dark:text-teal-400 font-bold"
+                      ? "bg-[#ddefe8] dark:bg-[#1d4f44] text-[#174f45] dark:text-[#b7f3e3] font-bold"
                       : "text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white"
                   }`}
                 >
@@ -212,13 +220,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       )}
 
       {/* Desktop Sidebar */}
-      <aside className="hidden lg:flex flex-col w-72 bg-white dark:bg-gray-900 border-l border-gray-100 dark:border-gray-800 h-screen sticky top-0 p-6">
+      <aside className="hidden lg:flex flex-col w-72 bg-[var(--surface)] border-l border-[var(--border)] h-screen sticky top-0 p-5">
         <div className="mb-10 px-4 flex justify-between items-center">
           <div>
-            <h1 className="text-2xl font-black bg-gradient-to-r from-teal-800 to-teal-600 dark:from-teal-400 dark:to-teal-200 bg-clip-text text-transparent">حلقتي</h1>
+            <h1 className="text-2xl font-extrabold text-[#1f6b5d] dark:text-[#8ed7c5]">حلقتي</h1>
             <p className="text-xs text-gray-400 mt-1">لوحة إدارة الحلقات القرآنية</p>
           </div>
-          <button onClick={toggleDarkMode} className="p-2 rounded-xl bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300">
+          <button aria-label={darkMode ? "تفعيل الوضع الفاتح" : "تفعيل الوضع الداكن"} onClick={toggleDarkMode} className="p-2 rounded-xl bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300">
             {darkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
           </button>
         </div>
@@ -228,22 +236,23 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <button
               key={item.id}
               onClick={() => handleNavClick(item.href)}
+              aria-current={activeNav === item.id ? "page" : undefined}
               className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl transition-all duration-200 group ${
                 activeNav === item.id
-                  ? "bg-teal-600 text-white shadow-lg shadow-teal-200 dark:shadow-none scale-[1.02]"
+                  ? "bg-[#ddefe8] text-[#174f45] dark:bg-[#1d4f44] dark:text-[#b7f3e3]"
                   : "text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white"
               }`}
             >
-              <item.icon className={`w-5 h-5 transition-transform group-hover:scale-110 ${activeNav === item.id ? "text-white" : ""}`} />
+              <item.icon className="w-5 h-5 transition-transform group-hover:scale-105" />
               <span className="font-semibold text-sm">{item.label}</span>
               {activeNav === item.id && (
-                <div className="mr-auto w-1.5 h-1.5 bg-white rounded-full shadow-sm" />
+                <div className="mr-auto w-1.5 h-1.5 bg-[#1f6b5d] dark:bg-[#8ed7c5] rounded-full" />
               )}
             </button>
           ))}
         </nav>
 
-        <div className="mt-auto mb-6 p-5 bg-teal-50 dark:bg-teal-900/20 rounded-3xl border border-teal-100/50 dark:border-teal-800/30">
+        <div className="mt-auto mb-5 p-4 bg-[#f3efe6] dark:bg-[#18231f] rounded-3xl border border-[var(--border)]">
           <div className="flex items-center gap-3">
             <div className={`w-10 h-10 rounded-2xl flex items-center justify-center text-white font-bold ${centerType === 'men' ? "bg-teal-600" : centerType === 'women' ? "bg-rose-500" : "bg-amber-500"}`}>
               {centerInitial}
@@ -290,21 +299,23 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 p-4 lg:p-10 pb-24 lg:pb-10 max-w-7xl mx-auto w-full">
+      <main className="safe-main-bottom flex-1 p-4 lg:p-8 max-w-[1440px] mx-auto w-full">
         {children}
       </main>
 
       {/* Mobile Bottom Nav */}
-      <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-white/90 dark:bg-gray-950/90 backdrop-blur-xl border-t border-gray-100 dark:border-gray-800 px-2 py-3 flex justify-around items-center z-40 pb-safe shadow-[0_-10px_40px_rgba(0,0,0,0.05)]">
-        {navItems.slice(0, 5).map((item) => (
+      <nav className="safe-bottom lg:hidden fixed bottom-0 left-0 right-0 bg-[color:var(--surface)]/95 backdrop-blur-xl border-t border-[var(--border)] px-2 pt-2.5 flex justify-around items-center z-40 shadow-[0_-8px_28px_rgba(23,51,44,0.06)]">
+        {mobileNavItems.map((item) => (
           <button
             key={item.id}
             onClick={() => handleNavClick(item.href)}
+            aria-label={item.label}
+            aria-current={activeNav === item.id ? "page" : undefined}
             className={`flex flex-col items-center gap-1.5 transition-all ${
-              activeNav === item.id ? "text-teal-600 scale-110" : "text-gray-400 hover:text-gray-600"
+              activeNav === item.id ? "text-[#1f6b5d] dark:text-[#8ed7c5]" : "text-gray-400 hover:text-gray-600"
             }`}
           >
-            <div className={`p-1.5 rounded-xl ${activeNav === item.id ? "bg-teal-50" : ""}`}>
+            <div className={`p-1.5 rounded-xl ${activeNav === item.id ? "bg-[#ddefe8] dark:bg-[#1d4f44]" : ""}`}>
               <item.icon className="w-5 h-5" />
             </div>
             <span className="text-[10px] font-bold">{item.label}</span>

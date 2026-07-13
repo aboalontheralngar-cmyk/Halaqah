@@ -3,25 +3,13 @@
 import { useState, useMemo } from "react";
 import {
   Trophy,
-  Medal,
-  Star,
-  Zap,
-  TrendingUp,
   Calendar,
   Award,
   BookOpen,
   Heart,
   Crown,
 } from "lucide-react";
-import { useStore } from "@/store/useStore";
-
-interface StudentRanking {
-  studentId: string;
-  name: string;
-  score: number;
-  category: "memorization" | "attendance" | "behavior" | "exams" | "overall";
-  details?: string;
-}
+import { useStore, type Student } from "@/store/useStore";
 
 export default function HonorBoardPage() {
   const { students, attendance, memorization, points, exams } = useStore();
@@ -30,7 +18,7 @@ export default function HonorBoardPage() {
   >("overall");
 
   const rankings = useMemo(() => {
-    const getStudentData = (student: any) => {
+    const getStudentData = (student: Student) => {
       const studentId = student.id;
 
       // حساب كل فئة
@@ -97,14 +85,8 @@ export default function HonorBoardPage() {
 
     // ترتيب حسب الفئة المختارة
     const sorted = [...data].sort((a, b) => {
-      const scoreA =
-        selectedCategory === "overall"
-          ? a.overall
-          : a[selectedCategory as keyof typeof a];
-      const scoreB =
-        selectedCategory === "overall"
-          ? b.overall
-          : b[selectedCategory as keyof typeof b];
+      const scoreA = a[selectedCategory];
+      const scoreB = b[selectedCategory];
       return scoreB - scoreA;
     });
 

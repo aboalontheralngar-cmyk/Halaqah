@@ -1,16 +1,24 @@
 import 'package:flutter/material.dart';
+import 'package:pdf/pdf.dart';
 import 'package:printing/printing.dart';
 import 'package:share_plus/share_plus.dart';
 import '../../services/database_service.dart';
 import '../../services/pdf_service.dart';
 import '../../services/qr_service.dart';
+import '../../services/student_period_report_service.dart';
 import '../../models/student.dart';
 import '../../models/daily_record.dart';
 import '../../utils/helpers.dart';
+import '../../app/design_tokens.dart';
+import '../../widgets/app_design_widgets.dart';
+import '../../widgets/student_card.dart';
 import 'student_period_report_screen.dart';
+import 'halaqah_period_report_screen.dart';
 
 class ReportsScreen extends StatefulWidget {
-  const ReportsScreen({super.key});
+  final VoidCallback? onOpenMenu;
+
+  const ReportsScreen({super.key, this.onOpenMenu});
 
   @override
   State<ReportsScreen> createState() => _ReportsScreenState();
@@ -19,12 +27,15 @@ class ReportsScreen extends StatefulWidget {
 class _ReportsScreenState extends State<ReportsScreen> {
   final DatabaseService _db = DatabaseService();
   final PdfService _pdf = PdfService();
+  late final StudentPeriodReportService _periodReports;
   List<Student> _students = [];
   bool _isLoading = true;
+  bool _isBatchExporting = false;
 
   @override
   void initState() {
     super.initState();
+    _periodReports = StudentPeriodReportService(database: _db);
     _loadData();
   }
 
@@ -45,15 +56,29 @@ class _ReportsScreenState extends State<ReportsScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
+        leading: widget.onOpenMenu == null
+            ? null
+            : IconButton(
+                onPressed: widget.onOpenMenu,
+                icon: const Icon(Icons.menu),
+                tooltip: 'القائمة الرئيسية',
+              ),
         title: const Text('التقارير'),
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : ListView(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.all(AppSpacing.lg),
               children: [
+                const AppPageIntro(
+                  title: 'التقارير والتحليلات',
+                  subtitle:
+                      'ملخصات يومية وتقارير دورية قابلة للطباعة والمشاركة.',
+                  icon: Icons.assessment_outlined,
+                ),
+                const SizedBox(height: AppSpacing.xl),
                 _buildReportTypeSection(),
-                const SizedBox(height: 24),
+                const SizedBox(height: AppSpacing.xxl),
                 _buildStudentReportsSection(),
               ],
             ),
@@ -64,9 +89,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'أنواع التقارير',
-          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+        const AppSectionHeader(
+          title: 'أنواع التقارير',
+          subtitle: 'اختر النطاق المناسب ثم راجع التقرير قبل تصديره.',
         ),
         const SizedBox(height: 12),
         GridView.count(
@@ -96,7 +121,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
               () => _generateMonthlyReport(),
             ),
             _buildReportCard(
-              'إحصائيات الحلقة',
+              'تقرير الحلقة لفترة',
               Icons.analytics,
               Colors.purple,
               () => _showHalaqahStats(),
@@ -111,6 +136,14 @@ class _ReportsScreenState extends State<ReportsScreen> {
                   builder: (context) => const StudentPeriodReportScreen(),
                 ),
               ),
+            ),
+            _buildReportCard(
+              _isBatchExporting
+                  ? 'جارٍ تجهيز التقارير…'
+                  : 'PDF لجميع الطلاب',
+              Icons.picture_as_pdf_outlined,
+              Colors.red,
+              _isBatchExporting ? () {} : _startBatchPeriodExport,
             ),
           ],
         ),
@@ -147,39 +180,239 @@ class _ReportsScreenState extends State<ReportsScreen> {
     );
   }
 
+  Future<void> _startBatchPeriodExport() async {
+    if (_students.isEmpty || _isBatchExporting) return;
+    final today = DateTime.now();
+    var startDate = DateTime(today.year, today.month, 1);
+    var endDate = DateTime(today.year, today.month, today.day);
+    var useA5 = false;
+    var activeOnly = true;
+
+    final options = await showDialog<_BatchReportOptions>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.picture_as_pdf_outlined, color: Colors.red),
+              SizedBox(width: 8),
+              Expanded(child: Text('تصدير تقارير جميع الطلاب')),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'سينشأ ملف PDF واحد، ويبدأ تقرير كل طالب في صفحة مستقلة.',
+                ),
+                const SizedBox(height: 16),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.date_range_outlined),
+                  title: const Text('فترة التقرير'),
+                  subtitle: Text(
+                    '${_formatGregorianDate(startDate)} — ${_formatGregorianDate(endDate)}',
+                  ),
+                  trailing: const Icon(Icons.edit_calendar_outlined),
+                  onTap: () async {
+                    final range = await showDateRangePicker(
+                      context: dialogContext,
+                      firstDate: DateTime(2020),
+                      lastDate: DateTime(today.year, today.month, today.day),
+                      initialDateRange: DateTimeRange(
+                        start: startDate,
+                        end: endDate,
+                      ),
+                      helpText: 'اختر فترة التقارير الجماعية',
+                      saveText: 'اعتماد الفترة',
+                    );
+                    if (range == null) return;
+                    setDialogState(() {
+                      startDate = DateTime(
+                        range.start.year,
+                        range.start.month,
+                        range.start.day,
+                      );
+                      endDate = DateTime(
+                        range.end.year,
+                        range.end.month,
+                        range.end.day,
+                      );
+                    });
+                  },
+                ),
+                const Divider(),
+                const Text('حجم الورق', style: TextStyle(fontWeight: FontWeight.bold)),
+                RadioListTile<bool>(
+                  value: false,
+                  groupValue: useA5,
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('A4 — مناسب للتقارير المفصلة'),
+                  onChanged: (value) => setDialogState(() => useA5 = value ?? false),
+                ),
+                RadioListTile<bool>(
+                  value: true,
+                  groupValue: useA5,
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('A5 — حجم أصغر للطباعة'),
+                  onChanged: (value) => setDialogState(() => useA5 = value ?? true),
+                ),
+                SwitchListTile(
+                  value: activeOnly,
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('الطلاب النشطون فقط'),
+                  subtitle: const Text('عطّل الخيار لتضمين الأرشيف والطلاب السابقين'),
+                  onChanged: (value) => setDialogState(() => activeOnly = value),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('إلغاء'),
+            ),
+            FilledButton.icon(
+              onPressed: () => Navigator.pop(
+                dialogContext,
+                _BatchReportOptions(
+                  startDate: startDate,
+                  endDate: endDate,
+                  pageFormat: useA5 ? PdfPageFormat.a5 : PdfPageFormat.a4,
+                  activeOnly: activeOnly,
+                ),
+              ),
+              icon: const Icon(Icons.file_download_outlined),
+              label: const Text('إنشاء الملف'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (options == null || !mounted) return;
+    await _exportAllStudentPeriodReports(options);
+  }
+
+  Future<void> _exportAllStudentPeriodReports(
+    _BatchReportOptions options,
+  ) async {
+    final students = _students
+        .where((student) => !options.activeOnly || student.status == 'active')
+        .toList()
+      ..sort((a, b) => a.name.compareTo(b.name));
+    if (students.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('لا يوجد طلاب ضمن النطاق المختار')),
+      );
+      return;
+    }
+
+    setState(() => _isBatchExporting = true);
+    final progress = ValueNotifier<int>(0);
+    var progressDialogOpen = true;
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => PopScope(
+        canPop: false,
+        child: AlertDialog(
+          title: const Text('تجهيز ملف التقارير'),
+          content: ValueListenableBuilder<int>(
+            valueListenable: progress,
+            builder: (context, completed, _) => Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                LinearProgressIndicator(value: completed / students.length),
+                const SizedBox(height: 12),
+                Text('تم تجهيز $completed من ${students.length}'),
+                const SizedBox(height: 4),
+                const Text(
+                  'يرجى إبقاء هذه الشاشة مفتوحة حتى يكتمل إنشاء الملف.',
+                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                  textAlign: TextAlign.center,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    try {
+      final reports = await _periodReports.generateForStudents(
+        students: students,
+        startDate: options.startDate,
+        endDate: options.endDate,
+        onProgress: (completed, _) => progress.value = completed,
+      );
+      final settings = await _db.getSettings();
+      final bytes = await _pdf.generateAllStudentPeriodReports(
+        reports: reports,
+        pageFormat: options.pageFormat,
+        halaqahName: settings.halaqahName,
+        mosqueName: settings.mosqueName,
+      );
+      if (!mounted) return;
+      Navigator.of(context, rootNavigator: true).pop();
+      progressDialogOpen = false;
+      final from = _fileDate(options.startDate);
+      final to = _fileDate(options.endDate);
+      await _pdf.sharePdf(bytes, 'halaqah_students_reports_${from}_$to.pdf');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('تم إنشاء ملف واحد يضم ${students.length} تقريرًا'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (error) {
+      if (mounted) {
+        if (progressDialogOpen) {
+          Navigator.of(context, rootNavigator: true).pop();
+          progressDialogOpen = false;
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('تعذر إنشاء التقارير الجماعية: $error'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      progress.dispose();
+      if (mounted) setState(() => _isBatchExporting = false);
+    }
+  }
+
+  String _formatGregorianDate(DateTime date) =>
+      '${date.year}/${date.month.toString().padLeft(2, '0')}/${date.day.toString().padLeft(2, '0')}';
+
+  String _fileDate(DateTime date) =>
+      '${date.year}${date.month.toString().padLeft(2, '0')}${date.day.toString().padLeft(2, '0')}';
+
   Widget _buildStudentReportsSection() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'تقارير الطلاب',
-          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+        const AppSectionHeader(
+          title: 'تقارير الطلاب',
+          subtitle: 'وصول سريع إلى تقارير كل طالب وملفات المشاركة.',
         ),
         const SizedBox(height: 12),
         if (_students.isEmpty)
-          const Card(
-            child: Padding(
-              padding: EdgeInsets.all(32),
-              child: Center(child: Text('لا يوجد طلاب')),
-            ),
+          const AppEmptyState(
+            icon: Icons.people_outline,
+            title: 'لا يوجد طلاب',
+            message: 'أضف الطلاب أولاً حتى تتمكن من إنشاء تقاريرهم.',
           )
         else
-          ..._students.map((student) => Card(
-                margin: const EdgeInsets.only(bottom: 8),
-                child: ListTile(
-                  leading: CircleAvatar(
-                    backgroundColor:
-                        Theme.of(context).primaryColor.withOpacity(0.1),
-                    child: Text(
-                      student.name.isNotEmpty ? student.name[0] : '؟',
-                      style: TextStyle(
-                        color: Theme.of(context).primaryColor,
-                      ),
-                    ),
-                  ),
-                  title: Text(student.name),
-                  subtitle: Text('الحفظ: ${student.totalMemorized} آية'),
-                  trailing: PopupMenuButton<String>(
+          ..._students.map(
+            (student) => StudentCard(
+              student: student,
+              subtitle: 'الحفظ: ${student.totalMemorized} آية',
+              trailing: PopupMenuButton<String>(
                     onSelected: (value) => _handleStudentReport(student, value),
                     itemBuilder: (context) => [
                       const PopupMenuItem(
@@ -210,8 +443,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
                       ),
                     ],
                   ),
-                ),
-              )),
+            ),
+          ),
       ],
     );
   }
@@ -228,33 +461,11 @@ class _ReportsScreenState extends State<ReportsScreen> {
     _showReportPreview('التقرير الشهري', _buildMonthlyReportContent(), _printMonthlyReport);
   }
 
-  void _showHalaqahStats() async {
-    int totalStudents = _students.length;
-    int activeStudents = _students.where((s) => s.status == 'active').length;
-    int totalMemorized = _students.fold(0, (sum, s) => sum + s.totalMemorized);
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('إحصائيات الحلقة'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _buildStatRow('إجمالي الطلاب', '$totalStudents'),
-            _buildStatRow('الطلاب النشطين', '$activeStudents'),
-            _buildStatRow('إجمالي الحفظ', '$totalMemorized آية'),
-            _buildStatRow(
-              'متوسط الحفظ',
-              '${totalStudents > 0 ? (totalMemorized / totalStudents).round() : 0} آية/طالب',
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('إغلاق'),
-          ),
-        ],
+  void _showHalaqahStats() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const HalaqahPeriodReportScreen(),
       ),
     );
   }
@@ -743,4 +954,18 @@ class _ReportsScreenState extends State<ReportsScreen> {
       }
     }
   }
+}
+
+class _BatchReportOptions {
+  final DateTime startDate;
+  final DateTime endDate;
+  final PdfPageFormat pageFormat;
+  final bool activeOnly;
+
+  const _BatchReportOptions({
+    required this.startDate,
+    required this.endDate,
+    required this.pageFormat,
+    required this.activeOnly,
+  });
 }

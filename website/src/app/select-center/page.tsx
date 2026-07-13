@@ -12,69 +12,42 @@ import {
   Sparkles,
   ChevronLeft,
   LayoutGrid,
-  Search,
   Loader2,
   Settings
 } from "lucide-react";
 import { useStore } from "@/store/useStore";
 import { supabase } from "@/lib/supabase";
 
+type CenterOption = {
+  id: string;
+  name: string;
+  type: "men" | "women" | "mixed";
+  address?: string;
+  owner_id?: string;
+};
+
+type HalaqaOption = {
+  id: string;
+  name: string;
+  teacher_name?: string;
+};
+
+type CenterMembershipRow = { centers: CenterOption | CenterOption[] | null };
+
 export default function SelectCenterPage() {
   const router = useRouter();
-  const { user, profile, currentSupervisor, setCurrentCenter, setUser } = useStore();
+  const { user, profile, setCurrentCenter, setUser } = useStore();
   const [step, setStep] = useState<"center" | "halaqa">("center");
-  const [selectedCenter, setSelectedCenter] = useState<any>(null);
-  const [centers, setCenters] = useState<any[]>([]);
-  const [halaqat, setHalaqat] = useState<any[]>([]);
+  const [selectedCenter, setSelectedCenter] = useState<CenterOption | null>(null);
+  const [centers, setCenters] = useState<CenterOption[]>([]);
+  const [halaqat, setHalaqat] = useState<HalaqaOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreateCenter, setShowCreateCenter] = useState(false);
   const [showCreateHalaqa, setShowCreateHalaqa] = useState(false);
   const [newCenterData, setNewCenterData] = useState({ name: "", address: "", type: "men" as "men" | "women" | "mixed" });
   const [newHalaqaData, setNewHalaqaData] = useState({ name: "", teacher_name: "" });
   
-  useEffect(() => {
-    const init = async () => {
-      // 1. Check Session/User
-      if (!user) {
-        if (!supabase) {
-          // Mock for demo if no supabase
-          setCenters([
-            { id: "c1", name: "ملتقى الفرقان للبنين", type: "men" },
-            { id: "c2", name: "ملتقى النور للبنات", type: "women" }
-          ]);
-          setLoading(false);
-          return;
-        }
-
-        const { data } = await supabase.auth.getSession();
-        if (data.session) {
-          setUser(data.session.user);
-          return;
-        } else {
-          router.push("/login");
-          return;
-        }
-      }
-
-      // 2. Check Profile
-      if (!profile) {
-        setLoading(true);
-        const { fetchProfile } = useStore.getState();
-        await fetchProfile();
-        const updatedProfile = useStore.getState().profile;
-        if (!updatedProfile) {
-          router.push("/onboarding");
-          return;
-        }
-        setLoading(false);
-      }
-      
-      fetchCenters();
-    };
-    init();
-  }, [user, profile]);
-
-  const fetchCenters = async () => {
+  async function fetchCenters() {
     if (!supabase || !user) return;
     setLoading(true);
 
@@ -98,7 +71,10 @@ export default function SelectCenterPage() {
         .eq('user_id', user.id);
       
       if (memberData) {
-        setCenters(memberData.map((m: any) => m.centers).filter(Boolean));
+        const memberCenters = (memberData as CenterMembershipRow[])
+          .flatMap((membership) => membership.centers || [])
+          .filter((center): center is CenterOption => Boolean(center));
+        setCenters(memberCenters);
         setLoading(false);
         return;
       }
@@ -114,7 +90,48 @@ export default function SelectCenterPage() {
       setCenters(data);
     }
     setLoading(false);
-  };
+  }
+
+  useEffect(() => {
+    const init = async () => {
+      // 1. Check Session/User
+      if (!user) {
+        if (!supabase) {
+          // Mock for demo if no supabase
+          setCenters([
+            { id: "c1", name: "ملتقى الفرقان للبنين", type: "men" },
+            { id: "c2", name: "ملتقى النور للبنات", type: "women" }
+          ]);
+          setLoading(false);
+          return;
+        }
+
+        const { data } = await supabase.auth.getSession();
+        if (data.session) {
+          setUser(data.session.user);
+          return;
+        }
+        router.push("/login");
+        return;
+      }
+
+      // 2. Check Profile
+      if (!profile) {
+        setLoading(true);
+        const { fetchProfile } = useStore.getState();
+        await fetchProfile();
+        const updatedProfile = useStore.getState().profile;
+        if (!updatedProfile) {
+          router.push("/onboarding");
+          return;
+        }
+        setLoading(false);
+      }
+
+      fetchCenters();
+    };
+    init();
+  }, [user, profile]);
 
   const fetchHalaqat = async (centerId: string) => {
     if (!supabase) {
@@ -140,13 +157,14 @@ export default function SelectCenterPage() {
     setLoading(false);
   };
 
-  const handleCenterSelect = (center: any) => {
+  const handleCenterSelect = (center: CenterOption) => {
     setSelectedCenter(center);
     fetchHalaqat(center.id);
     setStep("halaqa");
   };
 
-  const handleHalaqaSelect = (halaqa: any) => {
+  const handleHalaqaSelect = (halaqa: HalaqaOption) => {
+    if (!selectedCenter) return;
     setCurrentCenter({ ...selectedCenter, activeHalaqa: halaqa });
     router.push("/");
   };

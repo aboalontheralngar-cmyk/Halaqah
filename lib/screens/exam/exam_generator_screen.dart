@@ -6,9 +6,12 @@ import 'package:printing/printing.dart';
 import '../../services/quran_service.dart';
 import '../../services/database_service.dart';
 import '../../services/exam_question_generator_service.dart';
+import '../../services/exam_assessment_service.dart';
 import '../../services/pdf_service.dart';
+import '../../services/quran_cross_surah_range_service.dart';
 import '../../models/student.dart';
 import '../../models/exam_template.dart';
+import '../../models/ayah.dart';
 import '../../widgets/surah_picker.dart';
 import '../../widgets/ayah_range_picker.dart';
 
@@ -39,6 +42,7 @@ class _ExamGeneratorScreenState extends State<ExamGeneratorScreen> {
   int _toJuz = 30;
   int _fromHizb = 1;
   int _toHizb = 60;
+  final Set<int> _selectedQuarterIds = {};
   int _difficulty = 0;
   double _linesPerQuestion = 3;
   bool _preventDuplicates = true;
@@ -66,6 +70,7 @@ class _ExamGeneratorScreenState extends State<ExamGeneratorScreen> {
             (student) => student.status == 'active' || student.id == selectedId,
           )
           .toList();
+      students.sort((first, second) => first.name.compareTo(second.name));
       Student? templateStudent;
       if (widget.template != null) {
         for (final student in students) {
@@ -95,13 +100,15 @@ class _ExamGeneratorScreenState extends State<ExamGeneratorScreen> {
     if (_selectedStudent == null) return;
     try {
       final surahs = await _db.getMemorizedSurahs(_selectedStudent!.id);
+      var initializeRange = false;
       setState(() {
         _memorizedSurahs = surahs;
         if (surahs.isNotEmpty && _selectedSurah == null) {
           _selectedSurah = surahs.first;
-          _updateAyahRange();
+          initializeRange = true;
         }
       });
+      if (initializeRange) _updateAyahRange();
     } catch (e) {}
   }
 
@@ -126,6 +133,12 @@ class _ExamGeneratorScreenState extends State<ExamGeneratorScreen> {
       _toJuz = criteria['toJuz'] as int? ?? 30;
       _fromHizb = criteria['fromHizb'] as int? ?? 1;
       _toHizb = criteria['toHizb'] as int? ?? 60;
+      _selectedQuarterIds
+        ..clear()
+        ..addAll(
+          (criteria['quarterIds'] as List? ?? const [])
+              .map((value) => (value as num).toInt()),
+        );
       _selectedSurah = criteria['surahId'] as int?;
       _fromAyah = criteria['fromAyah'] as int? ?? 1;
       _toAyah = criteria['toAyah'] as int? ?? 1;
@@ -139,6 +152,8 @@ class _ExamGeneratorScreenState extends State<ExamGeneratorScreen> {
         'surah_id': row.surahId,
         'surah_name': _quran.getSurahName(row.surahId),
         'ayah_number': row.fromAyah,
+        'to_surah_id': row.toSurahId,
+        'to_surah_name': _quran.getSurahName(row.toSurahId),
         'to_ayah': row.toAyah,
         'page': row.page,
         'juz': row.juz,
@@ -148,6 +163,12 @@ class _ExamGeneratorScreenState extends State<ExamGeneratorScreen> {
         'start_text': row.promptText,
         'full_text': row.answerText,
         'lines': row.lines,
+        'is_assessed': row.isAssessed,
+        'memorization_errors': row.memorizationErrors,
+        'tashkeel_errors': row.tashkeelErrors,
+        'recitation_errors': row.recitationErrors,
+        'prompt_count': row.promptCount,
+        'question_score': row.questionScore,
       }).toList();
       _generatedExam = {
         'category': _categoryLabel,
@@ -189,10 +210,17 @@ class _ExamGeneratorScreenState extends State<ExamGeneratorScreen> {
       );
       return;
     }
+    if (_category == 'mushaf' && _selectedQuarterIds.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('اختر ربعًا واحدًا على الأقل من خريطة المصحف')),
+      );
+      return;
+    }
     final questions = ExamQuestionGeneratorService.generate(
       surahs: _quran.surahs,
       category: _category,
       allowedSurahIds: _memorizedSurahs.toSet(),
+      allowedQuarterIds: _selectedQuarterIds,
       selectedSurahId: _selectedSurah,
       fromAyah: _fromAyah,
       toAyah: _toAyah,
@@ -244,6 +272,8 @@ class _ExamGeneratorScreenState extends State<ExamGeneratorScreen> {
         return _selectedSurah == null
             ? 'سورة محددة'
             : 'سورة ${_quran.getSurahName(_selectedSurah!)}';
+      case 'mushaf':
+        return 'خريطة المصحف — ${_selectedQuarterIds.length} ربع';
       default:
         return 'محفوظ الطالب';
     }
@@ -327,6 +357,7 @@ class _ExamGeneratorScreenState extends State<ExamGeneratorScreen> {
       'juz': 'حسب الجزء',
       'hizb': 'حسب الحزب',
       'surah': 'حسب السورة',
+      'mushaf': 'خريطة المصحف',
     };
     return Card(
       child: Padding(
@@ -399,6 +430,7 @@ class _ExamGeneratorScreenState extends State<ExamGeneratorScreen> {
         },
       );
     }
+    if (_category == 'mushaf') return _buildMushafQuarterMap();
 
     return Card(
       child: ListTile(
@@ -409,6 +441,80 @@ class _ExamGeneratorScreenState extends State<ExamGeneratorScreen> {
               ? 'لا يوجد محفوظ مسجل؛ اختر فئة الجزء أو الحزب أو السورة'
               : 'سيتم التوليد من السور المسجلة والمحفوظ السابق',
         ),
+      ),
+    );
+  }
+
+  Widget _buildMushafQuarterMap() {
+    return Card(
+      child: ExpansionTile(
+        initiallyExpanded: true,
+        leading: const Icon(Icons.grid_view_rounded),
+        title: const Text(
+          'اختيار بصري من خريطة المصحف',
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
+        subtitle: Text(
+          _selectedQuarterIds.isEmpty
+              ? 'اختر ربعًا أو أكثر — البيانات الحالية بدقة الربع'
+              : 'تم اختيار ${_selectedQuarterIds.length} من 240 ربعًا',
+        ),
+        childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
+        children: [
+          Row(
+            children: [
+              TextButton.icon(
+                onPressed: () => setState(() {
+                  _selectedQuarterIds
+                    ..clear()
+                    ..addAll(List.generate(240, (index) => index + 1));
+                  _generatedExam = null;
+                }),
+                icon: const Icon(Icons.select_all),
+                label: const Text('اختيار الكل'),
+              ),
+              TextButton.icon(
+                onPressed: () => setState(() {
+                  _selectedQuarterIds.clear();
+                  _generatedExam = null;
+                }),
+                icon: const Icon(Icons.deselect),
+                label: const Text('إلغاء الكل'),
+              ),
+            ],
+          ),
+          GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 4,
+              childAspectRatio: 1.8,
+              crossAxisSpacing: 6,
+              mainAxisSpacing: 6,
+            ),
+            itemCount: 240,
+            itemBuilder: (context, index) {
+              final quarterId = index + 1;
+              final hizb = (index ~/ 4) + 1;
+              final quarterInHizb = (index % 4) + 1;
+              final selected = _selectedQuarterIds.contains(quarterId);
+              return FilterChip(
+                selected: selected,
+                showCheckmark: false,
+                label: FittedBox(child: Text('ح $hizb • ر $quarterInHizb')),
+                onSelected: (value) => setState(() {
+                  if (value) {
+                    _selectedQuarterIds.add(quarterId);
+                  } else {
+                    _selectedQuarterIds.remove(quarterId);
+                  }
+                  _generatedExam = null;
+                  _usedQuestionKeys.clear();
+                }),
+              );
+            },
+          ),
+        ],
       ),
     );
   }
@@ -781,6 +887,13 @@ class _ExamGeneratorScreenState extends State<ExamGeneratorScreen> {
   }
 
   Widget _buildQuestion(int number, Map<String, dynamic> question) {
+    final toSurahId = (question['to_surah_id'] as int?) ??
+        (question['surah_id'] as int);
+    final rangeLabel = toSurahId == question['surah_id']
+        ? 'سورة ${question['surah_name']} — الآيات ${question['ayah_number']}–${question['to_ayah']}'
+        : 'من سورة ${question['surah_name']} آية ${question['ayah_number']} '
+            'إلى سورة ${question['to_surah_name']} آية ${question['to_ayah']}';
+    final assessed = question['is_assessed'] as bool? ?? false;
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
       padding: const EdgeInsets.all(12),
@@ -805,7 +918,7 @@ class _ExamGeneratorScreenState extends State<ExamGeneratorScreen> {
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  'سورة ${question['surah_name']} — الآية ${question['ayah_number']}',
+                  rangeLabel,
                   style: TextStyle(color: Colors.grey[600], fontSize: 12),
                 ),
               ),
@@ -866,8 +979,131 @@ class _ExamGeneratorScreenState extends State<ExamGeneratorScreen> {
               ),
             ],
           ),
+          ExpansionTile(
+            title: const Text(
+              'الرصد الرقمي للأخطاء',
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+            ),
+            subtitle: Text(
+              assessed
+                  ? 'الدرجة: ${((question['question_score'] as num?) ?? 0).toStringAsFixed(1)} / 10'
+                  : 'لم يُرصد أداء السؤال بعد',
+              style: TextStyle(
+                color: assessed ? Colors.green[700] : Colors.grey[600],
+                fontSize: 11,
+              ),
+            ),
+            tilePadding: EdgeInsets.zero,
+            children: [
+              _buildAssessmentCounter(
+                questionIndex: number - 1,
+                label: 'أخطاء الحفظ',
+                field: 'memorization_errors',
+              ),
+              _buildAssessmentCounter(
+                questionIndex: number - 1,
+                label: 'أخطاء التشكيل',
+                field: 'tashkeel_errors',
+              ),
+              _buildAssessmentCounter(
+                questionIndex: number - 1,
+                label: 'أخطاء التلاوة',
+                field: 'recitation_errors',
+              ),
+              _buildAssessmentCounter(
+                questionIndex: number - 1,
+                label: 'مرات التنبيه',
+                field: 'prompt_count',
+              ),
+              Align(
+                alignment: AlignmentDirectional.centerEnd,
+                child: TextButton.icon(
+                  onPressed: () => _clearQuestionAssessment(number - 1),
+                  icon: const Icon(Icons.restart_alt),
+                  label: const Text('إلغاء الرصد'),
+                ),
+              ),
+            ],
+          ),
         ],
       ),
+    );
+  }
+
+  Widget _buildAssessmentCounter({
+    required int questionIndex,
+    required String label,
+    required String field,
+  }) {
+    final questions = _questionList();
+    final value = questions.isEmpty
+        ? 0
+        : (questions[questionIndex][field] as num?)?.toInt() ?? 0;
+    return Row(
+      children: [
+        Expanded(child: Text(label)),
+        IconButton(
+          visualDensity: VisualDensity.compact,
+          onPressed: value == 0
+              ? null
+              : () => _adjustQuestionAssessment(questionIndex, field, -1),
+          icon: const Icon(Icons.remove_circle_outline),
+        ),
+        SizedBox(
+          width: 28,
+          child: Text('$value', textAlign: TextAlign.center),
+        ),
+        IconButton(
+          visualDensity: VisualDensity.compact,
+          onPressed: () => _adjustQuestionAssessment(questionIndex, field, 1),
+          icon: const Icon(Icons.add_circle_outline),
+        ),
+      ],
+    );
+  }
+
+  void _adjustQuestionAssessment(int index, String field, int delta) {
+    final questions = _questionList();
+    if (index < 0 || index >= questions.length) return;
+    final question = questions[index];
+    final current = (question[field] as num?)?.toInt() ?? 0;
+    question[field] = (current + delta).clamp(0, 99).toInt();
+    question['is_assessed'] = true;
+    question['question_score'] = _calculateQuestionScore(question);
+    questions[index] = question;
+    _setQuestions(questions);
+  }
+
+  void _clearQuestionAssessment(int index) {
+    final questions = _questionList();
+    if (index < 0 || index >= questions.length) return;
+    final question = questions[index];
+    for (final field in const [
+      'memorization_errors',
+      'tashkeel_errors',
+      'recitation_errors',
+      'prompt_count',
+    ]) {
+      question[field] = 0;
+    }
+    question['is_assessed'] = false;
+    question['question_score'] = 0.0;
+    questions[index] = question;
+    _setQuestions(questions);
+  }
+
+  double _calculateQuestionScore(Map<String, dynamic> question) {
+    final memorization =
+        (question['memorization_errors'] as num?)?.toInt() ?? 0;
+    final tashkeel = (question['tashkeel_errors'] as num?)?.toInt() ?? 0;
+    final recitation =
+        (question['recitation_errors'] as num?)?.toInt() ?? 0;
+    final prompts = (question['prompt_count'] as num?)?.toInt() ?? 0;
+    return ExamAssessmentService.calculateScore(
+      memorizationErrors: memorization,
+      tashkeelErrors: tashkeel,
+      recitationErrors: recitation,
+      promptCount: prompts,
     );
   }
 
@@ -946,6 +1182,7 @@ class _ExamGeneratorScreenState extends State<ExamGeneratorScreen> {
       surahs: _quran.surahs,
       category: _category,
       allowedSurahIds: _memorizedSurahs.toSet(),
+      allowedQuarterIds: _selectedQuarterIds,
       selectedSurahId: _selectedSurah,
       fromAyah: _fromAyah,
       toAyah: _toAyah,
@@ -978,6 +1215,7 @@ class _ExamGeneratorScreenState extends State<ExamGeneratorScreen> {
     final fromController = TextEditingController(text: '${question['ayah_number']}');
     final toController = TextEditingController(text: '${question['to_ayah']}');
     var questionType = question['question_type'] as String? ?? 'recite_from';
+    var boundaryMode = 'exact';
     final accepted = await showDialog<bool>(
       context: context,
       builder: (context) => StatefulBuilder(
@@ -999,17 +1237,31 @@ class _ExamGeneratorScreenState extends State<ExamGeneratorScreen> {
                 },
               ),
               const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                value: boundaryMode,
+                decoration: const InputDecoration(labelText: 'نهاية النطاق'),
+                items: const [
+                  DropdownMenuItem(value: 'exact', child: Text('تحديد آية النهاية')),
+                  DropdownMenuItem(value: 'page', child: Text('إلى نهاية الصفحة الحالية')),
+                  DropdownMenuItem(value: 'hizb', child: Text('إلى نهاية الحزب الحالي')),
+                ],
+                onChanged: (value) {
+                  if (value != null) setDialogState(() => boundaryMode = value);
+                },
+              ),
+              const SizedBox(height: 12),
               TextField(
                 controller: fromController,
                 keyboardType: TextInputType.number,
                 decoration: const InputDecoration(labelText: 'من آية'),
               ),
               const SizedBox(height: 12),
-              TextField(
-                controller: toController,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: 'إلى آية'),
-              ),
+              if (boundaryMode == 'exact')
+                TextField(
+                  controller: toController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(labelText: 'إلى آية'),
+                ),
             ],
           ),
           actions: [
@@ -1022,25 +1274,58 @@ class _ExamGeneratorScreenState extends State<ExamGeneratorScreen> {
     if (accepted == true) {
       final from = int.tryParse(fromController.text);
       final to = int.tryParse(toController.text);
-      if (from != null && to != null && from >= 1 && to >= from && to <= surah.totalAyahs) {
-        final ayahs = surah.getAyahRange(from, to);
+      List<Ayah>? ayahs;
+      if (from != null && from >= 1 && from <= surah.totalAyahs) {
+        if (boundaryMode == 'exact' &&
+            to != null &&
+            to >= from &&
+            to <= surah.totalAyahs) {
+          ayahs = surah.getAyahRange(from, to);
+        } else if (boundaryMode != 'exact') {
+          final range = QuranCrossSurahRangeService.toBoundary(
+            surahs: _quran.surahs,
+            startSurahId: surah.number,
+            startAyah: from,
+            boundary: boundaryMode == 'page'
+                ? QuranRangeBoundary.page
+                : QuranRangeBoundary.hizb,
+          );
+          ayahs = range?.ayahs;
+        }
+      }
+      if (ayahs != null && ayahs.isNotEmpty) {
+        final firstAyah = ayahs.first;
+        final lastAyah = ayahs.last;
+        final endSurah = _quran.getSurah(lastAyah.surahNumber);
         question
           ..['key'] = '${surah.number}:$from'
           ..['ayah_number'] = from
-          ..['to_ayah'] = to
+          ..['to_surah_id'] = lastAyah.surahNumber
+          ..['to_surah_name'] = endSurah?.name ?? surah.name
+          ..['to_ayah'] = lastAyah.number
           ..['question_type'] = questionType
-          ..['page'] = ayahs.first.page
-          ..['juz'] = ayahs.first.juz
-          ..['hizb'] = ayahs.first.hizb
-          ..['difficulty'] = ayahs.first.difficulty
-          ..['start_text'] = ayahs.first.text.split(' ').take(5).join(' ')
+          ..['page'] = firstAyah.page
+          ..['juz'] = firstAyah.juz
+          ..['hizb'] = firstAyah.hizb
+          ..['quarter'] = firstAyah.quarter
+          ..['difficulty'] = firstAyah.difficulty
+          ..['start_text'] = firstAyah.text.split(' ').take(5).join(' ')
           ..['full_text'] = ayahs.map((ayah) => ayah.text).join(' ')
-          ..['lines'] = ayahs.fold<double>(0, (sum, ayah) => sum + ayah.lines);
+          ..['lines'] = ayahs.fold<double>(
+            0,
+            (sum, ayah) => sum + (ayah.lines <= 0 ? 0.5 : ayah.lines),
+          );
         questions[index] = question;
         _setQuestions(questions);
       } else if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('النطاق يجب أن يكون بين 1 و${surah.totalAyahs}')),
+          SnackBar(
+            content: Text(
+              boundaryMode == 'exact'
+                  ? 'النطاق يجب أن يكون بين 1 و${surah.totalAyahs}'
+                  : 'تعذر تحديد نهاية النطاق من موضع البداية',
+            ),
+          ),
         );
       }
     }
@@ -1093,6 +1378,7 @@ class _ExamGeneratorScreenState extends State<ExamGeneratorScreen> {
         'toJuz': _toJuz,
         'fromHizb': _fromHizb,
         'toHizb': _toHizb,
+        'quarterIds': _selectedQuarterIds.toList()..sort(),
         'surahId': _selectedSurah,
         'fromAyah': _fromAyah,
         'toAyah': _toAyah,
@@ -1109,6 +1395,9 @@ class _ExamGeneratorScreenState extends State<ExamGeneratorScreen> {
         templateId: template.id,
         questionOrder: entry.key + 1,
         surahId: question['surah_id'] as int,
+        toSurahId:
+            (question['to_surah_id'] as int?) ??
+            (question['surah_id'] as int),
         fromAyah: question['ayah_number'] as int,
         toAyah: question['to_ayah'] as int,
         questionType: question['question_type'] as String? ?? 'recite_from',
@@ -1119,6 +1408,13 @@ class _ExamGeneratorScreenState extends State<ExamGeneratorScreen> {
         hizb: question['hizb'] as int,
         difficulty: question['difficulty'] as int,
         lines: (question['lines'] as num).toDouble(),
+        isAssessed: question['is_assessed'] as bool? ?? false,
+        memorizationErrors: question['memorization_errors'] as int? ?? 0,
+        tashkeelErrors: question['tashkeel_errors'] as int? ?? 0,
+        recitationErrors: question['recitation_errors'] as int? ?? 0,
+        promptCount: question['prompt_count'] as int? ?? 0,
+        questionScore:
+            (question['question_score'] as num?)?.toDouble() ?? 0,
       );
     }).toList();
     await _db.saveExamTemplate(template, rows);

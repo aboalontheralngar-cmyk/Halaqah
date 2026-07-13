@@ -19,6 +19,10 @@ import '../models/exam_template.dart';
 import '../models/student_hold.dart';
 import '../models/student_status_change.dart';
 import '../models/behavior_point_correction.dart';
+import '../models/daily_achievement.dart';
+import '../models/family.dart';
+import '../models/family_guardian.dart';
+import '../models/audit_event.dart';
 import 'quran_service.dart';
 import 'recitation_record_math.dart';
 import 'behavior_point_policy.dart';
@@ -41,7 +45,7 @@ class DatabaseService {
     String path = join(await getDatabasesPath(), 'halaqah.db');
     return await openDatabase(
       path,
-      version: 9,
+      version: 14,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
       onConfigure: (db) async {
@@ -92,7 +96,7 @@ class DatabaseService {
         revision_note TEXT,
         notes TEXT,
         created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (student_id) REFERENCES students (id) ON DELETE CASCADE,
         UNIQUE(student_id, date)
       )
@@ -110,6 +114,7 @@ class DatabaseService {
         is_revision INTEGER DEFAULT 0,
         notes TEXT,
         created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (student_id) REFERENCES students (id) ON DELETE CASCADE
       )
     ''');
@@ -178,6 +183,11 @@ class DatabaseService {
     await _createVersion7Tables(db);
     await _upgradeToVersion8(db);
     await _createVersion9Tables(db);
+    await _createVersion10Tables(db);
+    await _createVersion11Tables(db);
+    await _upgradeToVersion12(db);
+    await _upgradeToVersion13(db);
+    await _upgradeToVersion14(db);
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -205,6 +215,200 @@ class DatabaseService {
     if (oldVersion < 9) {
       await _createVersion9Tables(db);
     }
+    if (oldVersion < 10) {
+      await _createVersion10Tables(db);
+    }
+    if (oldVersion < 11) {
+      await _createVersion11Tables(db);
+    }
+    if (oldVersion < 12) {
+      await _upgradeToVersion12(db);
+    }
+    if (oldVersion < 13) {
+      await _upgradeToVersion13(db);
+    }
+    if (oldVersion < 14) {
+      await _upgradeToVersion14(db);
+    }
+  }
+
+  Future<void> _upgradeToVersion14(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS audit_events (
+        id TEXT PRIMARY KEY,
+        event_type TEXT NOT NULL,
+        entity_type TEXT NOT NULL,
+        entity_id TEXT,
+        outcome TEXT NOT NULL DEFAULT 'success',
+        details_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_audit_events_created '
+      'ON audit_events(created_at DESC)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_audit_events_entity '
+      'ON audit_events(entity_type, entity_id, created_at DESC)',
+    );
+    await _createAuditTriggers(db);
+  }
+
+  Future<void> _createAuditTriggers(Database db) async {
+    const sensitiveTables = <String>[
+      'students',
+      'daily_records',
+      'memorization_progress',
+      'behavior_points',
+      'vacations',
+      'student_holds',
+      'exams',
+      'plans',
+      'families',
+      'family_guardians',
+      'daily_achievements',
+    ];
+    for (final table in sensitiveTables) {
+      for (final operation in const <String>['INSERT', 'UPDATE', 'DELETE']) {
+        final operationName = operation.toLowerCase();
+        final triggerName = 'audit_${table}_$operationName';
+        final rowAlias = operation == 'DELETE' ? 'OLD' : 'NEW';
+        await db.execute('DROP TRIGGER IF EXISTS $triggerName');
+        await db.execute('''
+          CREATE TRIGGER $triggerName
+          AFTER $operation ON $table
+          BEGIN
+            INSERT INTO audit_events (
+              id, event_type, entity_type, entity_id,
+              outcome, details_json, created_at
+            ) VALUES (
+              lower(hex(randomblob(16))),
+              '$table.$operationName',
+              '$table',
+              $rowAlias.id,
+              'success',
+              '{"source":"sqlite_trigger"}',
+              strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+            );
+          END
+        ''');
+      }
+    }
+  }
+
+  Future<void> _upgradeToVersion13(Database db) async {
+    final columns = await db.rawQuery(
+      'PRAGMA table_info(exam_template_questions)',
+    );
+    final names = columns.map((row) => row['name']?.toString()).toSet();
+    const additions = <String, String>{
+      'to_surah_id': 'INTEGER',
+      'is_assessed': 'INTEGER NOT NULL DEFAULT 0',
+      'memorization_errors': 'INTEGER NOT NULL DEFAULT 0',
+      'tashkeel_errors': 'INTEGER NOT NULL DEFAULT 0',
+      'recitation_errors': 'INTEGER NOT NULL DEFAULT 0',
+      'prompt_count': 'INTEGER NOT NULL DEFAULT 0',
+      'question_score': 'REAL NOT NULL DEFAULT 0',
+    };
+    for (final entry in additions.entries) {
+      if (!names.contains(entry.key)) {
+        await db.execute(
+          'ALTER TABLE exam_template_questions '
+          'ADD COLUMN ${entry.key} ${entry.value}',
+        );
+      }
+    }
+    await db.execute(
+      'UPDATE exam_template_questions '
+      'SET to_surah_id = COALESCE(to_surah_id, surah_id)',
+    );
+  }
+
+  Future<void> _upgradeToVersion12(Database db) async {
+    for (final table in ['homework_grades', 'memorization_progress']) {
+      final columns = await db.rawQuery('PRAGMA table_info($table)');
+      final names = columns.map((row) => row['name']?.toString()).toSet();
+      if (!names.contains('updated_at')) {
+        await db.execute('ALTER TABLE $table ADD COLUMN updated_at TEXT');
+      }
+      await db.execute(
+        'UPDATE $table SET updated_at = COALESCE(updated_at, created_at)',
+      );
+    }
+  }
+
+  Future<void> _createVersion11Tables(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS families (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        reference_name TEXT,
+        notes TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS family_guardians (
+        id TEXT PRIMARY KEY,
+        family_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        phone TEXT NOT NULL,
+        email TEXT,
+        relationship TEXT NOT NULL DEFAULT 'guardian',
+        is_primary INTEGER NOT NULL DEFAULT 0,
+        notes TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (family_id) REFERENCES families (id) ON DELETE CASCADE
+      )
+    ''');
+    final studentColumns = await db.rawQuery('PRAGMA table_info(students)');
+    final studentColumnNames =
+        studentColumns.map((row) => row['name']?.toString()).toSet();
+    if (!studentColumnNames.contains('family_id')) {
+      await db.execute('ALTER TABLE students ADD COLUMN family_id TEXT');
+    }
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_students_family ON students(family_id)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_family_guardians_family '
+      'ON family_guardians(family_id, is_primary DESC, name)',
+    );
+    await db.execute(
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_family_one_primary_guardian '
+      'ON family_guardians(family_id) WHERE is_primary = 1',
+    );
+  }
+
+  Future<void> _createVersion10Tables(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS daily_achievements (
+        id TEXT PRIMARY KEY,
+        student_id TEXT NOT NULL,
+        date TEXT NOT NULL,
+        source TEXT NOT NULL DEFAULT 'manual',
+        reason TEXT NOT NULL,
+        actual_amount REAL NOT NULL DEFAULT 0,
+        plan_amount REAL NOT NULL DEFAULT 0,
+        unit TEXT NOT NULL DEFAULT 'ayahs',
+        reward_type TEXT,
+        reward_details TEXT,
+        reward_points INTEGER NOT NULL DEFAULT 0,
+        awarded_at TEXT,
+        notes TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (student_id) REFERENCES students (id) ON DELETE CASCADE,
+        UNIQUE(student_id, date)
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_daily_achievements_date '
+      'ON daily_achievements(date DESC, student_id)',
+    );
   }
 
   Future<void> _createVersion9Tables(Database db) async {
@@ -312,6 +516,7 @@ class DatabaseService {
         template_id TEXT NOT NULL,
         question_order INTEGER NOT NULL,
         surah_id INTEGER NOT NULL,
+        to_surah_id INTEGER,
         from_ayah INTEGER NOT NULL,
         to_ayah INTEGER NOT NULL,
         question_type TEXT NOT NULL DEFAULT 'recite_from',
@@ -322,6 +527,12 @@ class DatabaseService {
         hizb INTEGER NOT NULL DEFAULT 0,
         difficulty INTEGER NOT NULL DEFAULT 0,
         lines REAL NOT NULL DEFAULT 0,
+        is_assessed INTEGER NOT NULL DEFAULT 0,
+        memorization_errors INTEGER NOT NULL DEFAULT 0,
+        tashkeel_errors INTEGER NOT NULL DEFAULT 0,
+        recitation_errors INTEGER NOT NULL DEFAULT 0,
+        prompt_count INTEGER NOT NULL DEFAULT 0,
+        question_score REAL NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL,
         FOREIGN KEY (template_id) REFERENCES exam_templates (id) ON DELETE CASCADE,
         UNIQUE(template_id, question_order)
@@ -483,6 +694,269 @@ class DatabaseService {
         );
       }
     });
+  }
+
+  Future<List<Family>> getFamilies() async {
+    final db = await database;
+    final rows = await db.query(
+      'families',
+      orderBy: 'name COLLATE NOCASE ASC, reference_name COLLATE NOCASE ASC',
+    );
+    return rows.map(Family.fromMap).toList();
+  }
+
+  Future<Family?> getFamily(String familyId) async {
+    final db = await database;
+    final rows = await db.query(
+      'families',
+      where: 'id = ?',
+      whereArgs: [familyId],
+      limit: 1,
+    );
+    return rows.isEmpty ? null : Family.fromMap(rows.first);
+  }
+
+  Future<List<Student>> getFamilyMembers(String familyId) async {
+    final db = await database;
+    final rows = await db.query(
+      'students',
+      where: 'family_id = ?',
+      whereArgs: [familyId],
+      orderBy: 'name COLLATE NOCASE ASC',
+    );
+    return rows.map(Student.fromMap).toList();
+  }
+
+  Future<List<FamilyGuardian>> getFamilyGuardians(String familyId) async {
+    final db = await database;
+    final rows = await db.query(
+      'family_guardians',
+      where: 'family_id = ?',
+      whereArgs: [familyId],
+      orderBy: 'is_primary DESC, name COLLATE NOCASE ASC',
+    );
+    return rows.map(FamilyGuardian.fromMap).toList();
+  }
+
+  Future<void> saveFamily(Family family) async {
+    final name = family.name.trim();
+    if (name.isEmpty) throw ArgumentError('اسم العائلة مطلوب');
+    family
+      ..name = name
+      ..updatedAt = DateTime.now();
+    final db = await database;
+    final exists = Sqflite.firstIntValue(
+          await db.rawQuery(
+            'SELECT COUNT(*) FROM families WHERE id = ?',
+            [family.id],
+          ),
+        ) !=
+        0;
+    if (exists) {
+      await db.update(
+        'families',
+        family.toMap(),
+        where: 'id = ?',
+        whereArgs: [family.id],
+      );
+    } else {
+      await db.insert('families', family.toMap());
+    }
+  }
+
+  Future<void> deleteFamily(String familyId) async {
+    final db = await database;
+    await db.transaction((txn) async {
+      final guardianRows = await txn.query(
+        'family_guardians',
+        columns: ['id'],
+        where: 'family_id = ?',
+        whereArgs: [familyId],
+      );
+      await txn.update(
+        'students',
+        {'family_id': null},
+        where: 'family_id = ?',
+        whereArgs: [familyId],
+      );
+      await txn.delete(
+        'family_guardians',
+        where: 'family_id = ?',
+        whereArgs: [familyId],
+      );
+      await txn.delete('families', where: 'id = ?', whereArgs: [familyId]);
+      await _appendDeletedIds(txn, 'deleted_family_ids', [familyId]);
+      await _appendDeletedIds(
+        txn,
+        'deleted_family_guardian_ids',
+        guardianRows.map((row) => row['id'].toString()).toList(),
+      );
+    });
+  }
+
+  Future<void> saveFamilyGuardian(FamilyGuardian guardian) async {
+    if (guardian.name.trim().isEmpty) {
+      throw ArgumentError('اسم ولي الأمر مطلوب');
+    }
+    if (guardian.phone.trim().isEmpty) {
+      throw ArgumentError('رقم ولي الأمر مطلوب');
+    }
+    if (!FamilyGuardian.relationships.contains(guardian.relationship)) {
+      throw ArgumentError('صلة ولي الأمر غير صالحة');
+    }
+    final db = await database;
+    await db.transaction((txn) async {
+      final existingCount = Sqflite.firstIntValue(
+            await txn.rawQuery(
+              'SELECT COUNT(*) FROM family_guardians WHERE family_id = ?',
+              [guardian.familyId],
+            ),
+          ) ??
+          0;
+      if (existingCount == 0) guardian.isPrimary = true;
+      if (guardian.isPrimary) {
+        await txn.update(
+          'family_guardians',
+          {'is_primary': 0, 'updated_at': DateTime.now().toIso8601String()},
+          where: 'family_id = ? AND id <> ?',
+          whereArgs: [guardian.familyId, guardian.id],
+        );
+      }
+      guardian.updatedAt = DateTime.now();
+      await txn.insert(
+        'family_guardians',
+        guardian.toMap(),
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+      final primaryCount = Sqflite.firstIntValue(
+            await txn.rawQuery(
+              'SELECT COUNT(*) FROM family_guardians '
+              'WHERE family_id = ? AND is_primary = 1',
+              [guardian.familyId],
+            ),
+          ) ??
+          0;
+      if (primaryCount == 0) {
+        guardian.isPrimary = true;
+        await txn.update(
+          'family_guardians',
+          {'is_primary': 1, 'updated_at': DateTime.now().toIso8601String()},
+          where: 'id = ?',
+          whereArgs: [guardian.id],
+        );
+      }
+      if (guardian.isPrimary) {
+        await txn.update(
+          'students',
+          {
+            'guardian_phone': guardian.phone.trim(),
+            'updated_at': DateTime.now().toIso8601String(),
+          },
+          where: 'family_id = ?',
+          whereArgs: [guardian.familyId],
+        );
+      }
+    });
+  }
+
+  Future<void> deleteFamilyGuardian(String guardianId) async {
+    final db = await database;
+    await db.transaction((txn) async {
+      final rows = await txn.query(
+        'family_guardians',
+        where: 'id = ?',
+        whereArgs: [guardianId],
+        limit: 1,
+      );
+      if (rows.isEmpty) return;
+      final removed = FamilyGuardian.fromMap(rows.first);
+      await txn.delete(
+        'family_guardians',
+        where: 'id = ?',
+        whereArgs: [guardianId],
+      );
+      await _appendDeletedIds(
+        txn,
+        'deleted_family_guardian_ids',
+        [guardianId],
+      );
+      if (!removed.isPrimary) return;
+      final remaining = await txn.query(
+        'family_guardians',
+        where: 'family_id = ?',
+        whereArgs: [removed.familyId],
+        orderBy: 'created_at ASC',
+        limit: 1,
+      );
+      if (remaining.isEmpty) return;
+      final next = FamilyGuardian.fromMap(remaining.first)..isPrimary = true;
+      await txn.update(
+        'family_guardians',
+        {'is_primary': 1, 'updated_at': DateTime.now().toIso8601String()},
+        where: 'id = ?',
+        whereArgs: [next.id],
+      );
+      await txn.update(
+        'students',
+        {
+          'guardian_phone': next.phone.trim(),
+          'updated_at': DateTime.now().toIso8601String(),
+        },
+        where: 'family_id = ?',
+        whereArgs: [removed.familyId],
+      );
+    });
+  }
+
+  Future<void> assignStudentsToFamily({
+    required String familyId,
+    required List<String> studentIds,
+  }) async {
+    if (studentIds.isEmpty) return;
+    final db = await database;
+    await db.transaction((txn) async {
+      final family = await txn.query(
+        'families',
+        columns: ['id'],
+        where: 'id = ?',
+        whereArgs: [familyId],
+        limit: 1,
+      );
+      if (family.isEmpty) throw StateError('العائلة غير موجودة');
+      final primary = await txn.query(
+        'family_guardians',
+        columns: ['phone'],
+        where: 'family_id = ? AND is_primary = 1',
+        whereArgs: [familyId],
+        limit: 1,
+      );
+      final primaryPhone = primary.isEmpty
+          ? null
+          : primary.first['phone']?.toString().trim();
+      final placeholders = List.filled(studentIds.length, '?').join(',');
+      await txn.rawUpdate(
+        'UPDATE students SET family_id = ?, '
+        'guardian_phone = CASE WHEN ? IS NULL THEN guardian_phone ELSE ? END, '
+        'updated_at = ? WHERE id IN ($placeholders)',
+        [
+          familyId,
+          primaryPhone,
+          primaryPhone,
+          DateTime.now().toIso8601String(),
+          ...studentIds,
+        ],
+      );
+    });
+  }
+
+  Future<void> removeStudentFromFamily(String studentId) async {
+    final db = await database;
+    await db.update(
+      'students',
+      {'family_id': null, 'updated_at': DateTime.now().toIso8601String()},
+      where: 'id = ?',
+      whereArgs: [studentId],
+    );
   }
 
   Future<void> changeStudentStatus({
@@ -762,6 +1236,7 @@ class DatabaseService {
             'grade_mark': _qualityToGradeMark(updated.qualityRating),
             'is_revision': updated.isRevision ? 1 : 0,
             'remark': updated.notes,
+            'updated_at': DateTime.now().toIso8601String(),
           },
           where: 'id = ?',
           whereArgs: [companionId],
@@ -1396,6 +1871,223 @@ class DatabaseService {
     );
   }
 
+  Future<List<DailyAchievement>> getDailyAchievements(DateTime date) async {
+    final db = await database;
+    final rows = await db.query(
+      'daily_achievements',
+      where: 'date = ?',
+      whereArgs: [_dateKey(date)],
+      orderBy: 'actual_amount DESC, created_at ASC',
+    );
+    return rows.map(DailyAchievement.fromMap).toList();
+  }
+
+  Future<DailyAchievement?> getStudentDailyAchievement(
+    String studentId,
+    DateTime date,
+  ) async {
+    final db = await database;
+    final rows = await db.query(
+      'daily_achievements',
+      where: 'student_id = ? AND date = ?',
+      whereArgs: [studentId, _dateKey(date)],
+      limit: 1,
+    );
+    return rows.isEmpty ? null : DailyAchievement.fromMap(rows.first);
+  }
+
+  Future<DailyAchievement> saveDailyAchievement(
+    DailyAchievement achievement,
+  ) async {
+    _validateDailyAchievement(achievement);
+    final db = await database;
+    return db.transaction((txn) async {
+      final studentRows = await txn.query(
+        'students',
+        columns: ['status'],
+        where: 'id = ?',
+        whereArgs: [achievement.studentId],
+        limit: 1,
+      );
+      if (studentRows.isEmpty ||
+          !BehaviorPointPolicy.activeStudentStatuses.contains(
+            studentRows.first['status']?.toString(),
+          )) {
+        throw StateError('لا يمكن تكريم طالب غير نشط');
+      }
+      final existingRows = await txn.query(
+        'daily_achievements',
+        where: 'student_id = ? AND date = ?',
+        whereArgs: [achievement.studentId, _dateKey(achievement.date)],
+        limit: 1,
+      );
+      final saved = existingRows.isEmpty
+          ? achievement
+          : _mergeDailyAchievement(
+              DailyAchievement.fromMap(existingRows.first),
+              achievement,
+            );
+      await txn.insert(
+        'daily_achievements',
+        saved.toMap(),
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+      return saved;
+    });
+  }
+
+  Future<DailyAchievement> awardDailyAchievement({
+    required DailyAchievement achievement,
+    required String rewardType,
+    String? rewardDetails,
+    int rewardPoints = 0,
+  }) async {
+    const validRewards = {'points', 'certificate', 'gift', 'meal', 'other'};
+    if (!validRewards.contains(rewardType)) {
+      throw ArgumentError('نوع المكافأة غير صالح');
+    }
+    if (rewardType == 'points' && rewardPoints < 1) {
+      throw ArgumentError('عدد نقاط المكافأة يجب أن يكون أكبر من صفر');
+    }
+    _validateDailyAchievement(achievement);
+    final db = await database;
+    return db.transaction((txn) async {
+      final studentRows = await txn.query(
+        'students',
+        columns: ['status'],
+        where: 'id = ?',
+        whereArgs: [achievement.studentId],
+        limit: 1,
+      );
+      final studentStatus = studentRows.isEmpty
+          ? 'inactive'
+          : studentRows.first['status']?.toString() ?? 'inactive';
+      if (!BehaviorPointPolicy.activeStudentStatuses.contains(studentStatus)) {
+        throw StateError('لا يمكن مكافأة طالب غير نشط');
+      }
+
+      final existingRows = await txn.query(
+        'daily_achievements',
+        where: 'student_id = ? AND date = ?',
+        whereArgs: [achievement.studentId, _dateKey(achievement.date)],
+        limit: 1,
+      );
+      final base = existingRows.isEmpty
+          ? achievement
+          : _mergeDailyAchievement(
+              DailyAchievement.fromMap(existingRows.first),
+              achievement,
+            );
+      final now = DateTime.now();
+      final pointReason = 'تكريم متميز اليوم ${_dateKey(achievement.date)}';
+      final previousRewardPoints = await txn.query(
+        'behavior_points',
+        where: 'student_id = ? AND reason = ? AND date = ?',
+        whereArgs: [
+          achievement.studentId,
+          pointReason,
+          _dateKey(achievement.date),
+        ],
+      );
+      if (previousRewardPoints.isNotEmpty &&
+          (rewardType != 'points' ||
+              previousRewardPoints.first['points'] != rewardPoints)) {
+        final deletedIds = previousRewardPoints
+            .map((row) => row['id']?.toString())
+            .whereType<String>()
+            .toList();
+        await txn.delete(
+          'behavior_points',
+          where: 'student_id = ? AND reason = ? AND date = ?',
+          whereArgs: [
+            achievement.studentId,
+            pointReason,
+            _dateKey(achievement.date),
+          ],
+        );
+        await _appendDeletedIds(
+          txn,
+          'deleted_behavior_point_ids',
+          deletedIds,
+        );
+      }
+      final saved = base.copyWith(
+        rewardType: rewardType,
+        rewardDetails: rewardDetails?.trim(),
+        rewardPoints: rewardType == 'points' ? rewardPoints : 0,
+        awardedAt: now,
+      );
+      await txn.insert(
+        'daily_achievements',
+        saved.toMap(),
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+
+      if (rewardType == 'points') {
+        final duplicate = await txn.query(
+          'behavior_points',
+          columns: ['id'],
+          where: 'student_id = ? AND reason = ? AND date = ?',
+          whereArgs: [
+            achievement.studentId,
+            pointReason,
+            _dateKey(achievement.date),
+          ],
+          limit: 1,
+        );
+        if (duplicate.isEmpty) {
+          await txn.insert(
+            'behavior_points',
+            BehaviorPoint(
+              studentId: achievement.studentId,
+              type: 'positive',
+              reason: pointReason,
+              points: rewardPoints,
+              date: achievement.date,
+              resolved: true,
+              notes: rewardDetails?.trim().isEmpty == false
+                  ? rewardDetails!.trim()
+                  : achievement.reason,
+            ).toMap(),
+          );
+        }
+      }
+      return saved;
+    });
+  }
+
+  DailyAchievement _mergeDailyAchievement(
+    DailyAchievement existing,
+    DailyAchievement incoming,
+  ) =>
+      DailyAchievement(
+        id: existing.id,
+        studentId: existing.studentId,
+        date: existing.date,
+        source: incoming.isAutomatic ? incoming.source : existing.source,
+        reason: incoming.reason,
+        actualAmount: incoming.actualAmount,
+        planAmount: incoming.planAmount,
+        unit: incoming.unit,
+        rewardType: existing.rewardType,
+        rewardDetails: existing.rewardDetails,
+        rewardPoints: existing.rewardPoints,
+        awardedAt: existing.awardedAt,
+        notes: incoming.notes ?? existing.notes,
+        createdAt: existing.createdAt,
+        updatedAt: DateTime.now(),
+      );
+
+  void _validateDailyAchievement(DailyAchievement achievement) {
+    if (!const {'automatic', 'manual'}.contains(achievement.source) ||
+        !const {'ayahs', 'pages', 'lines'}.contains(achievement.unit) ||
+        achievement.reason.trim().isEmpty ||
+        achievement.actualAmount < 0 ||
+        achievement.planAmount < 0) {
+      throw ArgumentError('بيانات تميز اليوم غير صالحة');
+    }
+  }
+
   Future<void> insertVacation(Vacation vacation) async {
     final db = await database;
     await db.insert('vacations', vacation.toMap());
@@ -1826,12 +2518,15 @@ class DatabaseService {
   }
 
   static const List<String> backupTables = [
+    'families',
+    'family_guardians',
     'students',
     'student_status_history',
     'daily_records',
     'memorization_progress',
     'behavior_points',
     'behavior_point_corrections',
+    'daily_achievements',
     'vacations',
     'student_holds',
     'exams',
@@ -1843,6 +2538,7 @@ class DatabaseService {
     'homework_grades',
     'mushaf_progress',
     'message_templates',
+    'audit_events',
     'settings',
   ];
 
@@ -1881,6 +2577,12 @@ class DatabaseService {
           for (final item in rows) {
             if (item is! Map) continue;
             final row = Map<String, dynamic>.from(item);
+            if ((table == 'memorization_progress' ||
+                    table == 'homework_grades') &&
+                row['updated_at'] == null) {
+              row['updated_at'] = row['created_at'] ??
+                  DateTime.now().toIso8601String();
+            }
             final primaryKey = table == 'message_templates' ? 'type' : 'id';
             final insertedId = await txn.insert(
               table,
@@ -1921,6 +2623,10 @@ class DatabaseService {
       'student_holds',
       'student_status_history',
       'behavior_point_corrections',
+      'daily_achievements',
+      'families',
+      'family_guardians',
+      'audit_events',
     };
     for (final table in backupTables) {
       final rows = rawTables[table];
@@ -1937,6 +2643,8 @@ class DatabaseService {
     await db.transaction((txn) async {
       // Clear existing data (children first, then parents)
       await txn.delete('behavior_point_corrections');
+      await txn.delete('daily_achievements');
+      await txn.delete('family_guardians');
       await txn.delete('student_status_history');
       await txn.delete('daily_records');
       await txn.delete('memorization_progress');
@@ -1952,29 +2660,75 @@ class DatabaseService {
       await txn.delete('homework_grades');
       await txn.delete('mushaf_progress');
       await txn.delete('message_templates');
+      await txn.delete('audit_events');
       await txn.delete('students');
+      await txn.delete('families');
       await txn.delete('settings');
 
       Future<void> insertAll(String table, List<dynamic> rows) async {
         for (final item in rows) {
           if (item is Map) {
+            final row = Map<String, dynamic>.from(item);
+            if ((table == 'memorization_progress' ||
+                    table == 'homework_grades') &&
+                row['updated_at'] == null) {
+              row['updated_at'] = row['created_at'] ??
+                  DateTime.now().toIso8601String();
+            }
             await txn.insert(
               table,
-              Map<String, dynamic>.from(item),
+              row,
               conflictAlgorithm: ConflictAlgorithm.replace,
             );
           }
         }
       }
 
-      // Parents first, then tables that reference students.
+      // Families are parents of both students and guardians.
+      await insertAll('families', tables['families']!);
       await insertAll('students', tables['students']!);
+      await insertAll('family_guardians', tables['family_guardians']!);
       for (final table in backupTables) {
-        if (table == 'students' || table == 'settings') continue;
+        if (table == 'families' ||
+            table == 'family_guardians' ||
+            table == 'students' ||
+            table == 'settings') {
+          continue;
+        }
         await insertAll(table, tables[table]!);
       }
       await insertAll('settings', tables['settings']!);
     });
+  }
+
+  Future<void> saveAuditEvent(AuditEvent event) async {
+    final db = await database;
+    await db.insert(
+      'audit_events',
+      event.toMap(),
+      conflictAlgorithm: ConflictAlgorithm.ignore,
+    );
+  }
+
+  Future<List<AuditEvent>> getAuditEvents({int limit = 200}) async {
+    final db = await database;
+    final rows = await db.query(
+      'audit_events',
+      orderBy: 'created_at DESC',
+      limit: limit.clamp(1, 1000).toInt(),
+    );
+    return rows
+        .map((row) => AuditEvent.fromMap(Map<String, dynamic>.from(row)))
+        .toList();
+  }
+
+  Future<int> deleteAuditEventsBefore(DateTime cutoff) async {
+    final db = await database;
+    return db.delete(
+      'audit_events',
+      where: 'created_at < ?',
+      whereArgs: <Object?>[cutoff.toUtc().toIso8601String()],
+    );
   }
 
   Future<Map<String, dynamic>> getStudentStatistics(String studentId) async {
@@ -2427,6 +3181,7 @@ class DatabaseService {
         is_revision INTEGER DEFAULT 0,
         remark TEXT,
         created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (student_id) REFERENCES students (id) ON DELETE CASCADE
       )
     ''');
@@ -2506,6 +3261,76 @@ class DatabaseService {
   Future<void> deleteHomeworkGrade(String id) async {
     final db = await database;
     await db.delete('homework_grades', where: 'id = ?', whereArgs: [id]);
+  }
+
+  Future<String?> deleteMemorizationProgressFromSync(String id) async {
+    final db = await database;
+    return db.transaction((txn) async {
+      final rows = await txn.query(
+        'memorization_progress',
+        where: 'id = ?',
+        whereArgs: [id],
+        limit: 1,
+      );
+      if (rows.isEmpty) return null;
+      final original = MemorizationProgress.fromMap(rows.first);
+      final previousTrackedCount = await _countTrackedMemorized(
+        txn,
+        original.studentId,
+      );
+      await txn.delete(
+        'memorization_progress',
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+      await _recomputeRecitationState(txn, original.studentId, original.date);
+      await _recomputeStudentMemorizedTotal(
+        txn,
+        original.studentId,
+        previousTrackedCount: previousTrackedCount,
+      );
+      return original.studentId;
+    });
+  }
+
+  Future<void> upsertMemorizationProgressFromSync(
+    MemorizationProgress progress,
+  ) async {
+    _validateMemorizationRange(progress);
+    final db = await database;
+    await db.transaction((txn) async {
+      final existingRows = await txn.query(
+        'memorization_progress',
+        where: 'id = ?',
+        whereArgs: [progress.id],
+        limit: 1,
+      );
+      final existing = existingRows.isEmpty
+          ? null
+          : MemorizationProgress.fromMap(existingRows.first);
+      final previousTrackedCount = await _countTrackedMemorized(
+        txn,
+        progress.studentId,
+      );
+      await txn.insert(
+        'memorization_progress',
+        progress.toMap(),
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+      if (existing != null && _dateKey(existing.date) != _dateKey(progress.date)) {
+        await _recomputeRecitationState(
+          txn,
+          existing.studentId,
+          existing.date,
+        );
+      }
+      await _recomputeRecitationState(txn, progress.studentId, progress.date);
+      await _recomputeStudentMemorizedTotal(
+        txn,
+        progress.studentId,
+        previousTrackedCount: previousTrackedCount,
+      );
+    });
   }
 
   // MushafProgress CRUD methods
@@ -2614,6 +3439,55 @@ class DatabaseService {
     final db = await database;
     final maps = await db.query('behavior_point_corrections');
     return maps.map(BehaviorPointCorrection.fromMap).toList();
+  }
+
+  Future<List<DailyAchievement>> getAllDailyAchievements() async {
+    final db = await database;
+    final maps = await db.query('daily_achievements');
+    return maps.map(DailyAchievement.fromMap).toList();
+  }
+
+  Future<void> upsertDailyAchievementFromSync(
+    DailyAchievement achievement,
+  ) async {
+    _validateDailyAchievement(achievement);
+    final db = await database;
+    await db.transaction((txn) async {
+      final rows = await txn.query(
+        'daily_achievements',
+        where: 'student_id = ? AND date = ?',
+        whereArgs: [achievement.studentId, _dateKey(achievement.date)],
+        limit: 1,
+      );
+      if (rows.isNotEmpty) {
+        final existing = DailyAchievement.fromMap(rows.first);
+        if (!achievement.updatedAt.isAfter(existing.updatedAt)) return;
+        final merged = DailyAchievement(
+          id: existing.id,
+          studentId: achievement.studentId,
+          date: achievement.date,
+          source: achievement.source,
+          reason: achievement.reason,
+          actualAmount: achievement.actualAmount,
+          planAmount: achievement.planAmount,
+          unit: achievement.unit,
+          rewardType: achievement.rewardType,
+          rewardDetails: achievement.rewardDetails,
+          rewardPoints: achievement.rewardPoints,
+          awardedAt: achievement.awardedAt,
+          notes: achievement.notes,
+          createdAt: existing.createdAt,
+          updatedAt: achievement.updatedAt,
+        );
+        await txn.insert(
+          'daily_achievements',
+          merged.toMap(),
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+        return;
+      }
+      await txn.insert('daily_achievements', achievement.toMap());
+    });
   }
 
   Future<List<Exam>> getAllExams() async {

@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'dart:math';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../services/database_service.dart';
@@ -159,7 +158,7 @@ class _StudentRaffleScreenState extends State<StudentRaffleScreen> with SingleTi
             _students.isEmpty
                 ? 'الرجاء إضافة طلاب أولاً لإجراء القرعة!'
                 : 'جميع الطلاب تم استبعادهم، يرجى إعادة تعيين المستبعدين!',
-            style: GoogleFonts.tajawal(fontWeight: FontWeight.bold),
+            style: TextStyle(fontWeight: FontWeight.bold),
           ),
           backgroundColor: Colors.red,
         ),
@@ -302,7 +301,7 @@ class _StudentRaffleScreenState extends State<StudentRaffleScreen> with SingleTi
       appBar: AppBar(
         title: Text(
           'قرعة الطلاب العشوائية',
-          style: GoogleFonts.tajawal(fontWeight: FontWeight.bold),
+          style: TextStyle(fontWeight: FontWeight.bold),
         ),
         actions: [
           IconButton(
@@ -354,7 +353,7 @@ class _StudentRaffleScreenState extends State<StudentRaffleScreen> with SingleTi
                       avatar: const Icon(Icons.person_off_outlined, size: 18),
                       label: Text(
                         'استبعاد الغائبين اليوم (${_absentStudentIds.length})',
-                        style: GoogleFonts.tajawal(fontWeight: FontWeight.bold),
+                        style: TextStyle(fontWeight: FontWeight.bold),
                       ),
                       selected: _excludeAbsent,
                       onSelected: (value) {
@@ -408,7 +407,7 @@ class _StudentRaffleScreenState extends State<StudentRaffleScreen> with SingleTi
                                     icon: const Icon(Icons.menu_book),
                                     label: Text(
                                       'تسميع مباشر',
-                                      style: GoogleFonts.tajawal(fontWeight: FontWeight.bold),
+                                      style: TextStyle(fontWeight: FontWeight.bold),
                                     ),
                                     onPressed: () {
                                       Navigator.push(
@@ -434,7 +433,7 @@ class _StudentRaffleScreenState extends State<StudentRaffleScreen> with SingleTi
                                     icon: const Icon(Icons.person),
                                     label: Text(
                                       'ملف الطالب',
-                                      style: GoogleFonts.tajawal(fontWeight: FontWeight.bold),
+                                      style: TextStyle(fontWeight: FontWeight.bold),
                                     ),
                                     onPressed: () {
                                       Navigator.push(
@@ -456,7 +455,7 @@ class _StudentRaffleScreenState extends State<StudentRaffleScreen> with SingleTi
                               icon: const Icon(Icons.block),
                               label: Text(
                                 'استبعاد من السحبات القادمة مؤقتاً',
-                                style: GoogleFonts.tajawal(fontWeight: FontWeight.bold),
+                                style: TextStyle(fontWeight: FontWeight.bold),
                               ),
                               onPressed: () => _excludeStudent(_selectedStudent!),
                             ),
@@ -496,7 +495,7 @@ class _StudentRaffleScreenState extends State<StudentRaffleScreen> with SingleTi
                               const SizedBox(width: 12),
                               Text(
                                 _isDrawing ? 'جاري السحب العشوائي...' : '🎲 اسحب اسماً عشوائياً',
-                                style: GoogleFonts.tajawal(
+                                style: TextStyle(
                                   fontSize: 18,
                                   fontWeight: FontWeight.bold,
                                   color: Colors.white,
@@ -529,7 +528,7 @@ class _StudentRaffleScreenState extends State<StudentRaffleScreen> with SingleTi
       ),
       child: Text(
         label,
-        style: GoogleFonts.tajawal(
+        style: TextStyle(
           color: color,
           fontSize: 12,
           fontWeight: FontWeight.bold,
@@ -576,7 +575,7 @@ class _StudentRaffleScreenState extends State<StudentRaffleScreen> with SingleTi
             const SizedBox(height: 16),
             Text(
               'من هو طالب اليوم المحظوظ؟',
-              style: GoogleFonts.tajawal(
+              style: TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.bold,
                 color: isDark ? Colors.white : const Color(0xFF1E293B),
@@ -585,7 +584,7 @@ class _StudentRaffleScreenState extends State<StudentRaffleScreen> with SingleTi
             const SizedBox(height: 4),
             Text(
               'اضغط على زر السحب لبدء القرعة العشوائية',
-              style: GoogleFonts.tajawal(
+              style: TextStyle(
                 fontSize: 12,
                 color: Colors.grey,
               ),
@@ -636,7 +635,7 @@ class _StudentRaffleScreenState extends State<StudentRaffleScreen> with SingleTi
                     const SizedBox(width: 4),
                     Text(
                       'تم الاختيار!',
-                      style: GoogleFonts.tajawal(
+                      style: TextStyle(
                         color: Colors.white,
                         fontSize: 10,
                         fontWeight: FontWeight.bold,
@@ -654,7 +653,7 @@ class _StudentRaffleScreenState extends State<StudentRaffleScreen> with SingleTi
                 backgroundColor: _isDrawing ? Colors.teal.withOpacity(0.1) : Colors.amber.withOpacity(0.15),
                 child: Text(
                   _selectedStudent!.name.isNotEmpty ? _selectedStudent!.name[0] : '؟',
-                  style: GoogleFonts.tajawal(
+                  style: TextStyle(
                     color: _isDrawing ? Colors.teal : Colors.amber[800],
                     fontSize: 24,
                     fontWeight: FontWeight.bold,
@@ -667,7 +666,7 @@ class _StudentRaffleScreenState extends State<StudentRaffleScreen> with SingleTi
                 child: Text(
                   _selectedStudent!.name,
                   textAlign: TextAlign.center,
-                  style: GoogleFonts.tajawal(
+                  style: TextStyle(
                     fontSize: 24,
                     fontWeight: FontWeight.bold,
                     color: isDark ? Colors.white : const Color(0xFF0F172A),
@@ -702,7 +701,7 @@ class _StudentRaffleScreenState extends State<StudentRaffleScreen> with SingleTi
             children: [
               Text(
                 'الطلاب المستبعدون مؤقتاً (${_excludedStudents.length})',
-                style: GoogleFonts.tajawal(
+                style: TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.bold,
                   color: isDark ? Colors.grey[300] : Colors.grey[700],
@@ -712,7 +711,7 @@ class _StudentRaffleScreenState extends State<StudentRaffleScreen> with SingleTi
                 onTap: _resetExclusions,
                 child: Text(
                   'إعادة إدراج الجميع',
-                  style: GoogleFonts.tajawal(
+                  style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.bold,
                     color: Colors.teal,
@@ -734,7 +733,7 @@ class _StudentRaffleScreenState extends State<StudentRaffleScreen> with SingleTi
                   child: Chip(
                     label: Text(
                       student.name.split(' ')[0], // Show first name only
-                      style: GoogleFonts.tajawal(fontSize: 11),
+                      style: TextStyle(fontSize: 11),
                     ),
                     deleteIcon: const Icon(Icons.close, size: 12),
                     onDeleted: () => _includeStudent(student),

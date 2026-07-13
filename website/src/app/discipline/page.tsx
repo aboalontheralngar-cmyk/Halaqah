@@ -4,17 +4,13 @@ import { useState, useMemo } from "react";
 import {
   AlertTriangle,
   TrendingDown,
-  Users,
-  Calendar,
   Clock,
   MessageSquare,
   Send,
   X,
-  Filter,
   CheckCircle,
   XCircle,
   AlertCircle,
-  User,
   Smartphone,
 } from "lucide-react";
 import { useStore } from "@/store/useStore";
@@ -30,7 +26,7 @@ interface DisciplineAlert {
 }
 
 export default function DisciplinePage() {
-  const { students, attendance, vacations, points } = useStore();
+  const { students, attendance, points } = useStore();
 
   // حساب تنبيهات الانضباط
   const disciplineAlerts = useMemo(() => {

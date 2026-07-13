@@ -127,7 +127,7 @@ export function buildMonthlyReportMessage(input: MonthlyReportInput): string {
 
 /** ينظّف رقم الهاتف لصيغة دولية صالحة لرابط wa.me */
 export function normalizePhoneForWhatsApp(phone: string, defaultCountryCode = "966"): string {
-  let p = (phone || "").replace(/[^\d+]/g, "");
+  const p = (phone || "").replace(/[^\d+]/g, "");
   if (p.startsWith("+")) return p.slice(1);
   if (p.startsWith("00")) return p.slice(2);
   if (p.startsWith("0")) return defaultCountryCode + p.slice(1);

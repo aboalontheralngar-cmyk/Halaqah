@@ -12,6 +12,7 @@ class HomeworkGrade {
   final bool isRevision;
   final String? remark;
   final DateTime createdAt;
+  final DateTime updatedAt;
 
   HomeworkGrade({
     String? id,
@@ -25,8 +26,10 @@ class HomeworkGrade {
     this.isRevision = false,
     this.remark,
     DateTime? createdAt,
+    DateTime? updatedAt,
   })  : id = id ?? const Uuid().v4(),
-        createdAt = createdAt ?? DateTime.now();
+        createdAt = createdAt ?? DateTime.now(),
+        updatedAt = updatedAt ?? createdAt ?? DateTime.now();
 
   int get ayahCount => toAyah - fromAyah + 1;
 
@@ -42,6 +45,7 @@ class HomeworkGrade {
         'is_revision': isRevision ? 1 : 0,
         'remark': remark,
         'created_at': createdAt.toIso8601String(),
+        'updated_at': updatedAt.toIso8601String(),
       };
 
   factory HomeworkGrade.fromMap(Map<String, dynamic> map) => HomeworkGrade(
@@ -56,6 +60,8 @@ class HomeworkGrade {
         isRevision: map['is_revision'] == 1,
         remark: map['remark'],
         createdAt: DateTime.parse(map['created_at']),
+        updatedAt: DateTime.tryParse(map['updated_at']?.toString() ?? '') ??
+            DateTime.parse(map['created_at']),
       );
 
   // Helper translations for UI representation

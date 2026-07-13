@@ -7,14 +7,7 @@ import {
   Lock, 
   ArrowRight, 
   BookOpen, 
-  Sparkles, 
-  UserPlus, 
-  Building2,
-  CheckCircle2,
   Loader2,
-  ShieldCheck,
-  Users,
-  VenetianMask,
   Eye,
   EyeOff
 } from "lucide-react";
@@ -26,7 +19,7 @@ export default function AuthPage() {
   const [isLogin, setIsLogin] = useState(true);
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const { setCenterType, setUser } = useStore();
+  const { setUser } = useStore();
 
   const [formData, setFormData] = useState({
     email: "",
@@ -76,8 +69,8 @@ export default function AuthPage() {
           router.push("/onboarding");
         }
       }
-    } catch (error: any) {
-      alert(error.message || "حدث خطأ أثناء المصادقة");
+    } catch (error: unknown) {
+      alert(error instanceof Error ? error.message : "حدث خطأ أثناء المصادقة");
     } finally {
       setLoading(false);
     }

@@ -11,6 +11,7 @@ class MemorizationProgress {
   final bool isRevision;
   String? notes;
   DateTime createdAt;
+  DateTime updatedAt;
 
   MemorizationProgress({
     String? id,
@@ -23,8 +24,10 @@ class MemorizationProgress {
     this.isRevision = false,
     this.notes,
     DateTime? createdAt,
+    DateTime? updatedAt,
   })  : id = id ?? const Uuid().v4(),
-        createdAt = createdAt ?? DateTime.now();
+        createdAt = createdAt ?? DateTime.now(),
+        updatedAt = updatedAt ?? createdAt ?? DateTime.now();
 
   int get ayahCount => toAyah - fromAyah + 1;
 
@@ -39,6 +42,7 @@ class MemorizationProgress {
         'is_revision': isRevision ? 1 : 0,
         'notes': notes,
         'created_at': createdAt.toIso8601String(),
+        'updated_at': updatedAt.toIso8601String(),
       };
 
   factory MemorizationProgress.fromMap(Map<String, dynamic> map) =>
@@ -53,6 +57,8 @@ class MemorizationProgress {
         isRevision: map['is_revision'] == 1,
         notes: map['notes'],
         createdAt: DateTime.parse(map['created_at']),
+        updatedAt: DateTime.tryParse(map['updated_at']?.toString() ?? '') ??
+            DateTime.parse(map['created_at']),
       );
 
   MemorizationProgress copyWith({
@@ -76,6 +82,7 @@ class MemorizationProgress {
       isRevision: isRevision ?? this.isRevision,
       notes: clearNotes ? null : (notes ?? this.notes),
       createdAt: createdAt,
+      updatedAt: DateTime.now(),
     );
   }
 }

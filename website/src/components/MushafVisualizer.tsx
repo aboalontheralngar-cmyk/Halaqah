@@ -1,14 +1,16 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { X, RefreshCw, Bookmark, Calendar, Check, Info } from "lucide-react";
+import { X, RefreshCw, Bookmark, Calendar, Info } from "lucide-react";
 import { useStore, Student, MushafProgress } from "@/store/useStore";
-import { quranService } from "@/services/quranService";
+import { quranService, type Ayah } from "@/services/quranService";
 
 interface MushafVisualizerProps {
   student: Student;
   onClose: () => void;
 }
+
+type AyahWithSurah = Ayah & { surahNumber: number; surahName: string };
 
 export default function MushafVisualizer({ student, onClose }: MushafVisualizerProps) {
   const { mushafProgress, fetchMushafProgress, togglePreMemorized } = useStore();
@@ -56,7 +58,7 @@ export default function MushafVisualizer({ student, onClose }: MushafVisualizerP
     const { hizb, thumun } = selectedThumun;
     const quarterInHizb = Math.floor((thumun - 1) / 2) + 1;
     const surahs = quranService.getSurahs();
-    const matchingAyahs: any[] = [];
+    const matchingAyahs: AyahWithSurah[] = [];
     
     for (const surah of surahs) {
       for (const ayah of surah.ayahs) {
@@ -303,7 +305,7 @@ export default function MushafVisualizer({ student, onClose }: MushafVisualizerP
                     <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-850 rounded-2xl">
                       <div className="space-y-0.5">
                         <span className="text-xs font-black text-gray-900 dark:text-white">حفظ مسبق</span>
-                        <p className="text-[10px] text-gray-400 font-medium">تحديد كـ "محفوظ مسبقاً" دون خوض جلسة تسميع.</p>
+                        <p className="text-[10px] text-gray-400 font-medium">تحديده «محفوظًا مسبقًا» دون خوض جلسة تسميع.</p>
                       </div>
                       <button
                         type="button"

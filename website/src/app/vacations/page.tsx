@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from "react";
 import { Palmtree, Plus, Trash2, CheckCircle, Clock, X, CalendarRange, Pencil } from "lucide-react";
-import { useStore } from "@/store/useStore";
+import { useStore, type Vacation } from "@/store/useStore";
 import { supabase } from "@/lib/supabase";
 import { getHijriDate } from "@/utils/dateUtils";
 
@@ -76,7 +76,7 @@ export default function VacationsPage() {
     setForm({ studentId: "", startDate: "", endDate: "", reason: "" });
   };
 
-  const handleEdit = (vacation: any) => {
+  const handleEdit = (vacation: Vacation) => {
     setEditingId(vacation.id);
     setForm({
       studentId: vacation.studentId,

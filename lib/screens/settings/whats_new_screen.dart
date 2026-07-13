@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 class WhatsNewScreen extends StatelessWidget {
   const WhatsNewScreen({super.key});
@@ -12,7 +11,7 @@ class WhatsNewScreen extends StatelessWidget {
       appBar: AppBar(
         title: Text(
           'سجل التحديثات والميزات',
-          style: GoogleFonts.tajawal(fontWeight: FontWeight.bold),
+          style: TextStyle(fontWeight: FontWeight.bold),
         ),
       ),
       body: Column(
@@ -28,7 +27,7 @@ class WhatsNewScreen extends StatelessWidget {
                       const SizedBox(height: 12),
                       Text(
                         'دليل ميزات تطبيق حلقتي',
-                        style: GoogleFonts.tajawal(
+                        style: TextStyle(
                           fontSize: 20,
                           fontWeight: FontWeight.bold,
                         ),
@@ -37,7 +36,7 @@ class WhatsNewScreen extends StatelessWidget {
                       Text(
                         'عرض جميع الميزات المضافة للتطبيق من البداية وحتى اليوم مرتبة زمنياً',
                         textAlign: TextAlign.center,
-                        style: GoogleFonts.tajawal(
+                        style: TextStyle(
                           color: isDark ? Colors.grey[400] : Colors.grey[600],
                           fontSize: 13,
                         ),
@@ -64,7 +63,7 @@ class WhatsNewScreen extends StatelessWidget {
                 onPressed: () => Navigator.pop(context),
                 child: Text(
                   'حسناً، فهمت',
-                  style: GoogleFonts.tajawal(
+                  style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
                   ),
@@ -267,8 +266,8 @@ class WhatsNewScreen extends StatelessWidget {
           ),
           FeatureItem(
             icon: Icons.exit_to_app_outlined,
-            title: 'رسالة تأكيد خروج داكنة وفاخرة',
-            description: 'حماية المستخدم من الخروج غير المقصود عبر اعتراض زر الرجوع الخاص بالنظام وعرض نافذة تأكيد خروج بخط Cairo وتنسيق RTL متكامل.',
+            title: 'رسالة تأكيد خروج آمنة',
+            description: 'حماية المستخدم من الخروج غير المقصود عبر اعتراض زر الرجوع وعرض نافذة تأكيد متوافقة مع الثيم والاتجاه العربي.',
           ),
         ],
       ),
@@ -294,14 +293,38 @@ class WhatsNewScreen extends StatelessWidget {
           ),
         ],
       ),
+      const ReleaseVersion(
+        version: 'v3.7.0-alpha',
+        title: 'الهوية الموحدة وخفة الواجهات',
+        color: Color(0xFF1F6B5D),
+        features: [
+          FeatureItem(
+            icon: Icons.font_download_outlined,
+            title: 'خط Tajawal موحد ومحلي',
+            description: 'توحيد نصوص وأرقام الواجهة بأربعة أوزان مضمنة تعمل دون تنزيل الخط من الإنترنت.',
+          ),
+          FeatureItem(
+            icon: Icons.palette_outlined,
+            title: 'هوية قرآنية هادئة',
+            description: 'أخضر عميق وعاجي دافئ وذهبي خافت، مع بطاقات وحدود ومسافات أخف ووضع داكن متوازن.',
+          ),
+          FeatureItem(
+            icon: Icons.security_outlined,
+            title: 'Safe Area مركزية',
+            description: 'حماية جميع الشاشات والحوارات والنوافذ السفلية من أزرار Android ومنطقة التنقل بالإيماءات.',
+          ),
+          FeatureItem(
+            icon: Icons.view_compact_alt_outlined,
+            title: 'تنقل أبسط وأوضح',
+            description: 'توحيد القوائم وأشرطة التنقل والحقول والأزرار وإزالة المؤثرات الثقيلة أو المضللة.',
+          ),
+        ],
+      ),
     ];
 
     return releases.map((release) {
       return Card(
         margin: const EdgeInsets.only(bottom: 20),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        elevation: isDark ? 2 : 1,
-        color: isDark ? const Color(0xFF1E293B) : Colors.white,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -326,7 +349,7 @@ class WhatsNewScreen extends StatelessWidget {
                     ),
                     child: Text(
                       release.version,
-                      style: GoogleFonts.outfit(
+                      style: TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.bold,
                         fontSize: 12,
@@ -337,10 +360,10 @@ class WhatsNewScreen extends StatelessWidget {
                   Expanded(
                     child: Text(
                       release.title,
-                      style: GoogleFonts.tajawal(
+                      style: TextStyle(
                         fontWeight: FontWeight.bold,
                         fontSize: 15,
-                        color: isDark ? Colors.white : const Color(0xFF1E293B),
+                        color: Theme.of(context).colorScheme.onSurface,
                       ),
                     ),
                   ),
@@ -372,16 +395,16 @@ class WhatsNewScreen extends StatelessWidget {
                             children: [
                               Text(
                                 feature.title,
-                                style: GoogleFonts.tajawal(
+                                style: TextStyle(
                                   fontWeight: FontWeight.bold,
                                   fontSize: 13,
-                                  color: isDark ? Colors.grey[200] : const Color(0xFF334155),
+                                  color: Theme.of(context).colorScheme.onSurface,
                                 ),
                               ),
                               const SizedBox(height: 4),
                               Text(
                                 feature.description,
-                                style: GoogleFonts.tajawal(
+                                style: TextStyle(
                                   color: isDark ? Colors.grey[400] : Colors.grey[600],
                                   fontSize: 12,
                                   height: 1.5,

@@ -49,7 +49,9 @@ ALTER TABLE center_members
 ALTER TABLE memorization
   ADD COLUMN IF NOT EXISTS session_type TEXT
     CHECK (session_type IN ('new', 'review')) DEFAULT 'new',
-  ADD COLUMN IF NOT EXISTS lines_count INTEGER;
+  ADD COLUMN IF NOT EXISTS lines_count INTEGER,
+  ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP WITH TIME ZONE;
 
 -- ---------------------------------------------------------------------
 -- 2) صندوق الحلقة (المالية)
@@ -209,6 +211,7 @@ CREATE TABLE IF NOT EXISTS exam_questions (
     template_id UUID REFERENCES exam_templates(id) ON DELETE CASCADE,
     question_order INTEGER NOT NULL,
     surah INTEGER NOT NULL,
+    to_surah INTEGER NOT NULL,
     from_ayah INTEGER NOT NULL,
     to_ayah INTEGER NOT NULL,
     question_type TEXT CHECK (question_type IN (
@@ -216,7 +219,19 @@ CREATE TABLE IF NOT EXISTS exam_questions (
       'complete_ayah',   -- أكمل الآية
       'ayah_location'    -- أين توجد هذه الآية
     )) DEFAULT 'recite_from',
+    prompt_text TEXT,
     answer_text TEXT,    -- الجواب (للامتحان الأوفلاين المطبوع)
+    page INTEGER,
+    juz INTEGER,
+    hizb INTEGER,
+    difficulty INTEGER NOT NULL DEFAULT 0,
+    lines NUMERIC NOT NULL DEFAULT 0,
+    is_assessed BOOLEAN NOT NULL DEFAULT FALSE,
+    memorization_errors INTEGER NOT NULL DEFAULT 0 CHECK (memorization_errors >= 0),
+    tashkeel_errors INTEGER NOT NULL DEFAULT 0 CHECK (tashkeel_errors >= 0),
+    recitation_errors INTEGER NOT NULL DEFAULT 0 CHECK (recitation_errors >= 0),
+    prompt_count INTEGER NOT NULL DEFAULT 0 CHECK (prompt_count >= 0),
+    question_score NUMERIC(5, 2) NOT NULL DEFAULT 0 CHECK (question_score BETWEEN 0 AND 10),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
@@ -282,7 +297,9 @@ CREATE TABLE IF NOT EXISTS homework_grades (
     mistakes_count INTEGER DEFAULT 0,
     is_revision BOOLEAN DEFAULT FALSE,
     remark TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    deleted_at TIMESTAMP WITH TIME ZONE
 );
 
 CREATE TABLE IF NOT EXISTS mushaf_progress (

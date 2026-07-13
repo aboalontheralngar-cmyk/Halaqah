@@ -12,8 +12,12 @@ import '../models/exam.dart';
 import '../models/fund_transaction.dart';
 import '../models/plan.dart';
 import '../models/notification_log.dart';
+import '../models/daily_achievement.dart';
+import '../models/family.dart';
+import '../models/family_guardian.dart';
 import 'backup_service.dart';
 import 'database_service.dart';
+import 'mushaf_service.dart';
 import 'quran_service.dart';
 
 class SupabaseService {
@@ -23,6 +27,7 @@ class SupabaseService {
 
   SupabaseClient get client => Supabase.instance.client;
   final DatabaseService _db = DatabaseService();
+  final MushafService _mushaf = MushafService();
 
   static Future<void> initialize() async {
     await Supabase.initialize(
@@ -235,13 +240,15 @@ class SupabaseService {
       }
       await _db.saveSetting('setup_completed', 'true');
 
+      await _syncFamilies(centerId, halaqahId);
       await _syncStudents(centerId, halaqahId);
       await _syncHomeworkGrades(centerId, halaqahId);
       await _syncAttendance(centerId, halaqahId);
+      await _syncMemorizationProgress(centerId, halaqahId);
       await _syncMushafProgress(centerId, halaqahId);
-      await _syncMemorizationProgress(centerId);
       await _syncBehaviorPoints(centerId, halaqahId);
       await _syncBehaviorPointCorrections(centerId, halaqahId);
+      await _syncDailyAchievements(centerId, halaqahId);
       await _syncVacations(centerId);
       await _syncStudentHolds(centerId, halaqahId);
       await _syncExams(centerId);
@@ -272,6 +279,91 @@ class SupabaseService {
     }
   }
 
+  Future<void> _syncFamilies(String centerId, String halaqId) async {
+    try {
+      await _syncDeletedRows(
+        table: 'family_guardians',
+        settingKey: 'deleted_family_guardian_ids',
+      );
+      await _syncDeletedRows(
+        table: 'families',
+        settingKey: 'deleted_family_ids',
+      );
+
+      final localFamilies = await _db.getFamilies();
+      if (localFamilies.isNotEmpty) {
+        await client.from('families').upsert(
+              localFamilies
+                  .map((family) => {
+                        'id': family.id,
+                        'center_id': centerId,
+                        'halaqa_id': halaqId,
+                        'name': family.name,
+                        'reference_name': family.referenceName,
+                        'notes': family.notes,
+                        'created_at': family.createdAt.toIso8601String(),
+                        'updated_at': family.updatedAt.toIso8601String(),
+                      })
+                  .toList(),
+            );
+      }
+
+      for (final family in localFamilies) {
+        final guardians = await _db.getFamilyGuardians(family.id);
+        if (guardians.isEmpty) continue;
+        final nonPrimary = guardians.where((item) => !item.isPrimary).toList();
+        final primary = guardians.where((item) => item.isPrimary).toList();
+        for (final group in [nonPrimary, primary]) {
+          if (group.isEmpty) continue;
+          await client.from('family_guardians').upsert(
+              group
+                  .map((guardian) => {
+                        'id': guardian.id,
+                        'family_id': guardian.familyId,
+                        'center_id': centerId,
+                        'halaqa_id': halaqId,
+                        'name': guardian.name,
+                        'phone': guardian.phone,
+                        'email': guardian.email,
+                        'relationship': guardian.relationship,
+                        'is_primary': guardian.isPrimary,
+                        'notes': guardian.notes,
+                        'created_at': guardian.createdAt.toIso8601String(),
+                        'updated_at': guardian.updatedAt.toIso8601String(),
+                  })
+                  .toList(),
+          );
+        }
+      }
+
+      final remoteFamilies = await client
+          .from('families')
+          .select()
+          .eq('halaqa_id', halaqId);
+      for (final remote in remoteFamilies as List<dynamic>) {
+        await _db.saveFamily(Family.fromMap(Map<String, dynamic>.from(remote)));
+      }
+
+      final remoteGuardians = await client
+          .from('family_guardians')
+          .select()
+          .eq('halaqa_id', halaqId);
+      for (final remote in remoteGuardians as List<dynamic>) {
+        await _db.saveFamilyGuardian(
+          FamilyGuardian.fromMap(Map<String, dynamic>.from(remote)),
+        );
+      }
+    } on PostgrestException catch (error) {
+      if (error.code == 'PGRST205' ||
+          error.code == '42P01' ||
+          error.code == '42703') {
+        print('Family sync skipped until P5.4 migration is applied.');
+        return;
+      }
+      rethrow;
+    }
+  }
+
   // Sync Students: Push local changes, Pull remote changes
   Future<void> _syncStudents(String centerId, String halaqahId) async {
     // 1. Fetch local students
@@ -287,6 +379,7 @@ class SupabaseService {
         'name': student.name,
         'phone': student.phone,
         'parent_phone': student.guardianPhone,
+        'family_id': student.familyId,
         'qr_code': student.qrCode,
         'plan_type': student.planType,
         'plan_amount': student.planAmount,
@@ -322,6 +415,7 @@ class SupabaseService {
           'pre_memorized_start_ayah',
           'pre_memorized_end_surah',
           'pre_memorized_end_ayah',
+          'family_id',
         };
         final legacyChunk = chunk
             .map((row) => Map<String, dynamic>.from(row)
@@ -352,6 +446,7 @@ class SupabaseService {
         name: remote['name'],
         phone: remote['phone'] ?? existing?.phone ?? '',
         guardianPhone: remote['parent_phone'] ?? existing?.guardianPhone ?? '',
+        familyId: remote['family_id']?.toString() ?? existing?.familyId,
         qrCode: remote['qr_code'] ?? existing?.qrCode ?? remote['id'],
         planType: remote['plan_type'] ?? existing?.planType ?? 'ayahs',
         planAmount: (remote['plan_amount'] as num?)?.toInt() ?? existing?.planAmount ?? 5,
@@ -396,19 +491,38 @@ class SupabaseService {
       table: 'homework_grades',
       settingKey: 'deleted_homework_grade_ids',
     );
-    // 1. Fetch local grades
-    final localGrades = await _db.getAllHomeworkGrades();
+    final beforeResponse = await client
+        .from('homework_grades')
+        .select()
+        .eq('halaqa_id', halaqahId);
+    final beforeRows = List<Map<String, dynamic>>.from(
+      beforeResponse as List<dynamic>,
+    );
+    final deletedIds = beforeRows
+        .where((row) => row['deleted_at'] != null)
+        .map((row) => row['id'].toString())
+        .toSet();
+    for (final id in deletedIds) {
+      await _db.deleteHomeworkGrade(id);
+    }
 
-    // 2. Upload/Upsert to Supabase
-    final List<Map<String, dynamic>> gradesPayload = [];
-    for (final grade in localGrades) {
-      final surahName = QuranService.instance.getSurahName(grade.surahId);
-      gradesPayload.add({
+    final remoteActive = <String, HomeworkGrade>{};
+    for (final row in beforeRows.where((row) => row['deleted_at'] == null)) {
+      final grade = _homeworkGradeFromRemote(row);
+      remoteActive[grade.id] = grade;
+    }
+
+    final payload = <Map<String, dynamic>>[];
+    for (final grade in await _db.getAllHomeworkGrades()) {
+      if (deletedIds.contains(grade.id)) continue;
+      final remote = remoteActive[grade.id];
+      if (remote != null && !grade.updatedAt.isAfter(remote.updatedAt)) continue;
+      payload.add({
         'id': grade.id,
         'student_id': grade.studentId,
         'center_id': centerId,
         'halaqa_id': halaqahId,
-        'surah': surahName,
+        'surah': QuranService.instance.getSurahName(grade.surahId),
         'from_ayah': grade.fromAyah,
         'to_ayah': grade.toAyah,
         'date': grade.date.toIso8601String().split('T')[0],
@@ -417,51 +531,49 @@ class SupabaseService {
         'is_revision': grade.isRevision,
         'remark': grade.remark,
         'created_at': grade.createdAt.toIso8601String(),
+        'updated_at': grade.updatedAt.toIso8601String(),
       });
     }
-    for (var i = 0; i < gradesPayload.length; i += 500) {
-      final chunk = gradesPayload.sublist(i, i + 500 > gradesPayload.length ? gradesPayload.length : i + 500);
-      await client.from('homework_grades').upsert(chunk);
+    for (var i = 0; i < payload.length; i += 500) {
+      final end = i + 500 > payload.length ? payload.length : i + 500;
+      await client.from('homework_grades').upsert(payload.sublist(i, end));
     }
 
-    // 3. Download latest from Supabase
-    final response = await client
+    final finalResponse = await client
         .from('homework_grades')
         .select()
         .eq('halaqa_id', halaqahId);
-
-    final List<dynamic> remoteGrades = response as List<dynamic>;
-    final surahs = QuranService.instance.surahs;
-
-    for (final remote in remoteGrades) {
-      // Find surah ID from name
-      int surahId = 1;
-      final match = surahs.where((s) => s.name == remote['surah']);
-      if (match.isNotEmpty) {
-        surahId = match.first.number;
-      }
-
-      final localGrade = HomeworkGrade(
-        id: remote['id'],
-        studentId: remote['student_id'],
-        surahId: surahId,
-        fromAyah: remote['from_ayah'],
-        toAyah: remote['to_ayah'],
-        date: DateTime.parse(remote['date']),
-        gradeMark: remote['grade_mark'],
-        mistakesCount: remote['mistakes_count'] ?? 0,
-        isRevision: remote['is_revision'] ?? false,
-        remark: remote['remark'],
-        createdAt: DateTime.parse(remote['created_at']),
-      );
-
-      // Check if exists locally
-      final localList = await _db.getStudentHomeworkGrades(localGrade.studentId);
-      final exists = localList.any((g) => g.id == localGrade.id);
-      if (!exists) {
-        await _db.insertHomeworkGrade(localGrade);
+    for (final row in List<Map<String, dynamic>>.from(
+      finalResponse as List<dynamic>,
+    )) {
+      if (row['deleted_at'] != null) {
+        await _db.deleteHomeworkGrade(row['id'].toString());
+      } else {
+        await _db.insertHomeworkGrade(_homeworkGradeFromRemote(row));
       }
     }
+  }
+
+  HomeworkGrade _homeworkGradeFromRemote(Map<String, dynamic> remote) {
+    final surah = QuranService.instance.surahs.where(
+      (item) => item.name == remote['surah'],
+    );
+    final createdAt = DateTime.parse(remote['created_at']);
+    return HomeworkGrade(
+      id: remote['id'],
+      studentId: remote['student_id'],
+      surahId: surah.isEmpty ? 1 : surah.first.number,
+      fromAyah: remote['from_ayah'],
+      toAyah: remote['to_ayah'],
+      date: DateTime.parse(remote['date']),
+      gradeMark: remote['grade_mark'],
+      mistakesCount: remote['mistakes_count'] ?? 0,
+      isRevision: remote['is_revision'] ?? false,
+      remark: remote['remark'],
+      createdAt: createdAt,
+      updatedAt: DateTime.tryParse(remote['updated_at']?.toString() ?? '') ??
+          createdAt,
+    );
   }
 
   // Sync Attendance: Push local, Pull remote
@@ -663,33 +775,110 @@ class SupabaseService {
     return '${hex.substring(0, 8)}-${hex.substring(8, 12)}-${hex.substring(12, 16)}-${hex.substring(16, 20)}-${hex.substring(20, 32)}';
   }
 
-  Future<void> _syncMemorizationProgress(String centerId) async {
+  Future<void> _syncMemorizationProgress(
+    String centerId,
+    String halaqahId,
+  ) async {
     await _syncDeletedRows(
       table: 'memorization',
       settingKey: 'deleted_memorization_progress_ids',
     );
-    final localData = await _db.getAllMemorizationProgress();
-    if (localData.isEmpty) return;
-    final payload = localData.map((e) => {
-      'id': e.id,
-      'student_id': e.studentId,
-      'center_id': centerId,
-      'surah': QuranService.instance.getSurahName(e.surahId),
-      'from_ayah': e.fromAyah,
-      'to_ayah': e.toAyah,
-      'degree': e.qualityRating,
-      'session_type': e.isRevision ? 'review' : 'new',
-      'date': e.date.toIso8601String().split('T')[0],
-      'notes': e.notes,
-    }).toList();
-    for (var i = 0; i < payload.length; i += 100) {
-      final chunk = payload.sublist(i, i + 100 > payload.length ? payload.length : i + 100);
-      try {
-        await client.from('memorization').upsert(chunk);
-      } catch (e) {
-        print('Error syncing memorization chunk: $e');
-      }
+    final beforeResponse = await client
+        .from('memorization')
+        .select()
+        .eq('center_id', centerId)
+        .eq('halaqa_id', halaqahId);
+    final beforeRows = List<Map<String, dynamic>>.from(
+      beforeResponse as List<dynamic>,
+    );
+    final deletedIds = beforeRows
+        .where((row) => row['deleted_at'] != null)
+        .map((row) => row['id'].toString())
+        .toSet();
+    final affectedStudents = <String>{};
+    for (final id in deletedIds) {
+      final studentId = await _db.deleteMemorizationProgressFromSync(id);
+      if (studentId != null) affectedStudents.add(studentId);
     }
+
+    final remoteActive = <String, MemorizationProgress>{};
+    for (final row in beforeRows.where((row) => row['deleted_at'] == null)) {
+      final progress = _memorizationProgressFromRemote(row);
+      remoteActive[progress.id] = progress;
+    }
+    final payload = <Map<String, dynamic>>[];
+    for (final progress in await _db.getAllMemorizationProgress()) {
+      if (deletedIds.contains(progress.id)) continue;
+      final remote = remoteActive[progress.id];
+      if (remote != null && !progress.updatedAt.isAfter(remote.updatedAt)) {
+        continue;
+      }
+      payload.add({
+        'id': progress.id,
+        'student_id': progress.studentId,
+        'center_id': centerId,
+        'halaqa_id': halaqahId,
+        'surah': QuranService.instance.getSurahName(progress.surahId),
+        'from_ayah': progress.fromAyah,
+        'to_ayah': progress.toAyah,
+        'degree': progress.qualityRating,
+        'session_type': progress.isRevision ? 'review' : 'new',
+        'date': progress.date.toIso8601String().split('T')[0],
+        'notes': progress.notes,
+        'created_at': progress.createdAt.toIso8601String(),
+        'updated_at': progress.updatedAt.toIso8601String(),
+      });
+    }
+    for (var i = 0; i < payload.length; i += 100) {
+      final end = i + 100 > payload.length ? payload.length : i + 100;
+      await client.from('memorization').upsert(payload.sublist(i, end));
+    }
+
+    final finalResponse = await client
+        .from('memorization')
+        .select()
+        .eq('center_id', centerId)
+        .eq('halaqa_id', halaqahId);
+    for (final row in List<Map<String, dynamic>>.from(
+      finalResponse as List<dynamic>,
+    )) {
+      if (row['deleted_at'] != null) {
+        final studentId = await _db.deleteMemorizationProgressFromSync(
+          row['id'].toString(),
+        );
+        if (studentId != null) affectedStudents.add(studentId);
+        continue;
+      }
+      final progress = _memorizationProgressFromRemote(row);
+      await _db.upsertMemorizationProgressFromSync(progress);
+      affectedStudents.add(progress.studentId);
+    }
+    for (final studentId in affectedStudents) {
+      await _mushaf.rebuildStudentProgress(studentId);
+    }
+  }
+
+  MemorizationProgress _memorizationProgressFromRemote(
+    Map<String, dynamic> remote,
+  ) {
+    final surah = QuranService.instance.surahs.where(
+      (item) => item.name == remote['surah'],
+    );
+    final createdAt = DateTime.parse(remote['created_at']);
+    return MemorizationProgress(
+      id: remote['id'],
+      studentId: remote['student_id'],
+      surahId: surah.isEmpty ? 1 : surah.first.number,
+      fromAyah: remote['from_ayah'],
+      toAyah: remote['to_ayah'],
+      date: DateTime.parse(remote['date']),
+      qualityRating: remote['degree'] ?? 3,
+      isRevision: remote['session_type'] == 'review',
+      notes: remote['notes'],
+      createdAt: createdAt,
+      updatedAt: DateTime.tryParse(remote['updated_at']?.toString() ?? '') ??
+          createdAt,
+    );
   }
 
   Future<void> _syncDeletedRows({
@@ -775,6 +964,84 @@ class SupabaseService {
       } catch (error) {
         print('Error syncing behavior corrections: $error');
       }
+    }
+  }
+
+  Future<void> _syncDailyAchievements(
+    String centerId,
+    String halaqahId,
+  ) async {
+    final localData = await _db.getAllDailyAchievements();
+    if (localData.isNotEmpty) {
+      final payload = localData
+          .map((achievement) => {
+                'id': achievement.id,
+                'student_id': achievement.studentId,
+                'center_id': centerId,
+                'halaqa_id': halaqahId,
+                'date': achievement.date.toIso8601String().split('T')[0],
+                'source': achievement.source,
+                'reason': achievement.reason,
+                'actual_amount': achievement.actualAmount,
+                'plan_amount': achievement.planAmount,
+                'unit': achievement.unit,
+                'reward_type': achievement.rewardType,
+                'reward_details': achievement.rewardDetails,
+                'reward_points': achievement.rewardPoints,
+                'awarded_at': achievement.awardedAt?.toIso8601String(),
+                'notes': achievement.notes,
+                'created_at': achievement.createdAt.toIso8601String(),
+                'updated_at': achievement.updatedAt.toIso8601String(),
+              })
+          .toList();
+      try {
+        await client.from('daily_achievements').upsert(
+              payload,
+              onConflict: 'student_id,date',
+            );
+      } catch (error) {
+        print('Error pushing daily achievements: $error');
+      }
+    }
+
+    try {
+      final remoteRows = await client
+          .from('daily_achievements')
+          .select('*')
+          .eq('center_id', centerId)
+          .eq('halaqa_id', halaqahId);
+      for (final remote in List<Map<String, dynamic>>.from(remoteRows)) {
+        await _db.upsertDailyAchievementFromSync(
+          DailyAchievement(
+            id: remote['id'],
+            studentId: remote['student_id'],
+            date: DateTime.parse(remote['date']),
+            source: remote['source'] ?? 'manual',
+            reason: remote['reason'] ?? 'تميز يومي',
+            actualAmount:
+                (remote['actual_amount'] as num?)?.toDouble() ?? 0,
+            planAmount: (remote['plan_amount'] as num?)?.toDouble() ?? 0,
+            unit: remote['unit'] ?? 'ayahs',
+            rewardType: remote['reward_type'],
+            rewardDetails: remote['reward_details'],
+            rewardPoints: (remote['reward_points'] as num?)?.toInt() ?? 0,
+            awardedAt: DateTime.tryParse(
+              remote['awarded_at']?.toString() ?? '',
+            ),
+            notes: remote['notes'],
+            createdAt: DateTime.tryParse(
+                  remote['created_at']?.toString() ?? '',
+                ) ??
+                DateTime.now(),
+            updatedAt: DateTime.tryParse(
+                  remote['updated_at']?.toString() ?? '',
+                ) ??
+                DateTime.now(),
+          ),
+        );
+      }
+    } catch (error) {
+      print('Error pulling daily achievements: $error');
     }
   }
 
@@ -908,6 +1175,7 @@ class SupabaseService {
           'template_id': template.id,
           'question_order': question.questionOrder,
           'surah': question.surahId,
+          'to_surah': question.toSurahId,
           'from_ayah': question.fromAyah,
           'to_ayah': question.toAyah,
           'question_type': question.questionType,
@@ -918,6 +1186,12 @@ class SupabaseService {
           'hizb': question.hizb,
           'difficulty': question.difficulty,
           'lines': question.lines,
+          'is_assessed': question.isAssessed,
+          'memorization_errors': question.memorizationErrors,
+          'tashkeel_errors': question.tashkeelErrors,
+          'recitation_errors': question.recitationErrors,
+          'prompt_count': question.promptCount,
+          'question_score': question.questionScore,
           'created_at': question.createdAt.toIso8601String(),
         }).toList();
         try {

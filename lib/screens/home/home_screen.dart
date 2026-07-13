@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:google_fonts/google_fonts.dart';
 import '../../services/database_service.dart';
 import '../../services/backup_service.dart';
+import '../../services/cloud_backup_service.dart';
+import '../../services/audit_log_service.dart';
 import '../../services/supabase_service.dart';
 import '../auth/login_screen.dart';
 import '../../models/student.dart';
@@ -10,6 +11,7 @@ import '../../models/settings.dart';
 import '../../utils/helpers.dart';
 import '../students/students_screen.dart';
 import '../students/student_raffle_screen.dart';
+import '../students/families_screen.dart';
 import '../attendance/attendance_screen.dart';
 import '../reports/reports_screen.dart';
 import '../settings/settings_screen.dart';
@@ -20,6 +22,7 @@ import '../fund/fund_screen.dart';
 import '../plans/plans_screen.dart';
 import '../notifications/notifications_screen.dart';
 import '../honor_board/honor_board_screen.dart';
+import '../honor_board/daily_excellence_screen.dart';
 import '../vacations/vacations_screen.dart';
 
 
@@ -31,6 +34,7 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   int _currentIndex = 0;
   final DatabaseService _db = DatabaseService();
   final BackupService _backup = BackupService();
@@ -98,6 +102,9 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _handleBackupMaintenance() async {
+    await AuditLogService().prune(
+      retentionDays: _settings.auditLogRetentionDays,
+    );
     final automatic = await _backup.performAutomaticBackupIfDue(
       settings: _settings,
     );
@@ -105,13 +112,38 @@ class _HomeScreenState extends State<HomeScreen> {
 
     if (automatic.attempted && !automatic.succeeded) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+        SnackBar(
           content: Text(
-            'تعذر إنشاء النسخة التلقائية. تحقق من مساحة الجهاز أو أنشئ نسخة من الإعدادات.',
+            automatic.error?.contains('عبارة حماية') == true
+                ? 'النسخ التلقائي متوقف حتى تُعد عبارة حماية من الإعدادات.'
+                : 'تعذر إنشاء النسخة التلقائية. تحقق من مساحة الجهاز أو افتح إعدادات البيانات.',
           ),
           backgroundColor: Colors.orange,
         ),
       );
+    }
+
+    if (automatic.succeeded &&
+        automatic.path != null &&
+        _settings.cloudBackupEnabled &&
+        SupabaseService.instance.isAuthenticated) {
+      try {
+        await CloudBackupService().uploadExisting(
+          automatic.path!,
+          retentionCount: _settings.cloudBackupRetentionCount,
+        );
+      } catch (_) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'حُفظت النسخة محليًا، لكن تعذر رفعها إلى السحابة. ستبقى النسخة المحلية آمنة.',
+              ),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+      }
     }
 
     if (!await _backup.shouldShowReminder(settings: _settings) || !mounted) {
@@ -183,7 +215,7 @@ class _HomeScreenState extends State<HomeScreen> {
         builder: (context) => AlertDialog(
           title: Text(
             'المزامنة السحابية',
-            style: GoogleFonts.tajawal(fontWeight: FontWeight.bold),
+            style: TextStyle(fontWeight: FontWeight.bold),
           ),
           content: Column(
             mainAxisSize: MainAxisSize.min,
@@ -191,12 +223,12 @@ class _HomeScreenState extends State<HomeScreen> {
             children: [
               Text(
                 'الحساب الحالي:',
-                style: GoogleFonts.tajawal(color: Colors.grey),
+                style: TextStyle(color: Colors.grey),
               ),
               const SizedBox(height: 4),
               Text(
                 supabase.currentUserEmail ?? '',
-                style: GoogleFonts.tajawal(fontWeight: FontWeight.bold),
+                style: TextStyle(fontWeight: FontWeight.bold),
               ),
             ],
           ),
@@ -205,28 +237,28 @@ class _HomeScreenState extends State<HomeScreen> {
               onPressed: () => Navigator.pop(context, 'logout'),
               child: Text(
                 'تسجيل الخروج',
-                style: GoogleFonts.tajawal(color: Colors.red, fontWeight: FontWeight.bold),
+                style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
               ),
             ),
             TextButton(
               onPressed: () => Navigator.pop(context, 'change'),
               child: Text(
                 'تغيير النطاق',
-                style: GoogleFonts.tajawal(color: Colors.blue, fontWeight: FontWeight.bold),
+                style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold),
               ),
             ),
             TextButton(
               onPressed: () => Navigator.pop(context, 'sync'),
               child: Text(
                 'مزامنة الآن',
-                style: GoogleFonts.tajawal(color: Colors.teal, fontWeight: FontWeight.bold),
+                style: TextStyle(color: Colors.teal, fontWeight: FontWeight.bold),
               ),
             ),
             TextButton(
               onPressed: () => Navigator.pop(context, 'close'),
               child: Text(
                 'إلغاء',
-                style: GoogleFonts.tajawal(color: Colors.grey),
+                style: TextStyle(color: Colors.grey),
               ),
             ),
           ],
@@ -287,7 +319,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 const SizedBox(width: 16),
                 Text(
                   'جاري مزامنة البيانات...',
-                  style: GoogleFonts.tajawal(fontWeight: FontWeight.bold),
+                  style: TextStyle(fontWeight: FontWeight.bold),
                 ),
               ],
             ),
@@ -339,15 +371,15 @@ class _HomeScreenState extends State<HomeScreen> {
       showDialog(
         context: context,
         builder: (context) => AlertDialog(
-          title: Text('خطأ في المزامنة', style: GoogleFonts.tajawal(fontWeight: FontWeight.bold)),
+          title: Text('خطأ في المزامنة', style: TextStyle(fontWeight: FontWeight.bold)),
           content: Text(
             'لا يوجد أي مركز مرتبط بهذا الحساب في السحابة. يرجى إنشاء مركز أولاً من لوحة تحكم الويب.',
-            style: GoogleFonts.tajawal(),
+            style: TextStyle(),
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
-              child: Text('حسناً', style: GoogleFonts.tajawal()),
+              child: Text('حسناً', style: TextStyle()),
             ),
           ],
         ),
@@ -361,7 +393,7 @@ class _HomeScreenState extends State<HomeScreen> {
       builder: (context) => AlertDialog(
         title: Text(
           'اختر المركز للمزامنة',
-          style: GoogleFonts.tajawal(fontWeight: FontWeight.bold),
+          style: TextStyle(fontWeight: FontWeight.bold),
         ),
         content: SizedBox(
           width: double.maxFinite,
@@ -372,10 +404,10 @@ class _HomeScreenState extends State<HomeScreen> {
               final center = centers[index];
               return ListTile(
                 leading: const Icon(Icons.business, color: Colors.teal),
-                title: Text(center['name'], style: GoogleFonts.tajawal(fontWeight: FontWeight.bold)),
+                title: Text(center['name'], style: TextStyle(fontWeight: FontWeight.bold)),
                 subtitle: Text(
                   center['role'] == 'owner' ? 'مالك المركز' : 'معلم في المركز',
-                  style: GoogleFonts.tajawal(fontSize: 12),
+                  style: TextStyle(fontSize: 12),
                 ),
                 onTap: () => Navigator.pop(context, center),
               );
@@ -412,7 +444,7 @@ class _HomeScreenState extends State<HomeScreen> {
             return AlertDialog(
               title: Text(
                 'اختر الحلقة التابعة لمركز\n$centerName',
-                style: GoogleFonts.tajawal(fontWeight: FontWeight.bold, fontSize: 16),
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
               ),
               content: SizedBox(
                 width: double.maxFinite,
@@ -426,7 +458,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         leading: const Icon(Icons.add_circle_outline, color: Colors.blue),
                         title: Text(
                           '+ إنشاء حلقة جديدة',
-                          style: GoogleFonts.tajawal(color: Colors.blue, fontWeight: FontWeight.bold),
+                          style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold),
                         ),
                         onTap: () async {
                           final newName = await showDialog<String>(
@@ -434,22 +466,22 @@ class _HomeScreenState extends State<HomeScreen> {
                             builder: (context) {
                               final nameController = TextEditingController();
                               return AlertDialog(
-                                title: Text('اسم الحلقة الجديدة', style: GoogleFonts.tajawal(fontWeight: FontWeight.bold)),
+                                title: Text('اسم الحلقة الجديدة', style: TextStyle(fontWeight: FontWeight.bold)),
                                 content: TextField(
                                   controller: nameController,
                                   decoration: InputDecoration(
                                     labelText: 'اسم الحلقة',
-                                    labelStyle: GoogleFonts.tajawal(),
+                                    labelStyle: TextStyle(),
                                   ),
                                 ),
                                 actions: [
                                   TextButton(
                                     onPressed: () => Navigator.pop(context),
-                                    child: Text('إلغاء', style: GoogleFonts.tajawal()),
+                                    child: Text('إلغاء', style: TextStyle()),
                                   ),
                                   TextButton(
                                     onPressed: () => Navigator.pop(context, nameController.text.trim()),
-                                    child: Text('إنشاء', style: GoogleFonts.tajawal()),
+                                    child: Text('إنشاء', style: TextStyle()),
                                   ),
                                 ],
                               );
@@ -490,10 +522,10 @@ class _HomeScreenState extends State<HomeScreen> {
                     final halaqah = halaqat[index];
                     return ListTile(
                       leading: const Icon(Icons.class_, color: Colors.teal),
-                      title: Text(halaqah['name'], style: GoogleFonts.tajawal(fontWeight: FontWeight.bold)),
+                      title: Text(halaqah['name'], style: TextStyle(fontWeight: FontWeight.bold)),
                       subtitle: Text(
                         'المعلم: ${halaqah['teacher_name'] ?? 'غير محدد'}',
-                        style: GoogleFonts.tajawal(fontSize: 12),
+                        style: TextStyle(fontSize: 12),
                       ),
                       onTap: () => Navigator.pop(context, halaqah),
                     );
@@ -503,7 +535,7 @@ class _HomeScreenState extends State<HomeScreen> {
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(context, null),
-                  child: Text('إلغاء', style: GoogleFonts.tajawal(color: Colors.grey)),
+                  child: Text('إلغاء', style: TextStyle(color: Colors.grey)),
                 ),
               ],
             );
@@ -531,68 +563,23 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<bool?> _showExitConfirmationDialog(BuildContext context) {
     return showDialog<bool>(
       context: context,
-      builder: (context) => Dialog(
-        backgroundColor: const Color(0xFF1E2124), // Dark charcoal
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                'تأكيد!',
-                style: GoogleFonts.cairo(
-                  fontSize: 22,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
-                ),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                'هل تريد الخروج من تطبيق حلقتي؟',
-                textAlign: TextAlign.center,
-                style: GoogleFonts.cairo(
-                  fontSize: 15,
-                  color: const Color(0xFF9EA3AC), // Slate grey
-                  height: 1.5,
-                ),
-              ),
-              const SizedBox(height: 32),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  Expanded(
-                    child: TextButton(
-                      onPressed: () => Navigator.pop(context, true),
-                      child: Text(
-                        'حسناً',
-                        style: GoogleFonts.cairo(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white, // White
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: TextButton(
-                      onPressed: () => Navigator.pop(context, false),
-                      child: Text(
-                        'إلغاء',
-                        style: GoogleFonts.cairo(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: const Color(0xFF9EA3AC), // Grey
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
+      builder: (context) => AlertDialog(
+        icon: const Icon(Icons.logout_rounded),
+        title: const Text('الخروج من التطبيق'),
+        content: const Text(
+          'هل تريد إغلاق تطبيق حلقتي الآن؟',
+          textAlign: TextAlign.center,
         ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('البقاء'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('خروج'),
+          ),
+        ],
       ),
     );
   }
@@ -609,6 +596,8 @@ class _HomeScreenState extends State<HomeScreen> {
         }
       },
       child: Scaffold(
+        key: _scaffoldKey,
+        drawer: _buildNavigationDrawer(),
         body: _buildBody(),
         bottomNavigationBar: NavigationBar(
           selectedIndex: _currentIndex,
@@ -649,20 +638,248 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildBody() {
+    void openMenu() => _scaffoldKey.currentState?.openDrawer();
     switch (_currentIndex) {
       case 0:
         return _buildHomeTab();
       case 1:
-        return const StudentsScreen();
+        return StudentsScreen(onOpenMenu: openMenu);
       case 2:
-        return const AttendanceScreen();
+        return AttendanceScreen(onOpenMenu: openMenu);
       case 3:
-        return const ReportsScreen();
+        return ReportsScreen(onOpenMenu: openMenu);
       case 4:
-        return const SettingsScreen();
+        return SettingsScreen(onOpenMenu: openMenu);
       default:
         return _buildHomeTab();
     }
+  }
+
+  Widget _buildNavigationDrawer() {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Drawer(
+      child: SafeArea(
+        child: Column(
+          children: [
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.fromLTRB(20, 18, 20, 16),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    colorScheme.primaryContainer,
+                    colorScheme.surface,
+                  ],
+                  begin: Alignment.topRight,
+                  end: Alignment.bottomLeft,
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 52,
+                    height: 52,
+                    decoration: BoxDecoration(
+                      color: colorScheme.primary,
+                      borderRadius: BorderRadius.circular(18),
+                    ),
+                    child: Icon(
+                      Icons.menu_book_rounded,
+                      size: 28,
+                      color: colorScheme.onPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    _halaqahName,
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  Text(
+                    _mosqueName,
+                    style: TextStyle(color: colorScheme.onSurfaceVariant),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                children: [
+                  _drawerSectionTitle('الرئيسية'),
+                  _drawerRootItem(
+                    index: 0,
+                    icon: Icons.dashboard_outlined,
+                    selectedIcon: Icons.dashboard,
+                    label: 'لوحة المتابعة',
+                  ),
+                  _drawerRootItem(
+                    index: 1,
+                    icon: Icons.people_outline,
+                    selectedIcon: Icons.people,
+                    label: GenderHelper.students(_settings.gender),
+                  ),
+                  _drawerRootItem(
+                    index: 2,
+                    icon: Icons.how_to_reg_outlined,
+                    selectedIcon: Icons.how_to_reg,
+                    label: 'الحضور والتسميع',
+                  ),
+                  _drawerRootItem(
+                    index: 3,
+                    icon: Icons.assessment_outlined,
+                    selectedIcon: Icons.assessment,
+                    label: 'التقارير',
+                  ),
+                  _drawerSectionTitle('إدارة الحلقة'),
+                  _drawerPageItem(
+                    icon: Icons.family_restroom_outlined,
+                    label: 'العائلات وأولياء الأمور',
+                    page: const FamiliesScreen(),
+                  ),
+                  _drawerPageItem(
+                    icon: Icons.menu_book_outlined,
+                    label: 'الحفظ والمراجعة',
+                    page: const MemorizationScreen(),
+                  ),
+                  _drawerPageItem(
+                    icon: Icons.track_changes_outlined,
+                    label: 'الخطط الذكية',
+                    page: const PlansScreen(),
+                  ),
+                  _drawerPageItem(
+                    icon: Icons.quiz_outlined,
+                    label: 'الاختبارات',
+                    page: const ExamsScreen(),
+                  ),
+                  _drawerPageItem(
+                    icon: Icons.thumb_up_alt_outlined,
+                    label: 'النقاط والسلوك',
+                    page: const BehaviorScreen(),
+                  ),
+                  _drawerPageItem(
+                    icon: Icons.beach_access_outlined,
+                    label: 'الإجازات',
+                    page: const VacationsScreen(),
+                  ),
+                  _drawerSectionTitle('التحفيز والأدوات'),
+                  _drawerPageItem(
+                    icon: Icons.emoji_events_outlined,
+                    label: 'لوحة الشرف',
+                    page: const HonorBoardScreen(),
+                  ),
+                  _drawerPageItem(
+                    icon: Icons.auto_awesome_outlined,
+                    label: 'متميزو اليوم',
+                    page: const DailyExcellenceScreen(),
+                  ),
+                  _drawerPageItem(
+                    icon: Icons.casino_outlined,
+                    label: 'القرعة العشوائية',
+                    page: const StudentRaffleScreen(),
+                  ),
+                  _drawerPageItem(
+                    icon: Icons.account_balance_wallet_outlined,
+                    label: 'صندوق الحلقة',
+                    page: const FundScreen(),
+                  ),
+                  _drawerPageItem(
+                    icon: Icons.notifications_outlined,
+                    label: 'التنبيهات',
+                    page: const NotificationsScreen(),
+                    badge: _unreadNotifications,
+                  ),
+                  const Divider(height: 24),
+                  _drawerRootItem(
+                    index: 4,
+                    icon: Icons.settings_outlined,
+                    selectedIcon: Icons.settings,
+                    label: 'الإعدادات',
+                  ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 6, 16, 12),
+              child: OutlinedButton.icon(
+                onPressed: () {
+                  Navigator.pop(context);
+                  _syncWithCloud();
+                },
+                icon: Icon(
+                  SupabaseService.instance.isAuthenticated
+                      ? Icons.cloud_done_outlined
+                      : Icons.cloud_sync_outlined,
+                ),
+                label: const Text('المزامنة والنسخ السحابي'),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size(double.infinity, 44),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _drawerSectionTitle(String title) => Padding(
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 5),
+        child: Text(
+          title,
+          style: TextStyle(
+            color: Theme.of(context).colorScheme.primary,
+            fontSize: 12,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      );
+
+  Widget _drawerRootItem({
+    required int index,
+    required IconData icon,
+    required IconData selectedIcon,
+    required String label,
+  }) {
+    final selected = _currentIndex == index;
+    return ListTile(
+      selected: selected,
+      leading: Icon(selected ? selectedIcon : icon),
+      title: Text(label),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 20),
+      onTap: () {
+        Navigator.pop(context);
+        setState(() => _currentIndex = index);
+        if (index == 0) _loadData();
+      },
+    );
+  }
+
+  Widget _drawerPageItem({
+    required IconData icon,
+    required String label,
+    required Widget page,
+    int badge = 0,
+  }) {
+    return ListTile(
+      leading: Icon(icon),
+      title: Text(label),
+      trailing: badge <= 0
+          ? null
+          : Badge(label: Text(badge > 99 ? '99+' : '$badge')),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 20),
+      onTap: () {
+        Navigator.pop(context);
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => page),
+        ).then((_) => _loadData());
+      },
+    );
   }
 
   Widget _buildHomeTab() {
@@ -675,6 +892,11 @@ class _HomeScreenState extends State<HomeScreen> {
           SliverAppBar(
             expandedHeight: 150,
             pinned: true,
+            leading: IconButton(
+              onPressed: () => _scaffoldKey.currentState?.openDrawer(),
+              icon: const Icon(Icons.menu),
+              tooltip: 'القائمة الرئيسية',
+            ),
             actions: [
               IconButton(
                 icon: Icon(
@@ -691,7 +913,7 @@ class _HomeScreenState extends State<HomeScreen> {
               titlePadding: const EdgeInsets.only(right: 20, bottom: 16),
               title: Text(
                 _halaqahName,
-                style: GoogleFonts.tajawal(
+                style: TextStyle(
                   fontWeight: FontWeight.bold,
                   fontSize: 22,
                   color: isDark ? Colors.white : const Color(0xFF0F172A),
@@ -721,7 +943,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         const SizedBox(width: 6),
                         Text(
                           _mosqueName,
-                          style: GoogleFonts.tajawal(
+                          style: TextStyle(
                             color: isDark ? Colors.grey[400] : const Color(0xFF475569),
                             fontSize: 13,
                           ),
@@ -854,7 +1076,7 @@ class _HomeScreenState extends State<HomeScreen> {
             const SizedBox(height: 12),
             Text(
               value,
-              style: GoogleFonts.outfit(
+              style: TextStyle(
                 fontSize: 26,
                 fontWeight: FontWeight.bold,
               ),
@@ -879,7 +1101,7 @@ class _HomeScreenState extends State<HomeScreen> {
       children: [
         Text(
           'إدارة وتطوير الحلقة',
-          style: GoogleFonts.tajawal(
+          style: TextStyle(
             fontSize: 18,
             fontWeight: FontWeight.bold,
           ),
@@ -924,6 +1146,17 @@ class _HomeScreenState extends State<HomeScreen> {
               () => Navigator.push(
                 context,
                 MaterialPageRoute(builder: (context) => const HonorBoardScreen()),
+              ).then((_) => _loadData()),
+            ),
+            _buildActionItem(
+              'متميزو اليوم',
+              Icons.auto_awesome,
+              const Color(0xFF14B8A6),
+              () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const DailyExcellenceScreen(),
+                ),
               ).then((_) => _loadData()),
             ),
             _buildActionItem(
@@ -1041,7 +1274,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   Text(
                     label,
                     textAlign: TextAlign.center,
-                    style: GoogleFonts.tajawal(
+                    style: TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.bold,
                     ),
@@ -1065,7 +1298,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   child: Text(
                     '$badgeCount',
-                    style: GoogleFonts.outfit(
+                    style: TextStyle(
                       color: Colors.white,
                       fontSize: 9,
                       fontWeight: FontWeight.bold,
@@ -1086,7 +1319,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   child: Text(
                     badgeText,
-                    style: GoogleFonts.outfit(
+                    style: TextStyle(
                       color: Colors.white,
                       fontSize: 8,
                       fontWeight: FontWeight.bold,
@@ -1116,7 +1349,7 @@ class _HomeScreenState extends State<HomeScreen> {
               const SizedBox(height: 16),
               Text(
                 'ابدأ بإضافة طلاب للحلقة',
-                style: GoogleFonts.tajawal(color: Colors.grey[600]),
+                style: TextStyle(color: Colors.grey[600]),
               ),
             ],
           ),
@@ -1132,7 +1365,7 @@ class _HomeScreenState extends State<HomeScreen> {
           children: [
             Text(
               'قائمة ${GenderHelper.students(_settings.gender)}',
-              style: GoogleFonts.tajawal(
+              style: TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.bold,
               ),
@@ -1206,7 +1439,7 @@ class _HomeScreenState extends State<HomeScreen> {
               const SizedBox(width: 4),
               Text(
                 '${student.totalMemorized} آية محفوظ',
-                style: GoogleFonts.outfit(
+                style: TextStyle(
                   fontSize: 12,
                   color: isDark ? Colors.grey[400] : Colors.grey[600],
                 ),

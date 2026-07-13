@@ -9,8 +9,6 @@ import {
   Mail, 
   BookOpen, 
   LayoutGrid, 
-  ChevronRight, 
-  Plus, 
   ArrowLeft,
   Copy,
   Check,
@@ -21,24 +19,32 @@ import {
 } from "lucide-react";
 import { useStore } from "@/store/useStore";
 import { supabase } from "@/lib/supabase";
+import type { SVGProps } from "react";
+
+type CenterInfo = {
+  id: string;
+  name: string;
+  address?: string;
+  type: "men" | "women" | "mixed";
+};
 
 export default function ManageCenterPage() {
   const params = useParams();
   const centerId = params.id as string;
   const router = useRouter();
   const { 
-    user, profile, fetchProfile, 
+    user, fetchProfile,
     teachers, fetchTeachers, addTeacher, removeTeacher, assignTeacherToHalaqa,
-    halaqat, fetchAllHalaqat, updateHalaqa, deleteHalaqa 
+    halaqat, fetchAllHalaqat,
   } = useStore();
 
   const [loading, setLoading] = useState(true);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [showAddTeacherModal, setShowAddTeacherModal] = useState(false);
   const [newTeacherEmail, setNewTeacherEmail] = useState("");
-  const [centerInfo, setCenterInfo] = useState<any>(null);
-  const [editingHalaqa, setEditingHalaqa] = useState<{id: string, name: string} | null>(null);
-  const [deletingHalaqa, setDeletingHalaqa] = useState<string | null>(null);
+  const [centerInfo, setCenterInfo] = useState<CenterInfo | null>(null);
+  const [, setEditingHalaqa] = useState<{id: string, name: string} | null>(null);
+  const [, setDeletingHalaqa] = useState<string | null>(null);
 
   useEffect(() => {
     const init = async () => {
@@ -236,6 +242,7 @@ export default function ManageCenterPage() {
                     </button>
                     <button 
                       onClick={() => {
+                        if (!centerInfo) return;
                         useStore.getState().clearHalaqaData();
                         useStore.getState().setCurrentCenter({ ...centerInfo, activeHalaqa: { id: halaqa.id, name: halaqa.name } });
                         router.push("/");
@@ -286,7 +293,7 @@ export default function ManageCenterPage() {
   );
 }
 
-function X({ className, ...props }: any) {
+function X({ className, ...props }: SVGProps<SVGSVGElement>) {
   return (
     <svg
       {...props}

@@ -57,6 +57,51 @@ void main() {
 
     expect(questions.map((question) => question['ayah_number']).toSet(), {3, 4});
   });
+
+  test('filters visual Mushaf questions by the selected quarter', () {
+    final quarterSurahs = [
+      _surah(1, juz: 1, hizb: 1, difficulty: 1, quarter: 1),
+      _surah(2, juz: 1, hizb: 1, difficulty: 1, quarter: 2),
+    ];
+    final questions = ExamQuestionGeneratorService.generate(
+      surahs: quarterSurahs,
+      category: 'mushaf',
+      questionCount: 10,
+      approximateLines: 1,
+      allowedQuarterIds: {2},
+      random: Random(4),
+    );
+
+    expect(questions, hasLength(6));
+    expect(questions.every((question) => question['quarter'] == 2), isTrue);
+  });
+
+  test('continues an answer into the next surah inside the same hizb', () {
+    final sameHizbSurahs = [
+      _surah(1, juz: 1, hizb: 1, difficulty: 1),
+      _surah(2, juz: 1, hizb: 1, difficulty: 1),
+    ];
+    final excluded = <String>{
+      for (final surah in [1, 2])
+        for (var ayah = 1; ayah <= 6; ayah++)
+          if (!(surah == 1 && ayah == 6)) '$surah:$ayah',
+    };
+    final questions = ExamQuestionGeneratorService.generate(
+      surahs: sameHizbSurahs,
+      category: 'hizb',
+      questionCount: 1,
+      approximateLines: 2,
+      fromHizb: 1,
+      toHizb: 1,
+      excludedQuestionKeys: excluded,
+      random: Random(5),
+    );
+
+    expect(questions.single['surah_id'], 1);
+    expect(questions.single['ayah_number'], 6);
+    expect(questions.single['to_surah_id'], 2);
+    expect(questions.single['to_ayah'], 1);
+  });
 }
 
 Surah _surah(
@@ -64,6 +109,7 @@ Surah _surah(
   required int juz,
   required int hizb,
   required int difficulty,
+  int quarter = 1,
 }) {
   const total = 6;
   return Surah(
@@ -82,7 +128,7 @@ Surah _surah(
         page: number,
         juz: juz,
         hizb: hizb,
-        quarter: 1,
+        quarter: quarter,
         lines: 1,
         difficulty: difficulty,
       ),

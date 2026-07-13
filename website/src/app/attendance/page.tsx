@@ -6,21 +6,17 @@ import {
   CheckCircle, 
   XCircle, 
   Clock, 
-  Save, 
-  Search,
   UserCheck,
-  History,
   Sparkles,
   Palmtree,
   MessageSquare,
-  ChevronRight,
-  ChevronLeft,
   X,
   AlertCircle
 } from "lucide-react";
 import { useStore, AttendanceRecord } from "@/store/useStore";
 import { getHijriDate } from "@/utils/dateUtils";
 import Link from "next/link";
+import { MetricCard, PageHeader, SearchField, Surface } from "@/components/ui/AppDesign";
 
 function formatDate(date: Date): string {
   return date.toISOString().split("T")[0];
@@ -123,15 +119,14 @@ export default function AttendancePage() {
   }, [attendance, selectedDate, students, vacations]);
 
   return (
-    <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-700">
+    <div className="page-enter space-y-8">
       {/* Header Section */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-        <div>
-          <h1 className="text-3xl font-black text-gray-900 dark:text-white tracking-tight">تسجيل الحضور اليومي 📝</h1>
-          <p className="text-gray-500 dark:text-gray-400 mt-2 font-medium">نظام رصد دقيق يشمل وقت الوصول، الإجازات، وأسباب الغياب.</p>
-        </div>
-        
-        <div className="flex items-center gap-4">
+      <PageHeader
+        title="تسجيل الحضور اليومي"
+        description="رصد الحضور والتأخر والإجازات وأسباب الغياب بتاريخ واضح."
+        icon={CalendarIcon}
+        actions={
+          <>
           <button
             onClick={() => toggleSuspendedDate(selectedDate)}
             className={`px-5 py-3 rounded-2xl text-xs font-black transition-all border flex items-center gap-2 ${
@@ -153,8 +148,9 @@ export default function AttendancePage() {
             <div className="h-8 w-[1px] bg-gray-100 dark:bg-gray-800" />
             <span className="text-xs font-bold text-gray-400 dark:text-gray-500">{getHijriDate(new Date(selectedDate)).full}</span>
           </div>
-        </div>
-      </div>
+          </>
+        }
+      />
 
       {isSuspended && (
         <div className="bg-rose-500/10 border border-rose-500/20 text-rose-700 dark:text-rose-400 p-6 rounded-[2rem] flex items-center gap-4 animate-in slide-in-from-top-4">
@@ -168,56 +164,24 @@ export default function AttendancePage() {
 
       {/* Stats Section */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4 lg:gap-6">
-        <div className="bg-white dark:bg-gray-900 rounded-[2rem] border border-gray-100 dark:border-gray-800 p-6 flex flex-col items-center text-center shadow-sm">
-          <div className="w-10 h-10 bg-green-50 dark:bg-green-900/20 rounded-2xl flex items-center justify-center mb-3">
-            <CheckCircle className="w-5 h-5 text-green-600" />
-          </div>
-          <p className="text-2xl font-black text-gray-900 dark:text-white">{stats.present}</p>
-          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">حاضر</p>
-        </div>
-        <div className="bg-white dark:bg-gray-900 rounded-[2rem] border border-gray-100 dark:border-gray-800 p-6 flex flex-col items-center text-center shadow-sm">
-          <div className="w-10 h-10 bg-red-50 dark:bg-red-900/20 rounded-2xl flex items-center justify-center mb-3">
-            <XCircle className="w-5 h-5 text-red-600" />
-          </div>
-          <p className="text-2xl font-black text-gray-900 dark:text-white">{stats.absent}</p>
-          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">غائب</p>
-        </div>
-        <div className="bg-white dark:bg-gray-900 rounded-[2rem] border border-gray-100 dark:border-gray-800 p-6 flex flex-col items-center text-center shadow-sm">
-          <div className="w-10 h-10 bg-amber-50 dark:bg-amber-900/20 rounded-2xl flex items-center justify-center mb-3">
-            <Clock className="w-5 h-5 text-amber-600" />
-          </div>
-          <p className="text-2xl font-black text-gray-900 dark:text-white">{stats.excused}</p>
-          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">مستأذن</p>
-        </div>
-        <div className="bg-white dark:bg-gray-900 rounded-[2rem] border border-gray-100 dark:border-gray-800 p-6 flex flex-col items-center text-center shadow-sm">
-          <div className="w-10 h-10 bg-blue-50 dark:bg-blue-900/20 rounded-2xl flex items-center justify-center mb-3">
-            <Palmtree className="w-5 h-5 text-blue-600" />
-          </div>
-          <p className="text-2xl font-black text-gray-900 dark:text-white">{stats.onVacation}</p>
-          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">في إجازة</p>
-        </div>
-        <div className="bg-white dark:bg-gray-900 rounded-[2rem] border border-gray-100 dark:border-gray-800 p-6 flex flex-col items-center text-center shadow-sm hidden md:flex">
-          <div className="w-10 h-10 bg-teal-50 dark:bg-teal-900/20 rounded-2xl flex items-center justify-center mb-3">
-            <UserCheck className="w-5 h-5 text-teal-600" />
-          </div>
-          <p className="text-2xl font-black text-gray-900 dark:text-white">{stats.total}</p>
-          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">الإجمالي</p>
+        <MetricCard label="حاضر" value={stats.present} icon={CheckCircle} tone="green" />
+        <MetricCard label="غائب" value={stats.absent} icon={XCircle} tone="red" />
+        <MetricCard label="مستأذن" value={stats.excused} icon={Clock} tone="amber" />
+        <MetricCard label="في إجازة" value={stats.onVacation} icon={Palmtree} tone="blue" />
+        <div className="hidden md:block">
+          <MetricCard label="الإجمالي" value={stats.total} icon={UserCheck} tone="teal" />
         </div>
       </div>
 
       {/* Main List Container */}
-      <div className="bg-white/60 dark:bg-gray-900/60 backdrop-blur-md rounded-[3rem] border border-white dark:border-gray-800 shadow-xl overflow-hidden">
+      <Surface className="overflow-hidden">
         <div className="p-8 border-b border-gray-50 dark:border-gray-800 flex flex-col md:flex-row md:items-center justify-between gap-6">
-          <div className="relative flex-1 max-w-md">
-            <Search className="absolute right-5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <input 
-              type="text" 
-              placeholder="بحث سريع باسم الطالب..." 
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full pr-12 pl-6 py-3 bg-gray-50 dark:bg-gray-800 border-none rounded-2xl outline-none text-xs font-bold"
-            />
-          </div>
+          <SearchField
+            value={search}
+            onChange={setSearch}
+            placeholder="بحث سريع باسم الطالب..."
+            className="max-w-md flex-1"
+          />
           <Link 
             href="/attendance/qr"
             className="px-8 py-3 bg-teal-600 text-white rounded-2xl text-xs font-black shadow-lg shadow-teal-100 flex items-center gap-2 hover:bg-teal-700 transition-all"
@@ -284,7 +248,7 @@ export default function AttendancePage() {
             </tbody>
           </table>
         </div>
-      </div>
+      </Surface>
 
       {/* Details Modal (For Late/Absent) */}
       {showDetailModal && (

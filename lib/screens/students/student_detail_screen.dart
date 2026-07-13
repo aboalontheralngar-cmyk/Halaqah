@@ -9,11 +9,15 @@ import '../../models/behavior_point.dart';
 import '../../models/settings.dart';
 import '../../models/homework_grade.dart';
 import '../../models/student_hold.dart';
+import '../../models/plan.dart';
+import '../../models/family.dart';
+import '../../services/daily_excellence_service.dart';
 import '../../utils/helpers.dart';
 import '../../utils/quran_data.dart';
 import '../memorization/mushaf_visualizer_screen.dart';
 import '../memorization/recitation_history_screen.dart';
 import 'student_form_screen.dart';
+import 'families_screen.dart';
 import '../behavior/add_point_screen.dart';
 
 class StudentDetailScreen extends StatefulWidget {
@@ -40,6 +44,9 @@ class _StudentDetailScreenState extends State<StudentDetailScreen>
   int _uniqueAyahsCount = 0;
   HalaqahSettings _settings = HalaqahSettings();
   StudentHold? _activeHold;
+  SmartPlan? _activePlan;
+  Family? _family;
+  double _todayPlanActual = 0;
   bool _isLoading = true;
 
   @override
@@ -66,8 +73,27 @@ class _StudentDetailScreenState extends State<StudentDetailScreen>
       final grades = await _db.getStudentHomeworkGrades(_student.id);
       final settings = await _db.getSettings();
       final activeHold = await _db.getActiveStudentHold(_student.id);
+      final activePlan = await _db.getActiveStudentPlan(_student.id);
+      final todayProgress = await _db.getStudentMemorizationInRange(
+        _student.id,
+        DateTime.now(),
+        DateTime.now(),
+      );
+      final updatedStudent = await _db.getStudent(_student.id);
+      final resolvedStudent = updatedStudent ?? _student;
+      final family = resolvedStudent.familyId == null
+          ? null
+          : await _db.getFamily(resolvedStudent.familyId!);
       
       await QuranService.instance.initialize();
+      final todayPlanActual = DailyExcellenceService.calculateActualAmount(
+        progress: todayProgress,
+        surahs: {
+          for (final surah in QuranService.instance.surahs)
+            surah.number: surah,
+        },
+        unit: resolvedStudent.planType,
+      );
       
       final uniquePages = <int>{};
       final uniqueAyahs = <String>{};
@@ -81,8 +107,6 @@ class _StudentDetailScreenState extends State<StudentDetailScreen>
         }
       }
       
-      final updatedStudent = await _db.getStudent(_student.id);
-      
       setState(() {
         if (updatedStudent != null) _student = updatedStudent;
         _records = records;
@@ -94,6 +118,9 @@ class _StudentDetailScreenState extends State<StudentDetailScreen>
         _uniqueAyahsCount = uniqueAyahs.length;
         _settings = settings;
         _activeHold = activeHold;
+        _activePlan = activePlan;
+        _family = family;
+        _todayPlanActual = todayPlanActual;
         _isLoading = false;
       });
     } catch (e) {
@@ -212,6 +239,8 @@ class _StudentDetailScreenState extends State<StudentDetailScreen>
           _buildProfileCard(),
           const SizedBox(height: 16),
           _buildStatsGrid(),
+          const SizedBox(height: 16),
+          _buildLearningPathCard(),
           const SizedBox(height: 16),
           _buildInfoCard(),
         ],
@@ -411,6 +440,115 @@ class _StudentDetailScreenState extends State<StudentDetailScreen>
     );
   }
 
+  Widget _buildLearningPathCard() {
+    HomeworkGrade? latestMemorization;
+    HomeworkGrade? latestRevision;
+    for (final grade in _homeworkGrades) {
+      if (grade.gradeMark == 'absent') continue;
+      if (grade.isRevision && latestRevision == null) latestRevision = grade;
+      if (!grade.isRevision && latestMemorization == null) {
+        latestMemorization = grade;
+      }
+      if (latestMemorization != null && latestRevision != null) break;
+    }
+    final target = _student.planAmount.toDouble();
+    final progress = target <= 0
+        ? 0.0
+        : (_todayPlanActual / target).clamp(0, 1).toDouble();
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.route_outlined, color: Colors.teal),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    'ملخص المسار الحالي',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                ),
+                TextButton.icon(
+                  onPressed: _editStudent,
+                  icon: const Icon(Icons.edit_outlined, size: 17),
+                  label: const Text('تعديل المقرر'),
+                ),
+              ],
+            ),
+            const Divider(),
+            Text(
+              'إنجاز اليوم: ${_formatPlanAmount(_todayPlanActual)} من '
+              '${_student.planAmount} ${_getPlanLabel(_student.planType)}',
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 8),
+            LinearProgressIndicator(
+              value: progress,
+              minHeight: 8,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            const SizedBox(height: 14),
+            _pathRow(
+              icon: Icons.menu_book_outlined,
+              label: 'آخر حفظ',
+              value: latestMemorization == null
+                  ? 'لا يوجد تسميع حفظ مسجل'
+                  : 'سورة ${QuranService.instance.getSurahName(latestMemorization.surahId)} '
+                      '(${latestMemorization.fromAyah}-${latestMemorization.toAyah}) — '
+                      '${Helpers.getFullHijriDate(latestMemorization.date)}',
+            ),
+            const SizedBox(height: 10),
+            _pathRow(
+              icon: Icons.replay_outlined,
+              label: 'آخر مراجعة',
+              value: latestRevision == null
+                  ? 'لا توجد مراجعة مسجلة'
+                  : 'سورة ${QuranService.instance.getSurahName(latestRevision.surahId)} '
+                      '(${latestRevision.fromAyah}-${latestRevision.toAyah}) — '
+                      '${Helpers.getFullHijriDate(latestRevision.date)}',
+            ),
+            const SizedBox(height: 10),
+            _pathRow(
+              icon: Icons.track_changes_outlined,
+              label: 'الخطة النشطة',
+              value: _activePlan == null
+                  ? 'لا توجد خطة أسبوعية أو شهرية نشطة'
+                  : '${_activePlan!.period == 'weekly' ? 'أسبوعية' : 'شهرية'} حتى '
+                      '${Helpers.getFullHijriDate(_activePlan!.endDate)} — '
+                      'حفظ ${_activePlan!.newAmount} ومراجعة ${_activePlan!.reviewAmount} '
+                      '${_getPlanLabel(_activePlan!.unit)}',
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _pathRow({
+    required IconData icon,
+    required String label,
+    required String value,
+  }) =>
+      Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 20, color: Colors.grey[600]),
+          const SizedBox(width: 10),
+          SizedBox(
+            width: 82,
+            child: Text(label, style: TextStyle(color: Colors.grey[600])),
+          ),
+          Expanded(child: Text(value, style: const TextStyle(fontWeight: FontWeight.w500))),
+        ],
+      );
+
+  String _formatPlanAmount(double value) => value == value.roundToDouble()
+      ? value.toInt().toString()
+      : value.toStringAsFixed(1);
+
   Widget _buildInfoCard() {
     return Card(
       child: Padding(
@@ -428,6 +566,20 @@ class _StudentDetailScreenState extends State<StudentDetailScreen>
             const Divider(),
             _buildInfoRow('رقم الجوال', _student.phone.isEmpty ? 'غير محدد' : _student.phone),
             _buildInfoRow('رقم ولي الأمر', _student.guardianPhone.isEmpty ? 'غير محدد' : _student.guardianPhone),
+            if (_family != null)
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.family_restroom_outlined),
+                title: Text(_family!.name),
+                subtitle: Text('كود العائلة: ${_family!.displayCode}'),
+                trailing: const Icon(Icons.chevron_left),
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => FamilyDetailScreen(familyId: _family!.id),
+                  ),
+                ).then((_) => _loadData()),
+              ),
             _buildInfoRow('تاريخ الانضمام', Helpers.getFullHijriDate(_student.joinDate)),
             if (_student.notes?.isNotEmpty ?? false)
               _buildInfoRow('ملاحظات', _student.notes!),

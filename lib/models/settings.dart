@@ -52,6 +52,9 @@ class HalaqahSettings {
   bool automaticBackupEnabled;
   int automaticBackupHour;
   int automaticBackupRetentionCount;
+  bool cloudBackupEnabled;
+  int cloudBackupRetentionCount;
+  int auditLogRetentionDays;
 
   HalaqahSettings({
     this.halaqahName = 'حلقتي',
@@ -95,6 +98,9 @@ class HalaqahSettings {
     this.automaticBackupEnabled = true,
     this.automaticBackupHour = 2,
     this.automaticBackupRetentionCount = 14,
+    this.cloudBackupEnabled = false,
+    this.cloudBackupRetentionCount = 30,
+    this.auditLogRetentionDays = 730,
   })  : pointsConfig = pointsConfig ?? Map<String, int>.from(defaultPointsConfig),
         holidayWeekdays = holidayWeekdays ?? [5];
 
@@ -156,6 +162,9 @@ class HalaqahSettings {
         'automatic_backup_enabled': automaticBackupEnabled ? 1 : 0,
         'automatic_backup_hour': automaticBackupHour,
         'automatic_backup_retention_count': automaticBackupRetentionCount,
+        'cloud_backup_enabled': cloudBackupEnabled ? 1 : 0,
+        'cloud_backup_retention_count': cloudBackupRetentionCount,
+        'audit_log_retention_days': auditLogRetentionDays,
       };
 
   factory HalaqahSettings.fromMap(Map<String, dynamic> map) {
@@ -247,6 +256,10 @@ class HalaqahSettings {
       automaticBackupHour: parseInt(map['automatic_backup_hour'], 2),
       automaticBackupRetentionCount:
           parseInt(map['automatic_backup_retention_count'], 14),
+      cloudBackupEnabled: parseBool(map['cloud_backup_enabled'], false),
+      cloudBackupRetentionCount:
+          parseInt(map['cloud_backup_retention_count'], 30),
+      auditLogRetentionDays: parseInt(map['audit_log_retention_days'], 730),
     );
   }
 
@@ -292,6 +305,9 @@ class HalaqahSettings {
     bool? automaticBackupEnabled,
     int? automaticBackupHour,
     int? automaticBackupRetentionCount,
+    bool? cloudBackupEnabled,
+    int? cloudBackupRetentionCount,
+    int? auditLogRetentionDays,
   }) {
     return HalaqahSettings(
       halaqahName: halaqahName ?? this.halaqahName,
@@ -342,6 +358,11 @@ class HalaqahSettings {
           automaticBackupHour ?? this.automaticBackupHour,
       automaticBackupRetentionCount: automaticBackupRetentionCount ??
           this.automaticBackupRetentionCount,
+      cloudBackupEnabled: cloudBackupEnabled ?? this.cloudBackupEnabled,
+      cloudBackupRetentionCount:
+          cloudBackupRetentionCount ?? this.cloudBackupRetentionCount,
+      auditLogRetentionDays:
+          auditLogRetentionDays ?? this.auditLogRetentionDays,
     );
   }
 

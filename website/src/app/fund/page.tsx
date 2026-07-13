@@ -4,15 +4,9 @@ import { useState, useMemo } from "react";
 import {
   Plus,
   DollarSign,
-  TrendingUp,
   Wallet,
   Receipt,
-  Download,
   X,
-  Calendar,
-  User,
-  Filter,
-  ChevronDown,
 } from "lucide-react";
 import { useStore } from "@/store/useStore";
 
@@ -193,7 +187,7 @@ export default function FundPage() {
                   : "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700"
               }`}
             >
-              {type === "all" ? "الكل" : getTransactionLabel(type as any)}
+              {type === "all" ? "الكل" : getTransactionLabel(type)}
             </button>
           ))}
         </div>

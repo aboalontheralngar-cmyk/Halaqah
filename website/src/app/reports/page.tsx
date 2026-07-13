@@ -2,19 +2,12 @@
 
 import { useMemo, useEffect, useState } from "react";
 import { 
-  BarChart3, 
   Download, 
-  TrendingUp, 
-  Star, 
   BookOpen, 
   Award,
   Users,
-  ChevronLeft,
   Share2,
   PieChart,
-  Calendar,
-  Sparkles,
-  Zap,
   Target,
   AlertCircle,
   MessageCircle,
@@ -28,22 +21,55 @@ export default function ReportsPage() {
   const { 
     students, 
     homeworkGrades, 
-    fetchStudents, 
-    fetchHomeworkGrades, 
     points, 
+    memorization,
+    exams,
     centerType,
+    currentCenter,
     attendance,
     fetchCenterData,
     suspendedDates = [],
     fetchSuspendedDates
   } = useStore();
-  const isMen = centerType === 'men';
-
   const currentMonthKey = new Date().toISOString().slice(0, 7);
+  const todayKey = new Date().toISOString().slice(0, 10);
+  const [periodStart, setPeriodStart] = useState(`${currentMonthKey}-01`);
+  const [periodEnd, setPeriodEnd] = useState(todayKey);
   const [reportStudentId, setReportStudentId] = useState<string>("");
   const [reportMonth, setReportMonth] = useState<string>(currentMonthKey);
   const [copied, setCopied] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
+
+  const inPeriod = (date: string) => date >= periodStart && date <= periodEnd;
+  const activeStudents = useMemo(
+    () => students.filter(student => student.status === "active"),
+    [students]
+  );
+  const activeStudentIds = useMemo(
+    () => new Set(activeStudents.map(student => student.id)),
+    [activeStudents]
+  );
+
+  const periodAttendance = useMemo(
+    () => attendance.filter(record => activeStudentIds.has(record.studentId) && inPeriod(record.date) && !suspendedDates.includes(record.date)),
+    [attendance, activeStudentIds, suspendedDates, periodStart, periodEnd]
+  );
+  const periodGrades = useMemo(
+    () => homeworkGrades.filter(record => activeStudentIds.has(record.studentId) && inPeriod(record.date) && !suspendedDates.includes(record.date)),
+    [homeworkGrades, activeStudentIds, suspendedDates, periodStart, periodEnd]
+  );
+  const periodPoints = useMemo(
+    () => points.filter(record => activeStudentIds.has(record.studentId) && inPeriod(record.date)),
+    [points, activeStudentIds, periodStart, periodEnd]
+  );
+  const periodMemorization = useMemo(
+    () => memorization.filter(record => activeStudentIds.has(record.studentId) && inPeriod(record.date)),
+    [memorization, activeStudentIds, periodStart, periodEnd]
+  );
+  const periodExams = useMemo(
+    () => exams.filter(exam => inPeriod(exam.date)),
+    [exams, periodStart, periodEnd]
+  );
 
   useEffect(() => {
     fetchCenterData();
@@ -79,18 +105,15 @@ export default function ReportsPage() {
   };
 
   const stats = useMemo(() => {
-    const totalStudents = students.length;
-    
-    // Filter out attendance records on suspended dates
-    const validAttendance = attendance.filter(a => !suspendedDates.includes(a.date));
-    const attendedCount = validAttendance.filter(a => a.status === 'present' || a.status === 'late' || a.status === 'excused').length;
+    const validAttendance = periodAttendance;
+    const attendedCount = validAttendance.filter(a => a.status === 'present' || a.status === 'late').length;
     const totalRecords = validAttendance.length;
-    const avgAttendance = totalRecords > 0 ? Math.round((attendedCount / totalRecords) * 100) : 85;
+    const avgAttendance = totalRecords > 0 ? Math.round((attendedCount / totalRecords) * 100) : 0;
 
-    const totalPoints = points.reduce((s, p) => s + p.amount, 0);
+    const totalPoints = periodPoints.reduce((s, p) => s + p.amount, 0);
 
     // Filter out grades on suspended dates
-    const gradedRecords = homeworkGrades.filter(g => g.gradeMark !== "absent" && !suspendedDates.includes(g.date));
+    const gradedRecords = periodGrades.filter(g => g.gradeMark !== "absent");
     const scoreMap: Record<string, number> = {
       excellent: 5,
       very_good: 4,
@@ -100,27 +123,173 @@ export default function ReportsPage() {
     const avgMemorization = gradedRecords.length > 0
       ? (gradedRecords.reduce((sum, g) => sum + (scoreMap[g.gradeMark] || 3), 0) / gradedRecords.length).toFixed(1)
       : "0.0";
-    const avgExams = 92; // Mock
+    const examScores = periodExams.flatMap(exam =>
+      exam.studentScores
+        .filter(score => activeStudentIds.has(score.studentId))
+        .map(score => exam.maxDegree > 0 ? (score.degree / exam.maxDegree) * 100 : 0)
+    );
+    const avgExams = examScores.length
+      ? Math.round(examScores.reduce((sum, score) => sum + score, 0) / examScores.length)
+      : 0;
+    const qualityPercent = Number(avgMemorization) * 20;
+    const performance = Math.round(
+      avgAttendance * 0.5 + qualityPercent * 0.35 + avgExams * 0.15
+    );
+    const totalMemorizedAyahs = periodMemorization
+      .filter(record => !record.isRevision)
+      .reduce((sum, record) => sum + Math.max(0, record.toAyah - record.fromAyah + 1), 0);
+    const totalRevisedAyahs = periodMemorization
+      .filter(record => record.isRevision)
+      .reduce((sum, record) => sum + Math.max(0, record.toAyah - record.fromAyah + 1), 0);
 
     return {
       attendance: avgAttendance,
       points: totalPoints,
       memorization: avgMemorization,
-      exams: avgExams
+      exams: avgExams,
+      performance,
+      totalMemorizedAyahs,
+      totalRevisedAyahs,
+      present: validAttendance.filter(record => record.status === "present").length,
+      late: validAttendance.filter(record => record.status === "late").length,
+      absent: validAttendance.filter(record => record.status === "absent").length,
+      excused: validAttendance.filter(record => record.status === "excused").length,
     };
-  }, [students, homeworkGrades, points, attendance, suspendedDates]);
+  }, [periodAttendance, periodGrades, periodPoints, periodMemorization, periodExams, activeStudentIds]);
 
   const topStudents = useMemo(() => {
-    return students
+    return activeStudents
       .map(student => {
-        const studentPoints = points
+        const studentPoints = periodPoints
           .filter(p => p.studentId === student.id)
           .reduce((sum, p) => sum + p.amount, 0);
-        return { ...student, totalPoints: studentPoints };
+        const grades = periodGrades.filter(g => g.studentId === student.id && g.gradeMark !== "absent");
+        const gradeScore: Record<string, number> = { excellent: 5, very_good: 4, good: 3, needs_work: 2 };
+        const quality = grades.length
+          ? grades.reduce((sum, grade) => sum + (gradeScore[grade.gradeMark] || 0), 0) / grades.length
+          : 0;
+        const records = periodAttendance.filter(record => record.studentId === student.id);
+        const attended = records.filter(record => record.status === "present" || record.status === "late").length;
+        const attendanceRate = records.length ? Math.round((attended / records.length) * 100) : 0;
+        const performance = Math.round(attendanceRate * 0.6 + quality * 20 * 0.4);
+        const memorizedAyahs = periodMemorization
+          .filter(record => record.studentId === student.id && !record.isRevision)
+          .reduce((sum, record) => sum + Math.max(0, record.toAyah - record.fromAyah + 1), 0);
+        return {
+          ...student,
+          totalPoints: studentPoints,
+          performance,
+          memorizedAyahs,
+          attendanceRate,
+          hasPeriodData: records.length > 0 || grades.length > 0 || memorizedAyahs > 0 || studentPoints !== 0,
+        };
       })
-      .sort((a, b) => b.totalPoints - a.totalPoints)
+      .filter(student => student.hasPeriodData)
+      .sort((a, b) => b.performance - a.performance || b.memorizedAyahs - a.memorizedAyahs)
       .slice(0, 3);
-  }, [students, points]);
+  }, [activeStudents, periodPoints, periodGrades, periodAttendance, periodMemorization]);
+
+  const attentionStudents = useMemo(() => activeStudents.filter(student => {
+    const records = periodAttendance.filter(record => record.studentId === student.id);
+    const absent = records.filter(record => record.status === "absent").length;
+    const heard = periodMemorization.some(record => record.studentId === student.id && !record.isRevision);
+    return records.length > 0 && (absent >= 2 || !heard);
+  }), [activeStudents, periodAttendance, periodMemorization]);
+
+  const downloadSummaryImage = () => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 1200;
+    canvas.height = 1500;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    const gradient = ctx.createLinearGradient(1200, 0, 0, 1500);
+    gradient.addColorStop(0, "#f0fdfa");
+    gradient.addColorStop(1, "#f8fafc");
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, 1200, 1500);
+    ctx.fillStyle = "#0f766e";
+    ctx.fillRect(0, 0, 1200, 270);
+    ctx.textAlign = "right";
+    ctx.direction = "rtl";
+    ctx.font = "bold 56px Tahoma, Arial";
+    ctx.fillStyle = "#ffffff";
+    ctx.fillText("التقرير التجميعي للحلقة", 1100, 90);
+    ctx.font = "32px Tahoma, Arial";
+    ctx.fillStyle = "#ccfbf1";
+    ctx.fillText(currentCenter?.activeHalaqa?.name || currentCenter?.name || "حلقتي", 1100, 150);
+    ctx.font = "25px Tahoma, Arial";
+    ctx.fillText(`${periodStart} — ${periodEnd}`, 1100, 205);
+    ctx.beginPath();
+    ctx.fillStyle = "#ffffff";
+    ctx.arc(150, 135, 88, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.textAlign = "center";
+    ctx.fillStyle = stats.performance >= 80 ? "#16a34a" : stats.performance >= 60 ? "#f59e0b" : "#dc2626";
+    ctx.font = "bold 42px Tahoma, Arial";
+    ctx.fillText(`${stats.performance}%`, 150, 135);
+    ctx.font = "20px Tahoma, Arial";
+    ctx.fillText("مستوى الحلقة", 150, 172);
+
+    const cards = [
+      ["الطلاب النشطون", activeStudents.length],
+      ["نسبة الحضور", `${stats.attendance}%`],
+      ["الحفظ الجديد", `${stats.totalMemorizedAyahs} آية`],
+      ["المراجعة", `${stats.totalRevisedAyahs} آية`],
+      ["إجمالي النقاط", stats.points],
+      ["يحتاجون متابعة", attentionStudents.length],
+    ];
+    cards.forEach(([label, value], index) => {
+      const col = index % 2;
+      const row = Math.floor(index / 2);
+      const x = col === 0 ? 620 : 70;
+      const y = 320 + row * 180;
+      ctx.fillStyle = "#ffffff";
+      ctx.strokeStyle = "#cbd5e1";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.roundRect(x, y, 510, 145, 24);
+      ctx.fill();
+      ctx.stroke();
+      ctx.textAlign = "right";
+      ctx.fillStyle = "#0f172a";
+      ctx.font = "bold 36px Tahoma, Arial";
+      ctx.fillText(String(value), x + 455, y + 65);
+      ctx.fillStyle = "#64748b";
+      ctx.font = "24px Tahoma, Arial";
+      ctx.fillText(String(label), x + 455, y + 110);
+    });
+    ctx.fillStyle = "#ffffff";
+    ctx.strokeStyle = "#cbd5e1";
+    ctx.beginPath();
+    ctx.roundRect(70, 890, 1060, 420, 28);
+    ctx.fill();
+    ctx.stroke();
+    ctx.textAlign = "right";
+    ctx.fillStyle = "#0f172a";
+    ctx.font = "bold 34px Tahoma, Arial";
+    ctx.fillText("متميزو الفترة", 1070, 955);
+    topStudents.forEach((student, index) => {
+      const y = 1025 + index * 82;
+      ctx.fillStyle = index === 0 ? "#d97706" : "#0f766e";
+      ctx.font = "bold 27px Tahoma, Arial";
+      ctx.fillText(`${index + 1}. ${student.name}`, 1060, y);
+      ctx.fillStyle = "#475569";
+      ctx.font = "23px Tahoma, Arial";
+      ctx.fillText(`الأداء ${student.performance}% · الحفظ ${student.memorizedAyahs} آية · الحضور ${student.attendanceRate}%`, 720, y);
+    });
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#94a3b8";
+    ctx.font = "22px Tahoma, Arial";
+    ctx.fillText("تقرير مولّد من البيانات المسجلة في تطبيق حلقتي", 600, 1425);
+    canvas.toBlob(blob => {
+      if (!blob) return;
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = `تقرير_الحلقة_${periodStart}_${periodEnd}.png`;
+      link.click();
+      URL.revokeObjectURL(link.href);
+    }, "image/png");
+  };
 
   const exportToCSV = () => {
     const headers = [
@@ -142,7 +311,7 @@ export default function ReportsPage() {
 
     const rows = students.map(student => {
       // Exclude grades on suspended dates
-      const studentGrades = homeworkGrades.filter(g => g.studentId === student.id && !suspendedDates.includes(g.date));
+      const studentGrades = periodGrades.filter(g => g.studentId === student.id);
       const gradedCount = studentGrades.length;
       
       const excellentCount = studentGrades.filter(g => g.gradeMark === "excellent").length;
@@ -219,17 +388,33 @@ export default function ReportsPage() {
             <Download className="w-5 h-5" /> تصدير تقرير الطلاب (CSV)
           </button>
           <button 
-            onClick={exportToCSV}
+            onClick={downloadSummaryImage}
             className="p-4 bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-2xl text-gray-400 hover:text-teal-600 transition-all shadow-sm"
+            title="تنزيل صورة التقرير"
           >
             <Share2 className="w-5 h-5" />
           </button>
         </div>
       </div>
 
+      <div className="bg-white dark:bg-gray-900 rounded-3xl border border-gray-100 dark:border-gray-800 p-5 grid sm:grid-cols-2 lg:grid-cols-[1fr_1fr_auto] gap-4 items-end">
+        <label className="text-sm font-black text-gray-600 dark:text-gray-300">
+          من تاريخ
+          <input type="date" value={periodStart} max={periodEnd} onChange={event => setPeriodStart(event.target.value)} className="mt-2 w-full rounded-xl border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-800" />
+        </label>
+        <label className="text-sm font-black text-gray-600 dark:text-gray-300">
+          إلى تاريخ
+          <input type="date" value={periodEnd} min={periodStart} max={todayKey} onChange={event => setPeriodEnd(event.target.value)} className="mt-2 w-full rounded-xl border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-800" />
+        </label>
+        <button onClick={downloadSummaryImage} className="rounded-xl bg-indigo-600 px-6 py-3 font-black text-white hover:bg-indigo-700">
+          تنزيل صورة PNG
+        </button>
+      </div>
+
       {/* Main Stats Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-6">
         {[
+          { label: "مستوى الحلقة", value: `${stats.performance}%`, icon: PieChart, color: "text-indigo-600", bg: "bg-indigo-50" },
           { label: "نسبة الحضور", value: `${stats.attendance}%`, icon: Users, color: "text-teal-600", bg: "bg-teal-50" },
           { label: "متوسط الحفظ", value: stats.memorization, icon: BookOpen, color: "text-amber-600", bg: "bg-amber-50" },
           { label: "إجمالي النقاط", value: stats.points, icon: Award, color: "text-purple-600", bg: "bg-purple-50" },
@@ -322,10 +507,10 @@ export default function ReportsPage() {
                 </div>
                 <div className="flex-1">
                   <h4 className="font-black text-gray-800 dark:text-white">{student.name}</h4>
-                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">إجمالي النقاط: {student.totalPoints}</p>
+                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">الأداء: {student.performance}% · الحفظ: {student.memorizedAyahs} آية</p>
                 </div>
                 <div className="text-right">
-                  <span className="text-xl font-black text-teal-600">{student.totalPoints}</span>
+                  <span className="text-xl font-black text-teal-600">{student.performance}%</span>
                 </div>
               </div>
             ))}
@@ -336,11 +521,22 @@ export default function ReportsPage() {
         <div className="bg-white dark:bg-gray-900 rounded-[3rem] border border-gray-100 dark:border-gray-800 p-10 shadow-sm flex flex-col">
           <div className="flex items-center justify-between mb-8">
             <h3 className="text-xl font-black text-gray-900 dark:text-white">تطور الحضور</h3>
-            <span className="text-[10px] font-black text-teal-600 bg-teal-50 px-3 py-1 rounded-full">+12% الشهر الماضي</span>
+            <span className="text-[10px] font-black text-teal-600 bg-teal-50 px-3 py-1 rounded-full">الفترة المختارة</span>
           </div>
-          <div className="flex-1 flex flex-col items-center justify-center text-center space-y-4 opacity-40">
-            <TrendingUp className="w-16 h-16 text-gray-200" />
-            <p className="text-sm font-bold text-gray-400">لا توجد بيانات كافية حالياً</p>
+          <div className="space-y-5">
+            {[
+              ["حاضر", stats.present, "bg-green-500"],
+              ["متأخر", stats.late, "bg-amber-500"],
+              ["غائب", stats.absent, "bg-red-500"],
+              ["مستأذن", stats.excused, "bg-blue-500"],
+            ].map(([label, value, color]) => (
+              <div key={String(label)}>
+                <div className="mb-1 flex justify-between text-sm font-black"><span>{label}</span><span>{value}</span></div>
+                <div className="h-3 overflow-hidden rounded-full bg-gray-100 dark:bg-gray-800">
+                  <div className={`h-full ${color}`} style={{ width: `${Math.min(100, Number(value) / Math.max(1, periodAttendance.length) * 100)}%` }} />
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       </div>
@@ -352,7 +548,11 @@ export default function ReportsPage() {
             خلاصة تقييم الحلقة ☀️
           </h2>
           <p className="text-teal-100/60 text-lg font-medium leading-relaxed">
-            بناءً على البيانات الحالية، تظهر الحلقة تقدماً ملحوظاً في معدلات الحفظ بنسبة 15% مقارنة بالشهر الماضي. نوصي بالتركيز على الطلاب المتأخرين في حضور جلسات المراجعة لتحسين المعدل العام.
+            بلغ مستوى الحلقة خلال الفترة المختارة {stats.performance}%، بنسبة حضور {stats.attendance}%،
+            وإنجاز {stats.totalMemorizedAyahs} آية حفظ جديد و{stats.totalRevisedAyahs} آية مراجعة.
+            {attentionStudents.length > 0
+              ? ` يوجد ${attentionStudents.length} من الطلاب يحتاجون متابعة بسبب الغياب المتكرر أو عدم وجود تسميع مسجل في الفترة.`
+              : " لا توجد مؤشرات متابعة مرتفعة وفق البيانات المسجلة في هذه الفترة."}
           </p>
         </div>
         <div className="shrink-0 relative">

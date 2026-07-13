@@ -227,6 +227,14 @@ class _StudentPeriodReportScreenState extends State<StudentPeriodReportScreen> {
               'ملخص ${report.student.name}',
               style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
+            const SizedBox(height: 3),
+            SelectableText(
+              'كود الطالب: ${report.student.displayCode}',
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.primary,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
             const SizedBox(height: 4),
             Text(
               '${_formatDate(report.startDate)} — ${_formatDate(report.endDate)}',
@@ -454,6 +462,7 @@ class _StudentPeriodReportScreenState extends State<StudentPeriodReportScreen> {
     final buffer = StringBuffer()
       ..writeln('🕌 *تقرير الطالب خلال الفترة*')
       ..writeln('👤 *${report.student.name}*')
+      ..writeln('🪪 كود الطالب: ${report.student.displayCode}')
       ..writeln('📅 ${_formatDate(report.startDate)} — ${_formatDate(report.endDate)}')
       ..writeln()
       ..writeln('📖 *الحفظ والمراجعة*')

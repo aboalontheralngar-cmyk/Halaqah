@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart' as intl;
 import '../../models/fund_transaction.dart';
 import '../../models/student.dart';
@@ -93,7 +92,7 @@ class _FundScreenState extends State<FundScreen> {
                     children: [
                       Text(
                         'إضافة معاملة مالية',
-                        style: GoogleFonts.tajawal(
+                        style: TextStyle(
                           fontSize: 20,
                           fontWeight: FontWeight.bold,
                         ),
@@ -311,7 +310,7 @@ class _FundScreenState extends State<FundScreen> {
                           children: [
                             Text(
                               'رصيد الصندوق الحالي',
-                              style: GoogleFonts.tajawal(
+                              style: TextStyle(
                                 color: Colors.white.withOpacity(0.9),
                                 fontSize: 16,
                                 fontWeight: FontWeight.bold,
@@ -322,7 +321,7 @@ class _FundScreenState extends State<FundScreen> {
                               children: [
                                 Text(
                                   '${_balance.toStringAsFixed(2)} ${_settings.currencySymbol}',
-                                  style: GoogleFonts.outfit(
+                                  style: TextStyle(
                                     color: Colors.white,
                                     fontSize: 32,
                                     fontWeight: FontWeight.bold,
@@ -357,14 +356,14 @@ class _FundScreenState extends State<FundScreen> {
                         children: [
                           Text(
                             'المعاملات الأخيرة',
-                            style: GoogleFonts.tajawal(
+                            style: TextStyle(
                               fontSize: 18,
                               fontWeight: FontWeight.bold,
                             ),
                           ),
                           Text(
                             'إجمالي ${_transactions.length} معاملة',
-                            style: GoogleFonts.tajawal(
+                            style: TextStyle(
                               color: Theme.of(context).textTheme.bodyMedium?.color?.withOpacity(0.6),
                               fontSize: 13,
                             ),
@@ -390,7 +389,7 @@ class _FundScreenState extends State<FundScreen> {
                             const SizedBox(height: 16),
                             Text(
                               'لا توجد عمليات مسجلة في الصندوق حالياً',
-                              style: GoogleFonts.tajawal(
+                              style: TextStyle(
                                 color: Colors.grey[600],
                                 fontSize: 15,
                               ),
@@ -433,7 +432,7 @@ class _FundScreenState extends State<FundScreen> {
                                     ),
                                     Text(
                                       '${isExpense ? "-" : "+"}${tx.amount.toStringAsFixed(1)} ${_settings.currencySymbol}',
-                                      style: GoogleFonts.outfit(
+                                      style: TextStyle(
                                         color: isExpense ? Colors.red : const Color(0xFF10B981),
                                         fontWeight: FontWeight.bold,
                                         fontSize: 16,
@@ -455,7 +454,7 @@ class _FundScreenState extends State<FundScreen> {
                                       ),
                                       Text(
                                         intl.DateFormat('yyyy/MM/dd').format(tx.date),
-                                        style: GoogleFonts.outfit(
+                                        style: TextStyle(
                                           fontSize: 11,
                                           color: Colors.grey,
                                         ),

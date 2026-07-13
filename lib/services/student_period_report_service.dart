@@ -57,6 +57,60 @@ class StudentPeriodReportService {
     );
   }
 
+  /// يولد تقارير عدة طلاب مع قراءة بيانات الحلقة المشتركة مرة واحدة فقط.
+  Future<List<StudentPeriodReport>> generateForStudents({
+    required List<Student> students,
+    required DateTime startDate,
+    required DateTime endDate,
+    void Function(int completed, int total)? onProgress,
+  }) async {
+    final start = _dateOnly(startDate);
+    final end = _dateOnly(endDate);
+    if (end.isBefore(start)) {
+      throw ArgumentError('تاريخ النهاية يجب ألا يسبق تاريخ البداية');
+    }
+    if (students.isEmpty) return const [];
+
+    final common = await Future.wait<dynamic>([
+      _db.getSuspendedDates(),
+      _db.getSuspensionReasons(),
+      _db.getSettings(),
+    ]);
+    final suspendedDates = (common[0] as List<String>).toSet();
+    final suspensionReasons = common[1] as Map<String, String>;
+    final holidayWeekdays = (common[2] as HalaqahSettings).holidayWeekdays;
+    final reports = <StudentPeriodReport>[];
+
+    for (var index = 0; index < students.length; index++) {
+      final student = students[index];
+      final data = await Future.wait<dynamic>([
+        _db.getStudentRecordsInRange(student.id, start, end),
+        _db.getStudentMemorizationInRange(student.id, start, end),
+        _db.getStudentBehaviorPointsInRange(student.id, start, end),
+        _db.getStudentVacationsInRange(student.id, start, end),
+        _db.getStudentHoldsInRange(student.id, start, end),
+      ]);
+      reports.add(
+        calculate(
+          student: student,
+          startDate: start,
+          endDate: end,
+          records: data[0] as List<DailyRecord>,
+          progress: data[1] as List<MemorizationProgress>,
+          points: data[2] as List<BehaviorPoint>,
+          vacations: data[3] as List<Vacation>,
+          holds: data[4] as List<StudentHold>,
+          suspendedDates: suspendedDates,
+          suspensionReasons: suspensionReasons,
+          holidayWeekdays: holidayWeekdays,
+          quran: _quran,
+        ),
+      );
+      onProgress?.call(index + 1, students.length);
+    }
+    return reports;
+  }
+
   static StudentPeriodReport calculate({
     required Student student,
     required DateTime startDate,

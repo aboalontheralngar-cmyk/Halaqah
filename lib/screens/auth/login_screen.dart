@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import '../../services/supabase_service.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -204,7 +203,7 @@ class _LoginScreenState extends State<LoginScreen> {
       appBar: AppBar(
         title: Text(
           'تسجيل دخول المعلم',
-          style: GoogleFonts.tajawal(fontWeight: FontWeight.bold),
+          style: TextStyle(fontWeight: FontWeight.bold),
         ),
       ),
       body: Center(
@@ -222,7 +221,7 @@ class _LoginScreenState extends State<LoginScreen> {
               const SizedBox(height: 12),
               Text(
                 'ربط السحابة والمزامنة ☁️',
-                style: GoogleFonts.tajawal(
+                style: TextStyle(
                   fontSize: 22,
                   fontWeight: FontWeight.bold,
                   color: isDark ? Colors.white : const Color(0xFF0F172A),
@@ -232,7 +231,7 @@ class _LoginScreenState extends State<LoginScreen> {
               const SizedBox(height: 6),
               Text(
                 'سجل دخولك بحساب معلم المقرأة لمزامنة بيانات الطلاب وتسميعهم أوفلاين',
-                style: GoogleFonts.tajawal(
+                style: TextStyle(
                   fontSize: 13,
                   color: Colors.grey[600],
                 ),
@@ -263,7 +262,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           alignment: Alignment.center,
                           child: Text(
                             'تسجيل بالبريد',
-                            style: GoogleFonts.tajawal(
+                            style: TextStyle(
                               fontWeight: FontWeight.bold,
                               fontSize: 14,
                               color: _activeTab == 0
@@ -288,7 +287,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           alignment: Alignment.center,
                           child: Text(
                             'تفعيل كود المعلم',
-                            style: GoogleFonts.tajawal(
+                            style: TextStyle(
                               fontWeight: FontWeight.bold,
                               fontSize: 14,
                               color: _activeTab == 1
@@ -388,7 +387,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   )
                 : Text(
                     'تسجيل الدخول والمزامنة',
-                    style: GoogleFonts.tajawal(
+                    style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
                     ),
@@ -467,7 +466,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     )
                   : Text(
                       'التحقق من الكود',
-                      style: GoogleFonts.tajawal(
+                      style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
                       ),
@@ -491,7 +490,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       const SizedBox(width: 8),
                       Text(
                         'كود المعلم صالح ومرتبط بالبيانات التالية:',
-                        style: GoogleFonts.tajawal(
+                        style: TextStyle(
                           fontWeight: FontWeight.bold,
                           color: const Color(0xFF0F766E),
                           fontSize: 13,
@@ -502,12 +501,12 @@ class _LoginScreenState extends State<LoginScreen> {
                   const Divider(height: 16),
                   Text(
                     'البريد الإلكتروني: ${_verifiedMemberInfo!['email']}',
-                    style: GoogleFonts.tajawal(fontSize: 13, fontWeight: FontWeight.w500),
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
                   ),
                   const SizedBox(height: 4),
                   Text(
                     'الدور: ${_verifiedMemberInfo!['role'] == 'admin' ? 'مدير مركز' : 'معلم حلقة'}',
-                    style: GoogleFonts.tajawal(fontSize: 13, fontWeight: FontWeight.w500),
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
                   ),
                 ],
               ),
@@ -584,7 +583,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     )
                   : Text(
                       'تفعيل الحساب وتسجيل الدخول',
-                      style: GoogleFonts.tajawal(
+                      style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
                       ),
@@ -596,7 +595,7 @@ class _LoginScreenState extends State<LoginScreen> {
               onPressed: _isLoading ? null : _resetCodeVerification,
               child: Text(
                 'العودة وتغيير الكود',
-                style: GoogleFonts.tajawal(
+                style: TextStyle(
                   color: Colors.grey[600],
                   fontWeight: FontWeight.bold,
                 ),

@@ -4,10 +4,7 @@ import { useState, useEffect, useMemo } from "react";
 import { 
   ArrowRight, 
   Save, 
-  HelpCircle, 
   CheckCircle, 
-  AlertCircle,
-  MessageSquare,
   Sparkles,
   Info
 } from "lucide-react";
