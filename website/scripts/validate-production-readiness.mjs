@@ -62,6 +62,16 @@ assertIncludes(
 );
 
 const releaseWorkflow = read(".github/workflows/build-apk.yml");
-assertIncludes(releaseWorkflow, ["java-version: '17'", "channel: stable", "actions/upload-artifact@v4"], "APK workflow");
+assertIncludes(
+  releaseWorkflow,
+  [
+    "java-version: '17'",
+    "channel: stable",
+    "actions/upload-artifact@v4",
+    "Validate production secrets",
+    "Verify signature and checksum",
+  ],
+  "APK workflow",
+);
 
 console.log("P6.1 production-readiness contract passed.");

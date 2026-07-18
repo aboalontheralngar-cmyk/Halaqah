@@ -13,6 +13,23 @@
   --focus: #1f6b5d;
 }
 
+@media print {
+  @page {
+    size: A4;
+    margin: 10mm;
+  }
+
+  .portal-print {
+    background: white !important;
+    color: #173e36 !important;
+  }
+
+  .portal-print article,
+  .portal-print section {
+    break-inside: avoid;
+  }
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);

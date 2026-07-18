@@ -88,6 +88,7 @@ class _AuditLogScreenState extends State<AuditLogScreen> {
   }
 
   IconData _iconFor(String eventType) {
+    if (eventType.contains('runtime')) return Icons.bug_report_outlined;
     if (eventType.contains('cloud')) return Icons.cloud_outlined;
     if (eventType.contains('restore')) return Icons.restore;
     if (eventType.contains('passphrase')) return Icons.key_outlined;
@@ -109,6 +110,8 @@ class _AuditLogScreenState extends State<AuditLogScreen> {
       'backup.create_failed': 'فشل إنشاء نسخة',
       'backup.restore_failed': 'فشل استعادة نسخة',
       'backup.cloud_upload_failed': 'فشل رفع نسخة سحابية',
+      'runtime.error': 'حادثة تشغيلية منقحة',
+      'runtime.fatal': 'تعذر بدء التطبيق',
     };
     return labels[eventType] ?? eventType;
   }

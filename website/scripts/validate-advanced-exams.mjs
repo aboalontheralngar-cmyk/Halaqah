@@ -59,7 +59,7 @@ for (const contract of [
 ]) requireText(model, contract, `question model ${contract}`);
 
 for (const contract of [
-  'version: 14',
+  'version: 18',
   '_upgradeToVersion13',
   "'to_surah_id': 'INTEGER'",
   "'question_score': 'REAL NOT NULL DEFAULT 0'",

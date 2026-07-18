@@ -153,17 +153,21 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                               ),
                             ),
                             title: Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                Text(
-                                  notification.title,
-                                  style: TextStyle(
-                                    fontWeight: notification.read
-                                        ? FontWeight.normal
-                                        : FontWeight.bold,
+                                Expanded(
+                                  child: Text(
+                                    notification.title,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontWeight: notification.read
+                                          ? FontWeight.normal
+                                          : FontWeight.bold,
+                                    ),
                                   ),
                                 ),
-                                if (!notification.read)
+                                if (!notification.read) ...[
+                                  const SizedBox(width: 8),
                                   Container(
                                     width: 8,
                                     height: 8,
@@ -171,7 +175,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                                       color: color,
                                       shape: BoxShape.circle,
                                     ),
-                                  )
+                                  ),
+                                ],
                               ],
                             ),
                             subtitle: Padding(
@@ -191,21 +196,30 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                                   ),
                                   const SizedBox(height: 8),
                                   Row(
-                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                     children: [
-                                      Text(
-                                        'الطالب: ${_getStudentName(notification.studentId)}',
-                                        style: const TextStyle(
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.bold,
+                                      Expanded(
+                                        child: Text(
+                                          'الطالب: ${_getStudentName(notification.studentId)}',
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.bold,
+                                          ),
                                         ),
                                       ),
-                                      Text(
-                                        intl.DateFormat('yyyy/MM/dd HH:mm')
-                                            .format(notification.createdAt),
-                                        style: TextStyle(
-                                          fontSize: 10,
-                                          color: Colors.grey,
+                                      const SizedBox(width: 8),
+                                      Flexible(
+                                        child: Text(
+                                          intl.DateFormat('yyyy/MM/dd HH:mm')
+                                              .format(notification.createdAt),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          textAlign: TextAlign.end,
+                                          style: TextStyle(
+                                            fontSize: 10,
+                                            color: Colors.grey,
+                                          ),
                                         ),
                                       ),
                                     ],

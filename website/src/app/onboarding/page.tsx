@@ -18,7 +18,7 @@ import { supabase } from "@/lib/supabase";
 
 export default function OnboardingPage() {
   const router = useRouter();
-  const { user } = useStore();
+  const { user, createSupervisor } = useStore();
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
   
@@ -62,16 +62,12 @@ export default function OnboardingPage() {
           }]);
         if (centerError) throw centerError;
       } else {
-        // 2. Create Supervisor
-        const code = 'HAL-' + Math.random().toString(36).substring(2, 8).toUpperCase();
-        const { error: supError } = await supabase
-          .from('supervisors')
-          .insert([{ 
-            name: data.supervisorName, 
-            code, 
-            owner_id: user.id 
-          }]);
-        if (supError) throw supError;
+        // 2. Create the organization through the P7.3 secured RPC. This also
+        // creates the immutable owner membership and an audit event.
+        const supervisorId = await createSupervisor(data.supervisorName);
+        if (!supervisorId) {
+          throw new Error("تعذر إنشاء الجهة الإشرافية. تأكد من تنفيذ SQL المرحلة P7.3.");
+        }
       }
 
       router.push("/select-center");

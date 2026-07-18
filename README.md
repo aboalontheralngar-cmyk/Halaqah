@@ -7,12 +7,14 @@
 ## الحالة الحالية
 
 - الوظائف الرئيسية منفذة برمجيًا في Flutter وNext.js.
-- واجهة الويب تبني 28 مسارًا بنجاح، وبوابة الجودة تحتوي 20 فحص عقد.
+- واجهة الويب تبني 30 مسارًا بنجاح، وبوابة الجودة تحتوي 28 فحص عقد.
 - هوية Android والويب موحدة بخط Tajawal محلي وألوان قرآنية هادئة وSafe Area شاملة.
 - النسخ الجديدة مشفرة بـAES-256-GCM ويمكن حفظها محليًا أو في Supabase Storage.
 - سجل التدقيق وسياسة الخصوصية متاحان في Android والويب.
 - المشروع في مرحلة ما قبل الإطلاق؛ يلزم تطبيق migrations واختبار جهازين
   وحسابين والطباعة والمشاركة قبل اعتباره إصدارًا مستقرًا.
+- تميز أداة بناء Android بين APK مرحلي داخلي وAPK إنتاج موقّع، وتتحقق من
+  التوقيع والبصمة وتمنع استعمال هوية `com.example` في الإنتاج.
 
 راجع [خطة المتطلبات](docs/master_backlog.md) و[المراحل المتبقية](docs/remaining_phases_2026-07-12.md)
 بدل الاعتماد على وجود الكود وحده كدليل اكتمال.
@@ -46,6 +48,12 @@ flutter run
 
 Android 6.0 هو الحد الأدنى لأن عبارة حماية النسخ تُحفظ في مخزن مفاتيح النظام.
 
+لفحص RC1 وبناء APK مرحلي على Windows بأمر واحد:
+
+```powershell
+PowerShell -ExecutionPolicy Bypass -File .\tools\staging_preflight.ps1
+```
+
 ## تشغيل الويب
 
 ```bash
@@ -64,8 +72,7 @@ npm run dev
   مخصص للتثبيت الجديد وقد يكون مدمرًا.
 - لقواعد البيانات القائمة نفّذ محتويات الملفات في
   `website/supabase/migrations/` بالترتيب بعد أخذ نسخة احتياطية.
-- لا تكتب اسم ملف migration داخل SQL Editor؛ انسخ محتواه من `BEGIN` إلى
-  `COMMIT`.
+- لا تكتب اسم ملف migration داخل SQL Editor؛ انسخ محتوى الملف كاملًا كما هو.
 - يشرح [دليل SQL العربي](docs/how_to_run_supabase_sql_ar.md) الأخطاء المعروفة
   وترتيب التنفيذ والتحقق.
 
@@ -77,6 +84,32 @@ website/supabase/migrations/20260713000300_p6_data_privacy_cloud_backup.sql
 
 ثم جرّب إنشاء نسخة مشفرة واستعادتها على مشروع وجهاز تجريبيين.
 
+ولميزات P7.1 نفّذ بالترتيب:
+
+```text
+20260714000100_p7_student_identity_foundation.sql
+20260714000200_p7_fund_penalty_link.sql
+20260714000300_p7_student_review_plan.sql
+```
+
+ولبوابة الطالب وولي الأمر نفّذ:
+
+```text
+20260714000400_p7_student_portal_security.sql
+20260714000600_p7_family_portal.sql
+```
+
+ثم انشر Edge Function باسم `student-portal` واضبط السر
+`PORTAL_RATE_LIMIT_PEPPER` ونطاق الموقع في `PORTAL_ALLOWED_ORIGINS`.
+
+وللوحة الجهة الإشرافية متعددة المراكز نفّذ:
+
+```text
+20260714000500_p7_supervisory_hierarchy.sql
+```
+
+بعده اختبر ربط مركز بدعوة مؤقتة، ثم حساب محلل لا يستطيع تعديل بيانات المركز.
+
 ## بوابات الجودة
 
 ```bash
@@ -84,7 +117,7 @@ cd website
 npm run quality:ci
 ```
 
-يشمل تدقيق الاعتمادات وESLint و20 فحص عقد وبناء Next.js. GitHub Actions يشغل
+يشمل تدقيق الاعتمادات وESLint و25 فحص عقد وبناء Next.js. GitHub Actions يشغل
 أيضًا `flutter analyze` و`flutter test`، وسير بناء APK لا ينتج الملف إلا بعد
 نجاحهما.
 

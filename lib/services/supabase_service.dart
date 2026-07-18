@@ -16,6 +16,7 @@ import '../models/daily_achievement.dart';
 import '../models/family.dart';
 import '../models/family_guardian.dart';
 import 'backup_service.dart';
+import 'cloud_connection_diagnostics.dart';
 import 'database_service.dart';
 import 'mushaf_service.dart';
 import 'quran_service.dart';
@@ -53,6 +54,15 @@ class CloudSyncResult {
 }
 
 class SupabaseService {
+  static const projectUrl = String.fromEnvironment(
+    'SUPABASE_URL',
+    defaultValue: 'https://mcckekgvwtqtpwtslwqf.supabase.co',
+  );
+  static const publishableKey = String.fromEnvironment(
+    'SUPABASE_PUBLISHABLE_KEY',
+    defaultValue: 'sb_publishable_TksdkEVcn6VvNGVVjXNEpg_PkRZTdxz',
+  );
+
   static final SupabaseService instance = SupabaseService._internal();
   factory SupabaseService() => instance;
   SupabaseService._internal();
@@ -63,9 +73,16 @@ class SupabaseService {
 
   static Future<void> initialize() async {
     await Supabase.initialize(
-      url: 'https://mcckekgvwtqtpwtslwqf.supabase.co',
-      anonKey: 'sb_publishable_TksdkEVcn6VvNGVVjXNEpg_PkRZTdxz',
+      url: projectUrl,
+      anonKey: publishableKey,
     );
+  }
+
+  Future<CloudConnectionDiagnostic> diagnoseConnection() {
+    final baseUri = Uri.parse(projectUrl);
+    return CloudConnectionDiagnostics(
+      endpoint: baseUri.replace(path: '/auth/v1/health', query: null),
+    ).run();
   }
 
   // Auth Operations
@@ -163,6 +180,92 @@ class SupabaseService {
 
   bool get isAuthenticated => client.auth.currentSession != null;
   String? get currentUserEmail => client.auth.currentUser?.email;
+
+  Future<Map<String, dynamic>> getStudentPortalStatus(String studentId) async {
+    if (!isAuthenticated) {
+      throw StateError('يلزم تسجيل الدخول لإدارة بوابة الطالب');
+    }
+    final response = await client.rpc(
+      'get_student_portal_status',
+      params: {'p_student_id': studentId},
+    );
+    return response is Map
+        ? Map<String, dynamic>.from(response)
+        : <String, dynamic>{'configured': false, 'enabled': false};
+  }
+
+  Future<void> setStudentPortalPin({
+    required String studentId,
+    required String pin,
+  }) async {
+    if (!isAuthenticated) {
+      throw StateError('يلزم تسجيل الدخول لإدارة بوابة الطالب');
+    }
+    if (!RegExp(r'^\d{6}$').hasMatch(pin)) {
+      throw ArgumentError('الرقم السري يجب أن يتكون من 6 أرقام');
+    }
+    await client.rpc(
+      'set_student_portal_pin',
+      params: {
+        'p_student_id': studentId,
+        'p_pin': pin,
+        'p_enabled': true,
+      },
+    );
+  }
+
+  Future<void> disableStudentPortal(String studentId) async {
+    if (!isAuthenticated) {
+      throw StateError('يلزم تسجيل الدخول لإدارة بوابة الطالب');
+    }
+    await client.rpc(
+      'disable_student_portal',
+      params: {'p_student_id': studentId},
+    );
+  }
+
+  Future<Map<String, dynamic>> getFamilyPortalStatus(String familyId) async {
+    if (!isAuthenticated) {
+      throw StateError('يلزم تسجيل الدخول لإدارة بوابة ولي الأمر');
+    }
+    final response = await client.rpc(
+      'get_family_portal_status',
+      params: {'p_family_id': familyId},
+    );
+    return response is Map
+        ? Map<String, dynamic>.from(response)
+        : <String, dynamic>{'configured': false, 'enabled': false};
+  }
+
+  Future<void> setFamilyPortalPin({
+    required String familyId,
+    required String pin,
+  }) async {
+    if (!isAuthenticated) {
+      throw StateError('يلزم تسجيل الدخول لإدارة بوابة ولي الأمر');
+    }
+    if (!RegExp(r'^\d{6}$').hasMatch(pin)) {
+      throw ArgumentError('الرقم السري يجب أن يتكون من 6 أرقام');
+    }
+    await client.rpc(
+      'set_family_portal_pin',
+      params: {
+        'p_family_id': familyId,
+        'p_pin': pin,
+        'p_enabled': true,
+      },
+    );
+  }
+
+  Future<void> disableFamilyPortal(String familyId) async {
+    if (!isAuthenticated) {
+      throw StateError('يلزم تسجيل الدخول لإدارة بوابة ولي الأمر');
+    }
+    await client.rpc(
+      'disable_family_portal',
+      params: {'p_family_id': familyId},
+    );
+  }
 
   // Retrieve Teacher Membership Info (center_id and halaqah_id)
   Future<Map<String, dynamic>?> getTeacherInfo() async {
@@ -487,8 +590,10 @@ class SupabaseService {
           'parent_phone': student.guardianPhone,
           'family_id': student.familyId,
           'qr_code': student.qrCode,
+          'student_code': student.studentCode,
           'plan_type': student.planType,
           'plan_amount': student.planAmount,
+          'review_plan_amount': student.reviewPlanAmount,
           'total_memorized': student.totalMemorized,
           'status': student.status,
           'notes': student.notes,
@@ -534,10 +639,16 @@ class SupabaseService {
         guardianPhone: remote['parent_phone'] ?? existing?.guardianPhone ?? '',
         familyId: remote['family_id']?.toString() ?? existing?.familyId,
         qrCode: remote['qr_code'] ?? existing?.qrCode ?? remote['id'],
+        studentCode:
+            remote['student_code'] ?? existing?.studentCode,
         planType: remote['plan_type'] ?? existing?.planType ?? 'ayahs',
         planAmount: (remote['plan_amount'] as num?)?.toInt() ??
             existing?.planAmount ??
             5,
+        reviewPlanAmount:
+            (remote['review_plan_amount'] as num?)?.toInt() ??
+                existing?.reviewPlanAmount ??
+                10,
         // A zero introduced by a schema migration must not erase a larger
         // local total. Explicit progress resets will use a dedicated workflow.
         totalMemorized: protectedTotalMemorized,
@@ -585,7 +696,9 @@ class SupabaseService {
     const optionalColumns = <String>{
       'family_id',
       'qr_code',
+      'student_code',
       'total_memorized',
+      'review_plan_amount',
       'notes',
       'updated_at',
       'pre_memorized_start_surah',
@@ -1471,6 +1584,7 @@ class SupabaseService {
       'id': e.id,
       'center_id': centerId,
       'student_id': e.studentId,
+      'behavior_point_id': e.behaviorPointId,
       'type': e.type,
       'amount': e.amount,
       'note': e.note,
@@ -1480,8 +1594,22 @@ class SupabaseService {
       final chunk = payload.sublist(i, i + 100 > payload.length ? payload.length : i + 100);
       try {
         await client.from('fund_transactions').upsert(chunk);
-      } catch (e) {
-        print('Error syncing fund tx chunk: $e');
+      } on PostgrestException catch (error) {
+        if ((error.code == 'PGRST204' || error.code == '42703') &&
+            [error.message, error.details, error.hint]
+                .whereType<Object>()
+                .join(' ')
+                .contains('behavior_point_id')) {
+          final compatible = chunk
+              .map((row) => Map<String, dynamic>.from(row)
+                ..remove('behavior_point_id'))
+              .toList();
+          await client.from('fund_transactions').upsert(compatible);
+        } else {
+          print('Error syncing fund tx chunk: $error');
+        }
+      } catch (error) {
+        print('Error syncing fund tx chunk: $error');
       }
     }
   }

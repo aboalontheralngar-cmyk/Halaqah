@@ -32,14 +32,20 @@
     "validate:design": "node scripts/validate-design-system.mjs",
     "validate:production": "node scripts/validate-production-readiness.mjs",
     "validate:data-privacy": "node scripts/validate-data-privacy.mjs",
-    "validate:identity": "node scripts/validate-unified-identity.mjs"
+    "validate:identity": "node scripts/validate-unified-identity.mjs",
+    "validate:p7": "node scripts/validate-p7-student-platform.mjs",
+    "validate:portal": "node scripts/validate-student-portal.mjs",
+    "validate:family-portal": "node scripts/validate-family-portal.mjs",
+    "validate:supervision": "node scripts/validate-supervisory-hierarchy.mjs",
+    "validate:release": "node scripts/validate-staged-release.mjs",
+    "validate:diagnostics": "node scripts/validate-operational-diagnostics.mjs",
+    "validate:release-integrity": "node scripts/validate-release-integrity.mjs"
   },
   "dependencies": {
-    "@fontsource/tajawal": "^5.2.7",
-    "@supabase/supabase-js": "2.110.2",
+    "@supabase/supabase-js": "^2.105.1",
     "html5-qrcode": "^2.3.8",
     "lucide-react": "^1.14.0",
-    "next": "16.2.10",
+    "next": "16.2.4",
     "qrcode.react": "^4.2.0",
     "react": "19.2.4",
     "react-dom": "19.2.4",
@@ -51,7 +57,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
-    "eslint-config-next": "16.2.10",
+    "eslint-config-next": "16.2.4",
     "tailwindcss": "^4",
     "typescript": "^5"
   }

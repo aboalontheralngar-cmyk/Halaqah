@@ -107,3 +107,93 @@ WHERE id = 'halaqah-backups';
 النتيجة الصحيحة: تظهر الدالة، ويظهر bucket باسم `halaqah-backups` وقيمة
 `public = false` وحد أقصى `104857600` بايت. بعد ذلك أنشئ نسخة مشفرة من التطبيق
 وارفعها بحساب تجريبي، ثم تأكد أن حسابًا ثانيًا لا يستطيع رؤيتها.
+
+## توافق محفوظ الطالب مع شاشة المراجعة P6.3
+
+نفّذ محتوى الملف التالي كاملًا في استعلام جديد:
+
+`website/supabase/migrations/20260713000400_p6_revision_profile_range_compat.sql`
+
+هذا الملف يضيف فقط أعمدة نطاق المحفوظ المفقودة إلى جدول `students`، ويمكن
+تشغيله أكثر من مرة بأمان. لا يحذف بيانات ولا يحتاج دوال الصلاحيات السابقة.
+بعد نجاحه افتح ملف طالب متأثر واحفظ نطاقه مرة واحدة ثم نفّذ المزامنة.
+
+للتحقق:
+
+```sql
+SELECT column_name
+FROM information_schema.columns
+WHERE table_schema = 'public'
+  AND table_name = 'students'
+  AND column_name LIKE 'pre_memorized_%'
+ORDER BY column_name;
+```
+
+يجب أن تظهر أربعة أعمدة للبداية والنهاية والسورة والآية.
+
+## الجهة الإشرافية متعددة المراكز P7.3
+
+بعد نجاح migration بوابة الطالب P7.2، نفّذ **محتوى** الملف التالي كاملًا في
+استعلام جديد، ولا تكتب اسم الملف داخل المحرر:
+
+`website/supabase/migrations/20260714000500_p7_supervisory_hierarchy.sql`
+
+ينشئ الملف العضويات والأدوار والدعوات المؤقتة وسجل الربط ودوال التقرير. كما
+يرحّل مالك كل جهة موجودة إلى دور `owner` دون فك أي مركز مرتبط حاليًا.
+
+للتحقق بعد ظهور `Success`:
+
+```sql
+SELECT to_regprocedure(
+  'public.get_supervisor_dashboard(uuid,date,date)'
+) AS dashboard_rpc;
+```
+
+```sql
+SELECT table_name
+FROM information_schema.tables
+WHERE table_schema = 'public'
+  AND table_name IN (
+    'supervisor_members',
+    'supervisor_center_invitations',
+    'supervisor_member_invitations',
+    'supervisor_audit_events'
+  )
+ORDER BY table_name;
+```
+
+يجب أن تظهر الدالة والجداول الأربعة. بعد ذلك نفّذ الاختبار بحسابات منفصلة؛
+نجاح SQL وحده لا يثبت عزل RLS.
+
+## حساب ولي الأمر متعدد الأبناء P7.2.1
+
+بعد نجاح P5.4 وP7.2، نفّذ **محتوى** الملف التالي كاملًا في استعلام جديد:
+
+`website/supabase/migrations/20260714000600_p7_family_portal.sql`
+
+لا تكتب اسم الملف وحده داخل SQL Editor. ينشئ الملف كود عائلة عالميًا، واعتماد
+PIN مجزأ، وجلسات عائلية، ويعيد استخدام لوحة الطالب بعد التحقق من أن الابن
+النشط مرتبط بالعائلة صاحبة الجلسة.
+
+إذا ظهرت الرسالة `function gen_random_bytes(integer) does not exist` فهذا يعني
+أنك تستخدم نسخة الملف السابقة التي لم تضف مخطط Supabase `extensions` إلى
+`search_path`. حمّل نسخة 2026-07-18 المصححة وأعد تشغيل **الملف كاملًا** في
+استعلام جديد؛ لا تنفذ السطر 76 وحده ولا تنشئ دالة بديلة يدويًا.
+
+للتحقق بعد ظهور `Success`:
+
+```sql
+SELECT
+  to_regprocedure('public.family_portal_authenticate(text,text,text)') AS login_rpc,
+  to_regprocedure('public.family_portal_get_dashboard(text,integer,uuid)') AS dashboard_rpc,
+  to_regprocedure('public.get_family_portal_status(uuid)') AS status_rpc;
+```
+
+```sql
+SELECT COUNT(*) AS invalid_family_codes
+FROM public.families
+WHERE family_code IS NULL OR family_code !~ '^[A-F0-9]{20}$';
+```
+
+يجب أن تظهر الدوال الثلاث وأن تكون `invalid_family_codes = 0`. بعدها أعد نشر
+Edge Function `student-portal`، واختبر عائلتين منفصلتين؛ لا يكفي نجاح SQL وحده.

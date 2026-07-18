@@ -17,7 +17,7 @@ const memorization = readFileSync(
 );
 
 for (const fragment of [
-  'version: 14',
+  'version: 18',
   'CREATE TABLE IF NOT EXISTS student_holds',
   'Future<void> insertVacations(List<Vacation> vacations)',
   'await db.transaction((txn) async',

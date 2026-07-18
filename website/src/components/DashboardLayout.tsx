@@ -42,12 +42,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     user, 
     setUser, 
     currentCenter, 
+    currentSupervisor,
     profile, 
     fetchProfile,
     fetchCenterData 
   } = useStore();
 
   const isAuthPage = pathname === "/login" || pathname === "/onboarding" || pathname === "/select-center";
+  const isPublicPage = isAuthPage || pathname.startsWith("/portal");
+  const isCenterIndependentPage = pathname.startsWith("/supervision");
 
   const navItems = useMemo(() => {
     const items = [
@@ -73,9 +76,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       items.push({ id: "audit-log", label: "سجل التدقيق", icon: ShieldCheck, href: "/audit-log" });
     }
 
+    if (currentSupervisor) {
+      items.push({ id: "supervision", label: "لوحة الإشراف", icon: Building2, href: "/supervision" });
+    }
+
     items.push({ id: "settings", label: "الإعدادات", icon: Settings, href: "/settings" });
     return items;
-  }, [centerType, profile?.role]);
+  }, [centerType, profile?.role, currentSupervisor]);
 
   const activeNav = useMemo(() => {
     const current = navItems.find(item => 
@@ -92,7 +99,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   useEffect(() => {
     const checkUser = async () => {
       try {
-        if (isAuthPage) return;
+        if (isPublicPage) return;
 
         if (user && !profile) {
           await fetchProfile();
@@ -114,23 +121,23 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       }
     };
     checkUser();
-  }, [user, profile, pathname, isAuthPage]);
+  }, [user, profile, pathname, isPublicPage]);
 
   useEffect(() => {
-    if (user && currentCenter && profile && !isAuthPage) {
+    if (user && currentCenter && profile && !isPublicPage) {
       fetchCenterData();
     }
-  }, [user, currentCenter, profile, isAuthPage, fetchCenterData]);
+  }, [user, currentCenter, profile, isPublicPage, fetchCenterData]);
 
   useEffect(() => {
-    if (isAuthPage) return;
+    if (isPublicPage) return;
     
     if (!user) {
       router.push("/login");
-    } else if (!currentCenter && pathname !== "/select-center" && !pathname.startsWith("/manage-center")) {
+    } else if (!currentCenter && pathname !== "/select-center" && !pathname.startsWith("/manage-center") && !isCenterIndependentPage) {
       router.push("/select-center");
     }
-  }, [user, currentCenter, pathname, isAuthPage]);
+  }, [user, currentCenter, pathname, isPublicPage, isCenterIndependentPage]);
 
   const handleNavClick = (href: string) => {
     router.push(href);
@@ -139,7 +146,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   // --- RENDER LOGIC STARTS HERE ---
 
-  if (isAuthPage || pathname.startsWith("/manage-center")) {
+  if (isPublicPage || pathname.startsWith("/manage-center") || isCenterIndependentPage) {
     return <div dir="rtl" className={`${darkMode ? "dark" : ""} min-h-screen bg-[var(--background)] text-[var(--foreground)]`}>{children}</div>;
   }
 

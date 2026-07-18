@@ -4,16 +4,19 @@ import '../../services/database_service.dart';
 import '../../services/backup_service.dart';
 import '../../services/backup_crypto_service.dart';
 import '../../services/cloud_backup_service.dart';
+import '../../services/cloud_connection_diagnostics.dart';
 import '../../services/audit_log_service.dart';
 import '../../services/supabase_service.dart';
 import 'package:share_plus/share_plus.dart';
 import '../../models/settings.dart';
 import '../../app/app.dart';
+import '../../app/build_info.dart';
 import '../../utils/prayer_time_helper.dart';
 import 'message_templates_screen.dart';
 import 'whats_new_screen.dart';
 import 'privacy_policy_screen.dart';
 import 'audit_log_screen.dart';
+import 'diagnostics_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   final VoidCallback? onOpenMenu;
@@ -35,6 +38,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   int _savedBackupCount = 0;
   bool _isPassphraseConfigured = false;
   bool _dataActionBusy = false;
+  bool _checkingCloudConnection = false;
+  CloudConnectionDiagnostic? _cloudConnectionDiagnostic;
   DateTime? _lastCloudUploadAt;
   DateTime? _lastCloudDownloadAt;
 
@@ -171,6 +176,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ('rules', 'القواعد', Icons.rule_outlined),
       ('display', 'المظهر', Icons.palette_outlined),
       ('data', 'البيانات', Icons.shield_outlined),
+      ('diagnostics', 'التشخيص', Icons.health_and_safety_outlined),
       ('about', 'حول', Icons.info_outline),
     ];
     return Card(
@@ -214,6 +220,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         return _buildDisplaySection();
       case 'data':
         return _buildDataSection();
+      case 'diagnostics':
+        return _buildDiagnosticsSection();
       case 'about':
         return _buildAboutSection();
       default:
@@ -1339,6 +1347,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const Divider(height: 28),
             ListTile(
               contentPadding: EdgeInsets.zero,
+              leading: _checkingCloudConnection
+                  ? const SizedBox.square(
+                      dimension: 24,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : Icon(
+                      _cloudConnectionDiagnostic?.isHealthy == true
+                          ? Icons.cloud_done_outlined
+                          : Icons.network_check_outlined,
+                      color: _cloudConnectionDiagnostic?.isHealthy == true
+                          ? Colors.green
+                          : null,
+                    ),
+              title: const Text('فحص اتصال Supabase'),
+              subtitle: Text(
+                _cloudConnectionDiagnostic?.message ??
+                    'يفحص DNS والاتصال المشفر دون رفع أو تنزيل بيانات',
+              ),
+              trailing: const Icon(Icons.chevron_left),
+              onTap: _checkingCloudConnection
+                  ? null
+                  : _performCloudConnectionCheck,
+            ),
+            const Divider(height: 28),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
               leading: Icon(
                 supabase.isAuthenticated ? Icons.cloud_done : Icons.cloud_off,
                 color: supabase.isAuthenticated ? Colors.green : null,
@@ -1444,6 +1478,66 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String _formatHour(int hour) =>
       '${hour.clamp(0, 23).toInt().toString().padLeft(2, '0')}:00';
 
+  Future<void> _performCloudConnectionCheck() async {
+    setState(() => _checkingCloudConnection = true);
+    final result = await SupabaseService.instance.diagnoseConnection();
+    if (!mounted) return;
+    setState(() {
+      _checkingCloudConnection = false;
+      _cloudConnectionDiagnostic = result;
+    });
+
+    final color = result.isHealthy
+        ? Colors.green
+        : Theme.of(context).colorScheme.error;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        icon: Icon(
+          result.isHealthy
+              ? Icons.cloud_done_outlined
+              : Icons.cloud_off_outlined,
+          color: color,
+          size: 36,
+        ),
+        title: Text(result.title, textAlign: TextAlign.center),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(result.message),
+              const SizedBox(height: 12),
+              Text('النطاق: ${result.host}'),
+              Text('زمن الفحص: ${result.elapsed.inMilliseconds} ms'),
+              if (result.httpStatus != null)
+                Text('HTTP: ${result.httpStatus}'),
+              const SizedBox(height: 12),
+              ...result.recommendations.map(
+                (item) => Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('• '),
+                      Expanded(child: Text(item)),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('تم'),
+          ),
+        ],
+      ),
+    );
+  }
+
   String _formatBackupDate(DateTime date) {
     final local = date.toLocal();
     final day = local.day.toString().padLeft(2, '0');
@@ -1468,6 +1562,73 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await _saveSettings();
   }
 
+  Widget _buildDiagnosticsSection() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Row(
+              children: [
+                Icon(Icons.health_and_safety_outlined, color: Colors.teal),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'مركز التشخيص والدعم',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'يفحص نسخة التطبيق وSQLite والنسخ الاحتياطية والمزامنة واتصال Supabase والحوادث البرمجية المنقحة.',
+            ),
+            const SizedBox(height: 8),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.primaryContainer,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.privacy_tip_outlined),
+                  SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'لا يضم تقرير الدعم أسماء الطلاب أو الهواتف أو الملاحظات أو كلمات المرور أو رموز الجلسات.',
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 14),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const DiagnosticsScreen(),
+                  ),
+                ),
+                icon: const Icon(Icons.monitor_heart_outlined),
+                label: const Text('فتح مركز التشخيص'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildAboutSection() {
     return Card(
       child: Padding(
@@ -1480,7 +1641,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               'حلقتي',
               style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
             ),
-            const Text('الإصدار 3.7.0-alpha'),
+            const Text('الإصدار ${AppBuildInfo.displayVersion}'),
             const SizedBox(height: 8),
             Text(
               'تطبيق لإدارة الحلقات القرآنية',

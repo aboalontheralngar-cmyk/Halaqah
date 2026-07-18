@@ -20,7 +20,7 @@ const webStore = read('website/src/store/useStore.ts');
 const migration = read('website/supabase/migrations/20260712000400_p5_families_guardians.sql');
 
 for (const contract of [
-  'version: 14',
+  'version: 18',
   'CREATE TABLE IF NOT EXISTS families',
   'CREATE TABLE IF NOT EXISTS family_guardians',
   'ALTER TABLE students ADD COLUMN family_id TEXT',
@@ -32,7 +32,8 @@ for (const contract of [
 ]) requireText(database, contract, `SQLite family contract ${contract}`);
 
 requireText(student, 'String? familyId', 'student family membership');
-requireText(family, "return 'FAM-$suffix';", 'stable family code');
+requireText(family, 'String? familyCode', 'cloud family code');
+requireText(family, "return 'FAM-", 'stable formatted family code');
 requireText(guardian, "'grandfather'", 'extended relationship list');
 
 for (const contract of [

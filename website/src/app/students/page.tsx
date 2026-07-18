@@ -19,7 +19,11 @@ import {
   History,
   Archive,
   RotateCcw,
-  Users
+  Users,
+  KeyRound,
+  Copy,
+  ShieldOff,
+  Loader2
 } from "lucide-react";
 import { useStore, Student } from "@/store/useStore";
 import { QRCodeSVG } from "qrcode.react";
@@ -27,6 +31,7 @@ import { encodeStudentQr } from "@/lib/studentQr";
 import MushafVisualizer from "@/components/MushafVisualizer";
 import { quranService } from "@/services/quranService";
 import { EmptyState, PageHeader, SearchField, Surface } from "@/components/ui/AppDesign";
+import { supabase } from "@/lib/supabase";
 
 const levels = [
   { id: "الكل", label: "الكل" },
@@ -58,6 +63,11 @@ export default function StudentsPage() {
   const [archiveStatus, setArchiveStatus] = useState<Student['status']>('expelled');
   const [statusReason, setStatusReason] = useState('');
   const [statusNotes, setStatusNotes] = useState('');
+  const [portalStudent, setPortalStudent] = useState<Student | null>(null);
+  const [portalPin, setPortalPin] = useState('');
+  const [portalEnabled, setPortalEnabled] = useState(false);
+  const [portalConfigured, setPortalConfigured] = useState(false);
+  const [portalSaving, setPortalSaving] = useState(false);
 
   useEffect(() => {
     fetchCenterData();
@@ -172,6 +182,7 @@ export default function StudentsPage() {
     joinDate: new Date().toISOString().split("T")[0],
     planType: 'ayahs',
     planAmount: 5,
+    reviewPlanAmount: 10,
     status: 'active',
     memorizationDirection: 'desc',
     preMemorizedStartSurah: undefined,
@@ -223,7 +234,7 @@ export default function StudentsPage() {
     setFormData({ 
       name: "", phone: "", parentPhone: "", age: 10, level: "مبتدئ", 
       joinDate: new Date().toISOString().split("T")[0],
-      planType: 'ayahs', planAmount: 5, status: 'active',
+      planType: 'ayahs', planAmount: 5, reviewPlanAmount: 10, status: 'active',
       memorizationDirection: 'desc',
       preMemorizedStartSurah: undefined,
       preMemorizedStartAyah: undefined,
@@ -236,6 +247,60 @@ export default function StudentsPage() {
     setEditingStudent(student);
     setFormData(student);
     setShowForm(true);
+  };
+
+  const openPortalAccess = async (student: Student) => {
+    setPortalStudent(student);
+    setPortalPin('');
+    setPortalConfigured(false);
+    setPortalEnabled(false);
+    if (!supabase) return;
+    const { data } = await supabase.rpc('get_student_portal_status', {
+      p_student_id: student.id,
+    });
+    if (data) {
+      setPortalConfigured(Boolean(data.configured));
+      setPortalEnabled(Boolean(data.enabled));
+    }
+  };
+
+  const generatePortalPin = () => {
+    const value = new Uint32Array(1);
+    crypto.getRandomValues(value);
+    setPortalPin(String(value[0] % 1_000_000).padStart(6, '0'));
+  };
+
+  const savePortalPin = async () => {
+    if (!portalStudent || !/^\d{6}$/.test(portalPin) || !supabase) return;
+    setPortalSaving(true);
+    const { error } = await supabase.rpc('set_student_portal_pin', {
+      p_student_id: portalStudent.id,
+      p_pin: portalPin,
+      p_enabled: true,
+    });
+    setPortalSaving(false);
+    if (error) {
+      alert(`تعذر تفعيل البوابة: ${error.message}`);
+      return;
+    }
+    setPortalConfigured(true);
+    setPortalEnabled(true);
+    alert('تم تفعيل البوابة وإلغاء أي جلسات قديمة لهذا الطالب. سلّم الرقم السري للطالب أو ولي أمره بطريقة آمنة.');
+  };
+
+  const disablePortalAccess = async () => {
+    if (!portalStudent || !supabase) return;
+    setPortalSaving(true);
+    const { error } = await supabase.rpc('disable_student_portal', {
+      p_student_id: portalStudent.id,
+    });
+    setPortalSaving(false);
+    if (error) {
+      alert(`تعذر إيقاف البوابة: ${error.message}`);
+      return;
+    }
+    setPortalEnabled(false);
+    setPortalPin('');
   };
 
   const openStatusDialog = (student: Student) => {
@@ -407,7 +472,7 @@ export default function StudentsPage() {
               </div>
             </div>
 
-            <div className={`flex gap-3 ${viewMode === "grid" ? "mt-8 justify-center border-t border-gray-50 dark:border-gray-800 pt-8" : "mt-4 md:mt-0"}`}>
+            <div className={`flex flex-wrap gap-3 ${viewMode === "grid" ? "mt-8 justify-center border-t border-gray-50 dark:border-gray-800 pt-8" : "mt-4 md:mt-0"}`}>
               <button 
                 onClick={() => setVisualizingStudent(student)} 
                 className="w-12 h-12 bg-teal-50 dark:bg-teal-900/20 text-teal-600 rounded-2xl flex items-center justify-center hover:bg-teal-600 hover:text-white transition-all"
@@ -423,6 +488,7 @@ export default function StudentsPage() {
                 <History className="w-5 h-5" />
               </button>
               <button onClick={() => setShowQR(student)} className="w-12 h-12 bg-amber-50 dark:bg-amber-900/20 text-amber-600 rounded-2xl flex items-center justify-center hover:bg-amber-600 hover:text-white transition-all"><QrCode className="w-5 h-5" /></button>
+              <button onClick={() => openPortalAccess(student)} title="بوابة الطالب" className="w-12 h-12 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 rounded-2xl flex items-center justify-center hover:bg-emerald-700 hover:text-white transition-all"><KeyRound className="w-5 h-5" /></button>
               <button onClick={() => handleEdit(student)} className="w-12 h-12 bg-blue-50 dark:bg-blue-900/20 text-blue-600 rounded-2xl flex items-center justify-center hover:bg-blue-600 hover:text-white transition-all"><Edit2 className="w-5 h-5" /></button>
               <button
                 onClick={() => openStatusDialog(student)}
@@ -654,7 +720,7 @@ export default function StudentsPage() {
               <div className="md:col-span-2 p-6 bg-teal-50 dark:bg-teal-900/10 rounded-3xl border border-teal-100 dark:border-teal-800 grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="md:col-span-2 flex items-center gap-2 mb-2">
                   <Target className="w-5 h-5 text-teal-600" />
-                  <h4 className="font-black text-teal-900 dark:text-teal-400 text-sm">خطة الحفظ اليومية</h4>
+                  <h4 className="font-black text-teal-900 dark:text-teal-400 text-sm">المقرر اليومي</h4>
                 </div>
                 <div>
                   <label className="block text-[10px] font-black text-teal-600 uppercase mb-2">نوع الحساب</label>
@@ -665,12 +731,24 @@ export default function StudentsPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-[10px] font-black text-teal-600 uppercase mb-2">الكمية اليومية</label>
+                  <label className="block text-[10px] font-black text-teal-600 uppercase mb-2">مقدار الحفظ اليومي</label>
                   <input 
                     type="number" 
+                    min={1}
                     value={formData.planAmount || 0} 
                     onChange={e => setFormData({...formData, planAmount: parseInt(e.target.value) || 0})} 
                     className="w-full bg-white dark:bg-gray-800 border-none rounded-xl px-4 py-3 text-xs font-bold outline-none" 
+                  />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-[10px] font-black text-teal-600 uppercase mb-2">مقدار المراجعة اليومي</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={999}
+                    value={formData.reviewPlanAmount || 10}
+                    onChange={e => setFormData({...formData, reviewPlanAmount: parseInt(e.target.value) || 10})}
+                    className="w-full bg-white dark:bg-gray-800 border-none rounded-xl px-4 py-3 text-xs font-bold outline-none"
                   />
                 </div>
               </div>
@@ -733,6 +811,60 @@ export default function StudentsPage() {
               >
                 تأكيد وحفظ السبب
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {portalStudent && (
+        <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-md flex items-center justify-center z-50 p-4" onClick={() => setPortalStudent(null)}>
+          <div className="bg-white dark:bg-gray-900 rounded-[2.5rem] p-7 sm:p-9 w-full max-w-lg shadow-2xl" onClick={(event) => event.stopPropagation()}>
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-2xl font-black text-gray-900 dark:text-white">بوابة الطالب وولي الأمر</h3>
+                <p className="text-sm text-gray-500 mt-2 font-bold">{portalStudent.name}</p>
+              </div>
+              <button onClick={() => setPortalStudent(null)} className="p-2 text-gray-400"><X className="w-5 h-5" /></button>
+            </div>
+
+            <div className="mt-6 rounded-2xl bg-teal-50 dark:bg-teal-950/20 border border-teal-100 dark:border-teal-900 p-4">
+              <p className="text-xs font-bold text-teal-700 dark:text-teal-300">كود الدخول العام</p>
+              <p dir="ltr" className="mt-2 text-left font-black tracking-wide text-gray-900 dark:text-white">
+                {portalStudent.studentCode
+                  ? `HAL-${portalStudent.studentCode.match(/.{1,5}/g)?.join('-')}`
+                  : 'نفّذ SQL هوية الطالب أولًا'}
+              </p>
+              <p className="text-xs text-gray-500 mt-2">الحالة: {portalConfigured && portalEnabled ? 'مفعّلة' : portalConfigured ? 'متوقفة' : 'غير مهيأة'}</p>
+            </div>
+
+            <div className="mt-5">
+              <label className="block text-xs font-black text-gray-500 mb-2">رقم سري جديد — 6 أرقام</label>
+              <div className="flex gap-2">
+                <input
+                  value={portalPin}
+                  onChange={(event) => setPortalPin(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                  inputMode="numeric"
+                  dir="ltr"
+                  className="min-w-0 flex-1 rounded-2xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-4 py-4 text-center text-xl tracking-[0.35em] font-black outline-none"
+                  placeholder="••••••"
+                />
+                <button type="button" onClick={generatePortalPin} className="px-4 rounded-2xl bg-gray-100 dark:bg-gray-800 font-bold text-xs">توليد</button>
+                <button type="button" disabled={!portalPin} onClick={() => navigator.clipboard.writeText(portalPin)} aria-label="نسخ الرقم السري" className="px-4 rounded-2xl bg-gray-100 dark:bg-gray-800 disabled:opacity-40"><Copy className="w-4 h-4" /></button>
+              </div>
+            </div>
+
+            <p className="mt-4 text-xs leading-6 text-gray-500">تغيير الرقم السري يلغي جميع الجلسات القديمة. لا يظهر الرقم السري مرة أخرى بعد إغلاق النافذة ولا يُخزن كنص في قاعدة البيانات.</p>
+
+            <div className="mt-6 flex flex-col sm:flex-row gap-3">
+              <button disabled={portalSaving || !/^\d{6}$/.test(portalPin) || !portalStudent.studentCode} onClick={savePortalPin} className="flex-1 rounded-2xl bg-teal-600 text-white py-4 font-black disabled:opacity-40 flex items-center justify-center gap-2">
+                {portalSaving ? <Loader2 className="w-5 h-5 animate-spin" /> : <KeyRound className="w-5 h-5" />}
+                حفظ وتفعيل
+              </button>
+              {portalConfigured && portalEnabled && (
+                <button disabled={portalSaving} onClick={disablePortalAccess} className="rounded-2xl bg-rose-50 dark:bg-rose-950/20 text-rose-700 px-5 py-4 font-black flex items-center justify-center gap-2">
+                  <ShieldOff className="w-5 h-5" /> إيقاف
+                </button>
+              )}
             </div>
           </div>
         </div>

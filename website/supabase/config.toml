@@ -1,0 +1,2 @@
+[functions.student-portal]
+verify_jwt = false

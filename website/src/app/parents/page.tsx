@@ -3,13 +3,18 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   BadgeCheck,
+  Copy,
   Edit3,
   House,
+  KeyRound,
   Link2,
+  Loader2,
   Mail,
   Phone,
   Plus,
   Search,
+  ShieldCheck,
+  ShieldOff,
   Trash2,
   UserRound,
   Users,
@@ -21,6 +26,7 @@ import { useStore, type Student } from "@/store/useStore";
 type FamilyRecord = {
   id: string;
   name: string;
+  familyCode?: string;
   referenceName?: string;
   notes?: string;
   createdAt: string;
@@ -41,6 +47,7 @@ type GuardianRecord = {
 type FamilyRow = {
   id: string;
   name: string;
+  family_code?: string | null;
   reference_name?: string | null;
   notes?: string | null;
   created_at: string;
@@ -68,8 +75,32 @@ const relationshipLabels: Record<string, string> = {
   other: "صلة أخرى",
 };
 
-const familyCode = (id: string) =>
-  `FAM-${id.replace(/[^a-zA-Z0-9]/g, "").slice(0, 8).toUpperCase().padEnd(8, "0")}`;
+type FamilyPortalStatus = {
+  configured: boolean;
+  enabled: boolean;
+  family_code?: string | null;
+  active_students?: number;
+  locked_until?: string | null;
+  pin_changed_at?: string | null;
+};
+
+const familyCode = (code?: string) => {
+  if (!code) return "كود البوابة غير مفعّل";
+  const normalized = code.replace(/[^a-zA-Z0-9]/g, "").toUpperCase().slice(0, 20);
+  return `FAM-${normalized.match(/.{1,5}/g)?.join("-") || normalized}`;
+};
+
+function generateSixDigitPin(): string {
+  const digits: number[] = [];
+  while (digits.length < 6) {
+    const bytes = crypto.getRandomValues(new Uint8Array(6 - digits.length));
+    for (const byte of bytes) {
+      if (byte < 250) digits.push(byte % 10);
+      if (digits.length === 6) break;
+    }
+  }
+  return digits.join("");
+}
 
 export default function ParentsPage() {
   const { students, currentCenter, fetchStudents } = useStore();
@@ -82,6 +113,14 @@ export default function ParentsPage() {
   const [familyForm, setFamilyForm] = useState<FamilyRecord | "new" | null>(null);
   const [guardianForm, setGuardianForm] = useState<GuardianRecord | "new" | null>(null);
   const [showMembers, setShowMembers] = useState(false);
+  const [portalFamily, setPortalFamily] = useState<FamilyRecord | null>(null);
+  const [portalStatus, setPortalStatus] = useState<FamilyPortalStatus | null>(null);
+  const [portalPin, setPortalPin] = useState("");
+  const [portalLoading, setPortalLoading] = useState(false);
+  const [portalSaving, setPortalSaving] = useState(false);
+  const [portalNotice, setPortalNotice] = useState("");
+  const [portalPinSaved, setPortalPinSaved] = useState(false);
+  const [portalError, setPortalError] = useState("");
 
   const halaqaId = currentCenter?.activeHalaqa?.id;
 
@@ -114,6 +153,7 @@ export default function ParentsPage() {
       const mappedFamilies = ((familyResult.data || []) as FamilyRow[]).map((item) => ({
         id: item.id,
         name: item.name,
+        familyCode: item.family_code || undefined,
         referenceName: item.reference_name || undefined,
         notes: item.notes || undefined,
         createdAt: item.created_at,
@@ -152,7 +192,7 @@ export default function ParentsPage() {
       (family) =>
         family.name.toLocaleLowerCase("ar").includes(query) ||
         (family.referenceName || "").toLocaleLowerCase("ar").includes(query) ||
-        familyCode(family.id).toLowerCase().includes(query),
+        familyCode(family.familyCode).toLowerCase().includes(query),
     );
   }, [families, search]);
 
@@ -234,7 +274,7 @@ export default function ParentsPage() {
                 >
                   <div className="font-black text-gray-900 dark:text-white">{family.name}</div>
                   <div className="mt-1 text-xs font-bold text-gray-500">
-                    {familyCode(family.id)} · {memberCount} طالب
+                    {familyCode(family.familyCode)} · {memberCount} طالب
                   </div>
                 </button>
               );
@@ -257,12 +297,18 @@ export default function ParentsPage() {
                 <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                   <div>
                     <h2 className="text-2xl font-black text-gray-900 dark:text-white">{selectedFamily.name}</h2>
-                    <p className="mt-1 font-mono text-sm font-bold text-teal-600">{familyCode(selectedFamily.id)}</p>
+                    <p className="mt-1 font-mono text-sm font-bold text-teal-600">{familyCode(selectedFamily.familyCode)}</p>
                     {selectedFamily.referenceName && (
                       <p className="mt-2 text-sm font-bold text-gray-500">المرجع العائلي: {selectedFamily.referenceName}</p>
                     )}
                   </div>
                   <div className="flex gap-2">
+                    <button
+                      onClick={() => openFamilyPortal(selectedFamily)}
+                      className="flex items-center gap-2 rounded-xl bg-teal-50 px-3 py-2 font-black text-teal-700 hover:bg-teal-100 dark:bg-teal-950/30 dark:text-teal-300"
+                    >
+                      <KeyRound className="h-5 w-5" /> بوابة ولي الأمر
+                    </button>
                     <button onClick={() => setFamilyForm(selectedFamily)} className="rounded-xl bg-blue-50 p-3 text-blue-600 hover:bg-blue-100 dark:bg-blue-950/30">
                       <Edit3 className="h-5 w-5" />
                     </button>
@@ -339,6 +385,40 @@ export default function ParentsPage() {
           family={selectedFamily}
           onClose={() => setShowMembers(false)}
           onSave={saveMembers}
+        />
+      )}
+      {portalFamily && (
+        <FamilyPortalModal
+          family={portalFamily}
+          status={portalStatus}
+          pin={portalPin}
+          pinSaved={portalPinSaved}
+          notice={portalNotice}
+          error={portalError}
+          loading={portalLoading}
+          saving={portalSaving}
+          onPinChange={(value) => {
+            setPortalPin(value.replace(/\D/g, "").slice(0, 6));
+            setPortalPinSaved(false);
+            setPortalError("");
+            setPortalError("");
+          }}
+          onGenerate={() => {
+            setPortalPin(generateSixDigitPin());
+            setPortalPinSaved(false);
+            setPortalError("");
+          }}
+          onCopyCode={() => copyPortalValue(familyCode(portalFamily.familyCode), "تم نسخ كود العائلة")}
+          onCopyCredentials={() => copyPortalCredentials(portalFamily)}
+          onSave={saveFamilyPortalPin}
+          onDisable={disableFamilyPortal}
+          onClose={() => {
+            setPortalFamily(null);
+            setPortalStatus(null);
+            setPortalPin("");
+            setPortalNotice("");
+            setPortalPinSaved(false);
+          }}
         />
       )}
     </div>
@@ -457,6 +537,110 @@ export default function ParentsPage() {
     setShowMembers(false);
     await Promise.all([fetchStudents(), load()]);
   }
+
+  async function openFamilyPortal(family: FamilyRecord) {
+    if (!supabase) return;
+    setPortalFamily(family);
+    setPortalStatus(null);
+    setPortalPin("");
+    setPortalNotice("");
+    setPortalPinSaved(false);
+    setPortalError("");
+    setPortalLoading(true);
+    setError("");
+    const { data, error: statusError } = await supabase.rpc(
+      "get_family_portal_status",
+      { p_family_id: family.id },
+    );
+    if (statusError) {
+      setError(
+        `${statusError.message} — نفّذ migration المرحلة P7.2.1 ثم أعد المحاولة.`,
+      );
+      setPortalFamily(null);
+    } else {
+      const status = (data || {}) as FamilyPortalStatus;
+      setPortalStatus(status);
+      if (status.family_code && status.family_code !== family.familyCode) {
+        setFamilies((current) => current.map((item) =>
+          item.id === family.id ? { ...item, familyCode: status.family_code || undefined } : item,
+        ));
+        setPortalFamily({ ...family, familyCode: status.family_code || undefined });
+      }
+    }
+    setPortalLoading(false);
+  }
+
+  async function saveFamilyPortalPin() {
+    if (!supabase || !portalFamily || !/^\d{6}$/.test(portalPin)) return;
+    setPortalSaving(true);
+    setPortalError("");
+    const { data, error: saveError } = await supabase.rpc("set_family_portal_pin", {
+      p_family_id: portalFamily.id,
+      p_pin: portalPin,
+      p_enabled: true,
+    });
+    if (saveError) {
+      setPortalError(saveError.message);
+    } else {
+      setPortalStatus((current) => ({
+        ...(current || { configured: true, enabled: true }),
+        ...((data || {}) as FamilyPortalStatus),
+        configured: true,
+        enabled: true,
+      }));
+      setPortalPinSaved(true);
+      setPortalNotice("تم تفعيل بوابة ولي الأمر. انسخ بيانات الدخول وسلّمها لولي الأمر بأمان.");
+    }
+    setPortalSaving(false);
+  }
+
+  async function disableFamilyPortal() {
+    if (
+      !supabase ||
+      !portalFamily ||
+      !confirm(`إيقاف دخول ولي الأمر لعائلة «${portalFamily.name}»؟`)
+    ) return;
+    setPortalSaving(true);
+    setPortalError("");
+    const { error: disableError } = await supabase.rpc("disable_family_portal", {
+      p_family_id: portalFamily.id,
+    });
+    if (disableError) setPortalError(disableError.message);
+    else {
+      setPortalStatus((current) => ({
+        ...(current || { configured: true }),
+        enabled: false,
+      }));
+      setPortalNotice("تم إيقاف الدخول وإلغاء الجلسات المفتوحة.");
+      setPortalPinSaved(false);
+    }
+    setPortalSaving(false);
+  }
+
+  async function copyPortalValue(value: string, notice: string) {
+    try {
+      await navigator.clipboard.writeText(value);
+      setPortalNotice(notice);
+    } catch {
+      setPortalError("تعذر النسخ التلقائي؛ انسخ القيمة يدويًا.");
+    }
+  }
+
+  async function copyPortalCredentials(family: FamilyRecord) {
+    if (!portalPinSaved || !portalPin) {
+      setPortalError("احفظ الرقم السري أولًا، ثم انسخ بيانات الدخول.");
+      return;
+    }
+    await copyPortalValue(
+      [
+        `بوابة ولي الأمر — ${family.name}`,
+        `كود العائلة: ${familyCode(family.familyCode)}`,
+        `الرقم السري: ${portalPin}`,
+        "يرجى حفظ البيانات وعدم مشاركتها مع غير ولي الأمر.",
+      ].join("\n"),
+      "تم نسخ بيانات الدخول",
+    );
+  }
 }
 
 function Stat({ label, value, icon, color }: { label: string; value: number; icon: React.ReactNode; color: "teal" | "blue" | "purple" }) {
@@ -498,6 +682,136 @@ function ModalShell({ title, onClose, children }: { title: string; onClose: () =
         {children}
       </div>
     </div>
+  );
+}
+
+function FamilyPortalModal({
+  family,
+  status,
+  pin,
+  pinSaved,
+  notice,
+  error,
+  loading,
+  saving,
+  onPinChange,
+  onGenerate,
+  onCopyCode,
+  onCopyCredentials,
+  onSave,
+  onDisable,
+  onClose,
+}: {
+  family: FamilyRecord;
+  status: FamilyPortalStatus | null;
+  pin: string;
+  pinSaved: boolean;
+  notice: string;
+  error: string;
+  loading: boolean;
+  saving: boolean;
+  onPinChange: (value: string) => void;
+  onGenerate: () => void;
+  onCopyCode: () => void;
+  onCopyCredentials: () => void;
+  onSave: () => void;
+  onDisable: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <ModalShell title={`بوابة ولي الأمر — ${family.name}`} onClose={onClose}>
+      {loading ? (
+        <div className="grid min-h-48 place-items-center text-teal-600">
+          <Loader2 className="h-8 w-8 animate-spin" />
+        </div>
+      ) : (
+        <div className="space-y-5">
+          {notice && (
+            <p role="status" className="rounded-2xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-bold text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200">
+              {notice}
+            </p>
+          )}
+          {error && (
+            <p role="alert" className="rounded-2xl border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-800 dark:border-red-900 dark:bg-red-950/30 dark:text-red-200">
+              {error}
+            </p>
+          )}
+          <div className={`flex items-center gap-3 rounded-2xl border p-4 ${
+            status?.enabled
+              ? "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200"
+              : "border-gray-200 bg-gray-50 text-gray-700 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
+          }`}>
+            {status?.enabled ? <ShieldCheck className="h-6 w-6" /> : <ShieldOff className="h-6 w-6" />}
+            <div className="flex-1">
+              <p className="font-black">{status?.enabled ? "الدخول مفعّل" : "الدخول غير مفعّل"}</p>
+              <p className="mt-1 text-xs font-bold opacity-75">
+                {status?.active_students ?? 0} من الأبناء النشطين سيظهرون في الحساب
+              </p>
+            </div>
+          </div>
+
+          <div>
+            <p className="mb-2 text-sm font-black">كود العائلة العالمي</p>
+            <div className="flex items-center gap-2 rounded-2xl border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-800">
+              <code dir="ltr" className="flex-1 overflow-x-auto text-left text-sm font-black text-teal-700 dark:text-teal-300">
+                {familyCode(family.familyCode || status?.family_code || undefined)}
+              </code>
+              <button type="button" onClick={onCopyCode} className="rounded-xl p-2 text-teal-700" aria-label="نسخ كود العائلة">
+                <Copy className="h-5 w-5" />
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <label className="mb-2 block text-sm font-black">رقم سري جديد من 6 أرقام</label>
+            <div className="flex gap-2">
+              <input
+                value={pin}
+                onChange={(event) => onPinChange(event.target.value)}
+                inputMode="numeric"
+                pattern="[0-9]{6}"
+                maxLength={6}
+                placeholder="••••••"
+                dir="ltr"
+                className="min-w-0 flex-1 rounded-2xl border border-gray-200 bg-white p-3 text-center text-xl font-black tracking-[0.35em] outline-none focus:border-teal-500 dark:border-gray-700 dark:bg-gray-800"
+              />
+              <button type="button" onClick={onGenerate} className="rounded-2xl bg-gray-100 px-4 text-sm font-black text-gray-700 dark:bg-gray-800 dark:text-gray-200">
+                توليد آمن
+              </button>
+            </div>
+            <p className="mt-2 text-xs font-bold text-amber-700 dark:text-amber-300">
+              لا يُخزَّن الرقم بصورته الأصلية؛ تغييره يلغي كل الجلسات السابقة فورًا.
+            </p>
+          </div>
+
+          <div className="grid gap-2 sm:grid-cols-2">
+            <button
+              type="button"
+              disabled={saving || !/^\d{6}$/.test(pin)}
+              onClick={onSave}
+              className="flex items-center justify-center gap-2 rounded-2xl bg-teal-600 px-4 py-3 font-black text-white disabled:opacity-40"
+            >
+              {saving ? <Loader2 className="h-5 w-5 animate-spin" /> : <KeyRound className="h-5 w-5" />}
+              {status?.configured ? "تغيير الرقم وتفعيل الدخول" : "حفظ وتفعيل الدخول"}
+            </button>
+            <button
+              type="button"
+              disabled={!pinSaved}
+              onClick={onCopyCredentials}
+              className="flex items-center justify-center gap-2 rounded-2xl border border-teal-200 px-4 py-3 font-black text-teal-700 disabled:opacity-40 dark:border-teal-900 dark:text-teal-300"
+            >
+              <Copy className="h-5 w-5" /> نسخ بيانات الدخول
+            </button>
+          </div>
+
+          {status?.enabled && (
+            <button type="button" disabled={saving} onClick={onDisable} className="w-full rounded-2xl bg-red-50 py-3 font-black text-red-700 disabled:opacity-40 dark:bg-red-950/30 dark:text-red-300">
+              إيقاف الدخول وإلغاء الجلسات
+            </button>
+          )}
+        </div>
+      )}
+    </ModalShell>
   );
 }
 

@@ -1,4 +1,6 @@
+import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import '../../services/database_service.dart';
 import '../../services/qr_service.dart';
@@ -12,6 +14,7 @@ import '../../models/student_hold.dart';
 import '../../models/plan.dart';
 import '../../models/family.dart';
 import '../../services/daily_excellence_service.dart';
+import '../../services/supabase_service.dart';
 import '../../utils/helpers.dart';
 import '../../utils/quran_data.dart';
 import '../memorization/mushaf_visualizer_screen.dart';
@@ -148,6 +151,16 @@ class _StudentDetailScreenState extends State<StudentDetailScreen>
                     Icon(Icons.qr_code),
                     SizedBox(width: 8),
                     Text('عرض QR Code'),
+                  ],
+                ),
+              ),
+              const PopupMenuItem(
+                value: 'portal_access',
+                child: Row(
+                  children: [
+                    Icon(Icons.key_outlined),
+                    SizedBox(width: 8),
+                    Text('بوابة الطالب وولي الأمر'),
                   ],
                 ),
               ),
@@ -405,7 +418,9 @@ class _StudentDetailScreenState extends State<StudentDetailScreen>
       children: [
         _buildStatCard('نسبة الحضور', '$attendanceRate%', Icons.calendar_today, Colors.green),
         _buildStatCard('أيام الحضور', '$presentDays', Icons.check_circle, Colors.blue),
-        _buildStatCard('المقرر', '${_student.planAmount} ${_getPlanLabel(_student.planType)}', Icons.book, Colors.orange),
+        _buildStatCard('مقرر الحفظ', '${_student.planAmount} ${_getPlanLabel(_student.planType)}', Icons.book, Colors.orange),
+        _buildStatCard('مقرر المراجعة', '${_student.reviewPlanAmount} ${_getPlanLabel(_student.planType)}', Icons.replay, Colors.teal),
+        _buildStatCard('إجمالي المحفوظ', '${_student.totalMemorized} آية', Icons.auto_stories, Colors.indigo),
         _buildStatCard('النقاط', '$_totalPoints', Icons.stars, _totalPoints >= 0 ? Colors.amber : Colors.red),
       ],
     );
@@ -985,6 +1000,9 @@ class _StudentDetailScreenState extends State<StudentDetailScreen>
       case 'qr':
         _showQrCode();
         break;
+      case 'portal_access':
+        _showPortalAccessDialog();
+        break;
       case 'hold':
         _showStudentHoldDialog();
         break;
@@ -1181,6 +1199,214 @@ class _StudentDetailScreenState extends State<StudentDetailScreen>
         ],
       ),
     );
+  }
+
+  Future<void> _showPortalAccessDialog() async {
+    final cloud = SupabaseService.instance;
+    if (!cloud.isAuthenticated) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('سجّل الدخول إلى السحابة أولًا لإدارة بوابة الطالب.'),
+        ),
+      );
+      return;
+    }
+
+    Map<String, dynamic> status;
+    try {
+      status = await cloud.getStudentPortalStatus(_student.id);
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('تعذر قراءة حالة البوابة: $error')),
+      );
+      return;
+    }
+    if (!mounted) return;
+
+    final pinController = TextEditingController();
+    var saving = false;
+    var enabled = status['enabled'] == true;
+    final configured = status['configured'] == true;
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          title: const Text('بوابة الطالب وولي الأمر'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _student.name,
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.primaryContainer,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('كود الطالب العام'),
+                      const SizedBox(height: 4),
+                      SelectableText(
+                        _student.displayCode,
+                        textDirection: TextDirection.ltr,
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        configured
+                            ? enabled
+                                ? 'الحالة: مفعّلة'
+                                : 'الحالة: متوقفة'
+                            : 'الحالة: غير مهيأة',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: pinController,
+                  keyboardType: TextInputType.number,
+                  obscureText: true,
+                  maxLength: 6,
+                  onChanged: (_) => setDialogState(() {}),
+                  textDirection: TextDirection.ltr,
+                  textAlign: TextAlign.center,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  decoration: InputDecoration(
+                    labelText: 'رقم سري جديد — 6 أرقام',
+                    prefixIcon: const Icon(Icons.password_outlined),
+                    suffixIcon: IconButton(
+                      tooltip: 'توليد رقم سري',
+                      onPressed: saving
+                          ? null
+                          : () {
+                              final pin = Random.secure().nextInt(1000000);
+                              pinController.text =
+                                  pin.toString().padLeft(6, '0');
+                              setDialogState(() {});
+                            },
+                      icon: const Icon(Icons.casino_outlined),
+                    ),
+                  ),
+                ),
+                Row(
+                  children: [
+                    TextButton.icon(
+                      onPressed: pinController.text.length == 6
+                          ? () async {
+                              await Clipboard.setData(
+                                ClipboardData(text: pinController.text),
+                              );
+                              if (!dialogContext.mounted) return;
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('تم نسخ الرقم السري.'),
+                                ),
+                              );
+                            }
+                          : null,
+                      icon: const Icon(Icons.copy_outlined),
+                      label: const Text('نسخ الرقم'),
+                    ),
+                  ],
+                ),
+                const Text(
+                  'تغيير الرقم يلغي جميع الجلسات القديمة. لا يُحفظ الرقم كنص، ولن يظهر مرة أخرى بعد إغلاق النافذة.',
+                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            if (enabled)
+              TextButton.icon(
+                onPressed: saving
+                    ? null
+                    : () async {
+                        setDialogState(() => saving = true);
+                        try {
+                          await cloud.disableStudentPortal(_student.id);
+                          enabled = false;
+                          if (dialogContext.mounted) {
+                            Navigator.pop(dialogContext);
+                          }
+                        } catch (error) {
+                          if (dialogContext.mounted) {
+                            setDialogState(() => saving = false);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('تعذر إيقاف البوابة: $error'),
+                              ),
+                            );
+                          }
+                        }
+                      },
+                icon: const Icon(Icons.lock_outline),
+                label: const Text('إيقاف'),
+              ),
+            TextButton(
+              onPressed: saving ? null : () => Navigator.pop(dialogContext),
+              child: const Text('إلغاء'),
+            ),
+            FilledButton.icon(
+              onPressed: saving || pinController.text.length != 6
+                  ? null
+                  : () async {
+                      setDialogState(() => saving = true);
+                      try {
+                        await cloud.setStudentPortalPin(
+                          studentId: _student.id,
+                          pin: pinController.text,
+                        );
+                        if (dialogContext.mounted) {
+                          Navigator.pop(dialogContext);
+                        }
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text(
+                                'تم تفعيل البوابة وإلغاء الجلسات القديمة.',
+                              ),
+                            ),
+                          );
+                        }
+                      } catch (error) {
+                        if (dialogContext.mounted) {
+                          setDialogState(() => saving = false);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('تعذر تفعيل البوابة: $error'),
+                            ),
+                          );
+                        }
+                      }
+                    },
+              icon: saving
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.key_outlined),
+              label: const Text('حفظ وتفعيل'),
+            ),
+          ],
+        ),
+      ),
+    );
+    pinController.dispose();
   }
 
   void _confirmDelete() {

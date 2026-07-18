@@ -1,7 +1,7 @@
 name: halaqah_teacher
 description: تطبيق حلقتي - لإدارة الحلقات القرآنية
 publish_to: 'none'
-version: 3.7.0-alpha.1+37
+version: 4.1.0-alpha.2+42
 
 environment:
   sdk: ">=3.0.0 <4.0.0"

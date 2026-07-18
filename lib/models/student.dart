@@ -6,8 +6,10 @@ class Student {
   String phone;
   String guardianPhone;
   String qrCode;
+  String studentCode;
   String planType;
   int planAmount;
+  int reviewPlanAmount;
   int totalMemorized;
   DateTime joinDate;
   String status;
@@ -28,8 +30,10 @@ class Student {
     this.phone = '',
     this.guardianPhone = '',
     String? qrCode,
+    String? studentCode,
     this.planType = 'ayahs',
     this.planAmount = 5,
+    this.reviewPlanAmount = 10,
     this.totalMemorized = 0,
     DateTime? joinDate,
     this.status = 'active',
@@ -45,22 +49,35 @@ class Student {
     DateTime? updatedAt,
   })  : id = id ?? const Uuid().v4(),
         qrCode = qrCode ?? const Uuid().v4(),
+        studentCode = _normalizeStudentCode(
+          studentCode ?? qrCode ?? id ?? const Uuid().v4(),
+        ),
         joinDate = joinDate ?? DateTime.now(),
         createdAt = createdAt ?? DateTime.now(),
         updatedAt = updatedAt ?? DateTime.now();
 
-  /// رمز قصير ثابت وآمن للعرض في التقارير والبحث اليدوي.
+  /// رمز عام ثابت للعرض والبحث اليدوي، مستقل عن رمز QR الداخلي.
   ///
-  /// لا نعرض معرّف قاعدة البيانات الكامل، ونشتق الرمز من QR العشوائي حتى
-  /// يبقى ثابتًا عند النسخ الاحتياطي والمزامنة بين الأجهزة.
+  /// لا يمنح هذا الرمز وحده أي صلاحية دخول. تضمن قاعدة البيانات عدم تكراره،
+  /// بينما يبقى رمز QR العشوائي الكامل هو معرّف المسح الفعلي.
   String get displayCode {
-    final normalized = qrCode
+    final normalized = _normalizeStudentCode(studentCode);
+    final chunks = <String>[];
+    for (var index = 0; index < normalized.length; index += 5) {
+      final end = (index + 5).clamp(0, normalized.length).toInt();
+      chunks.add(normalized.substring(index, end));
+    }
+    return 'HAL-${chunks.join('-')}';
+  }
+
+  static String _normalizeStudentCode(String value) {
+    final normalized = value
+        .replaceFirst(RegExp(r'^HAL-', caseSensitive: false), '')
         .replaceAll(RegExp(r'[^A-Za-z0-9]'), '')
         .toUpperCase();
-    final suffix = normalized.length >= 8
-        ? normalized.substring(0, 8)
-        : normalized.padRight(8, '0');
-    return 'HAL-$suffix';
+    return normalized.length >= 20
+        ? normalized.substring(0, 20)
+        : normalized.padRight(20, '0');
   }
 
   Map<String, dynamic> toMap() => {
@@ -69,8 +86,10 @@ class Student {
         'phone': phone,
         'guardian_phone': guardianPhone,
         'qr_code': qrCode,
+        'student_code': studentCode,
         'plan_type': planType,
         'plan_amount': planAmount,
+        'review_plan_amount': reviewPlanAmount,
         'total_memorized': totalMemorized,
         'join_date': joinDate.toIso8601String(),
         'status': status,
@@ -92,8 +111,10 @@ class Student {
         phone: map['phone'] ?? '',
         guardianPhone: map['guardian_phone'] ?? '',
         qrCode: map['qr_code'],
+        studentCode: map['student_code'],
         planType: map['plan_type'] ?? 'ayahs',
         planAmount: map['plan_amount'] ?? 5,
+        reviewPlanAmount: map['review_plan_amount'] ?? 10,
         totalMemorized: map['total_memorized'] ?? 0,
         joinDate: DateTime.parse(map['join_date']),
         status: map['status'] ?? 'active',
@@ -115,6 +136,7 @@ class Student {
     String? guardianPhone,
     String? planType,
     int? planAmount,
+    int? reviewPlanAmount,
     int? totalMemorized,
     String? status,
     String? photoPath,
@@ -134,8 +156,10 @@ class Student {
       phone: phone ?? this.phone,
       guardianPhone: guardianPhone ?? this.guardianPhone,
       qrCode: qrCode,
+      studentCode: studentCode,
       planType: planType ?? this.planType,
       planAmount: planAmount ?? this.planAmount,
+      reviewPlanAmount: reviewPlanAmount ?? this.reviewPlanAmount,
       totalMemorized: totalMemorized ?? this.totalMemorized,
       joinDate: joinDate,
       status: status ?? this.status,

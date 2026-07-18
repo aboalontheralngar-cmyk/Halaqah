@@ -3,6 +3,7 @@ import 'package:uuid/uuid.dart';
 class FundTransaction {
   final String id;
   final String? studentId;
+  final String? behaviorPointId;
   final String type; // 'subscription', 'penalty', 'expense', 'donation'
   final double amount;
   final String? note;
@@ -12,6 +13,7 @@ class FundTransaction {
   FundTransaction({
     String? id,
     this.studentId,
+    this.behaviorPointId,
     required this.type,
     required this.amount,
     this.note,
@@ -23,6 +25,7 @@ class FundTransaction {
   Map<String, dynamic> toMap() => {
         'id': id,
         'student_id': studentId,
+        'behavior_point_id': behaviorPointId,
         'type': type,
         'amount': amount,
         'note': note,
@@ -33,6 +36,7 @@ class FundTransaction {
   factory FundTransaction.fromMap(Map<String, dynamic> map) => FundTransaction(
         id: map['id'],
         studentId: map['student_id'],
+        behaviorPointId: map['behavior_point_id'],
         type: map['type'],
         amount: (map['amount'] as num).toDouble(),
         note: map['note'],

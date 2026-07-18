@@ -1,9 +1,13 @@
+import 'dart:math';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../models/family.dart';
 import '../../models/family_guardian.dart';
 import '../../models/student.dart';
 import '../../services/database_service.dart';
+import '../../services/supabase_service.dart';
 
 class FamiliesScreen extends StatefulWidget {
   const FamiliesScreen({super.key});
@@ -293,6 +297,11 @@ class _FamilyDetailScreenState extends State<FamilyDetailScreen> {
                                 ? 'لا يوجد مرجع عائلي إضافي'
                                 : 'المرجع: ${family.referenceName}',
                           ),
+                          trailing: IconButton(
+                            onPressed: () => _managePortal(family),
+                            icon: const Icon(Icons.key_outlined),
+                            tooltip: 'بوابة ولي الأمر',
+                          ),
                         ),
                       ),
                       const SizedBox(height: 12),
@@ -355,6 +364,211 @@ class _FamilyDetailScreenState extends State<FamilyDetailScreen> {
           ],
         ),
       );
+
+  Future<void> _managePortal(Family family) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final status = await SupabaseService().getFamilyPortalStatus(family.id);
+      final remoteCode = status['family_code']?.toString();
+      if (remoteCode != null && remoteCode.isNotEmpty) {
+        family.familyCode = remoteCode;
+        await _db.saveFamily(family);
+        if (mounted) setState(() => _family = family);
+      }
+      if (!mounted) return;
+      await _showPortalDialog(family, status);
+    } catch (error) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            'تعذر فتح بوابة ولي الأمر. تأكد من تنفيذ SQL المرحلة P7.2.1: $error',
+          ),
+        ),
+      );
+    }
+  }
+
+  Future<void> _showPortalDialog(
+    Family family,
+    Map<String, dynamic> initialStatus,
+  ) async {
+    final pin = TextEditingController();
+    var enabled = initialStatus['enabled'] == true;
+    var saving = false;
+    final activeStudents = initialStatus['active_students'] ?? _members.length;
+    await showDialog<void>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('بوابة ولي الأمر'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(
+                    enabled ? Icons.verified_user_outlined : Icons.shield_outlined,
+                    color: enabled ? Colors.green : Colors.grey,
+                  ),
+                  title: Text(enabled ? 'الدخول مفعّل' : 'الدخول غير مفعّل'),
+                  subtitle: Text('$activeStudents من الأبناء النشطين'),
+                ),
+                const SizedBox(height: 8),
+                InputDecorator(
+                  decoration: const InputDecoration(labelText: 'كود العائلة العالمي'),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: SelectableText(
+                          family.displayCode,
+                          textDirection: TextDirection.ltr,
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () async {
+                          await Clipboard.setData(
+                            ClipboardData(text: family.displayCode),
+                          );
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('تم نسخ كود العائلة')),
+                            );
+                          }
+                        },
+                        icon: const Icon(Icons.copy_outlined),
+                        tooltip: 'نسخ الكود',
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 14),
+                TextField(
+                  controller: pin,
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [
+                    FilteringTextInputFormatter.digitsOnly,
+                    LengthLimitingTextInputFormatter(6),
+                  ],
+                  textAlign: TextAlign.center,
+                  obscureText: true,
+                  decoration: InputDecoration(
+                    labelText: 'رقم سري جديد من 6 أرقام',
+                    suffixIcon: IconButton(
+                      onPressed: () => setDialogState(() {
+                        final random = Random.secure();
+                        pin.text = List.generate(
+                          6,
+                          (_) => random.nextInt(10),
+                        ).join();
+                      }),
+                      icon: const Icon(Icons.casino_outlined),
+                      tooltip: 'توليد آمن',
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'تغيير الرقم يلغي جميع الجلسات السابقة، ولا يُحفظ الرقم بصورته الأصلية.',
+                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+                if (enabled) ...[
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    onPressed: saving
+                        ? null
+                        : () async {
+                            setDialogState(() => saving = true);
+                            try {
+                              await SupabaseService().disableFamilyPortal(family.id);
+                              if (context.mounted) {
+                                setDialogState(() {
+                                  enabled = false;
+                                  saving = false;
+                                });
+                              }
+                            } catch (error) {
+                              if (context.mounted) {
+                                setDialogState(() => saving = false);
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text('تعذر إيقاف الدخول: $error')),
+                                );
+                              }
+                            }
+                          },
+                    icon: const Icon(Icons.lock_outline),
+                    label: const Text('إيقاف الدخول وإلغاء الجلسات'),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: saving ? null : () => Navigator.pop(context),
+              child: const Text('إغلاق'),
+            ),
+            FilledButton.icon(
+              onPressed: saving
+                  ? null
+                  : () async {
+                      if (!RegExp(r'^\d{6}$').hasMatch(pin.text)) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('أدخل رقمًا سريًا من 6 أرقام'),
+                          ),
+                        );
+                        return;
+                      }
+                      setDialogState(() => saving = true);
+                      try {
+                        await SupabaseService().setFamilyPortalPin(
+                          familyId: family.id,
+                          pin: pin.text,
+                        );
+                        if (!context.mounted) return;
+                        setDialogState(() {
+                          enabled = true;
+                          saving = false;
+                        });
+                        await Clipboard.setData(
+                          ClipboardData(
+                            text: 'بوابة ولي الأمر — ${family.name}\n'
+                                'كود العائلة: ${family.displayCode}\n'
+                                'الرقم السري: ${pin.text}\n'
+                                'يرجى حفظ البيانات وعدم مشاركتها.',
+                          ),
+                        );
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('تم التفعيل ونسخ بيانات الدخول'),
+                            ),
+                          );
+                        }
+                      } catch (error) {
+                        if (context.mounted) {
+                          setDialogState(() => saving = false);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('تعذر التفعيل: $error')),
+                          );
+                        }
+                      }
+                    },
+              icon: saving
+                  ? const SizedBox.square(
+                      dimension: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.key_outlined),
+              label: Text(enabled ? 'تغيير الرقم' : 'حفظ وتفعيل'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
   Widget _guardianCard(FamilyGuardian guardian) => Card(
         child: ListTile(

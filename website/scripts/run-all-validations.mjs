@@ -22,6 +22,13 @@ const validators = [
   "validate-production-readiness.mjs",
   "validate-data-privacy.mjs",
   "validate-unified-identity.mjs",
+  "validate-p7-student-platform.mjs",
+  "validate-student-portal.mjs",
+  "validate-family-portal.mjs",
+  "validate-supervisory-hierarchy.mjs",
+  "validate-staged-release.mjs",
+  "validate-operational-diagnostics.mjs",
+  "validate-release-integrity.mjs",
 ];
 
 for (const validator of validators) {

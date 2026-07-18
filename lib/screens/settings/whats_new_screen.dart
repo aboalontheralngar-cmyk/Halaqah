@@ -325,6 +325,33 @@ class WhatsNewScreen extends StatelessWidget {
           ),
         ],
       ),
+      const ReleaseVersion(
+        version: 'v4.1.0-alpha.2 · RC2',
+        title: 'التشخيص الآمن والجاهزية التشغيلية',
+        color: Color(0xFF0F766E),
+        features: [
+          FeatureItem(
+            icon: Icons.health_and_safety_outlined,
+            title: 'مركز التشخيص والدعم',
+            description: 'ملخص لصحة SQLite والنسخ والمزامنة واتصال Supabase وأعداد السجلات دون عرض بيانات الطلاب.',
+          ),
+          FeatureItem(
+            icon: Icons.bug_report_outlined,
+            title: 'بصمات أعطال منقحة',
+            description: 'التقاط أخطاء Flutter والمنصة برمز قصير دون تخزين نص الخطأ أو مسارات الجهاز أو بيانات الحلقة.',
+          ),
+          FeatureItem(
+            icon: Icons.share_outlined,
+            title: 'تقرير دعم قابل للمشاركة',
+            description: 'نسخ أو مشاركة تقرير تقني يؤكد صراحة خلوه من الأسماء والهواتف والملاحظات وكلمات المرور والجلسات.',
+          ),
+          FeatureItem(
+            icon: Icons.restart_alt_outlined,
+            title: 'شاشة تعافٍ عند فشل البدء',
+            description: 'رسالة آمنة تمنع المستخدم من حذف البيانات وتعرض رمز حادثة يمكن الرجوع إليه عند تعذر تشغيل التطبيق.',
+          ),
+        ],
+      ),
     ];
 
     return releases.map((release) {

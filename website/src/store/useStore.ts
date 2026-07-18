@@ -23,7 +23,8 @@ export interface Profile {
 export interface Supervisor {
   id: string;
   name: string;
-  code: string;
+  role: 'owner' | 'admin' | 'analyst';
+  code?: string;
 }
 
 export interface Teacher {
@@ -39,6 +40,7 @@ export interface Student {
   id: string;
   familyId?: string;
   qrCode?: string;
+  studentCode?: string;
   name: string;
   phone: string;
   parentPhone: string;
@@ -48,6 +50,7 @@ export interface Student {
   photoUrl?: string;
   planType: 'ayahs' | 'pages' | 'lines';
   planAmount: number;
+  reviewPlanAmount: number;
   status: 'active' | 'inactive' | 'suspended' | 'expelled' | 'graduated';
   memorizationDirection?: 'asc' | 'desc';
   preMemorizedStartSurah?: number;
@@ -217,6 +220,7 @@ type TeacherRow = {
 type StudentRow = {
   id: string;
   qr_code?: string;
+  student_code?: string;
   name: string;
   phone: string;
   parent_phone: string;
@@ -227,6 +231,7 @@ type StudentRow = {
   photo_url?: string;
   plan_type: Student['planType'];
   plan_amount: number;
+  review_plan_amount?: number;
   status: Student['status'];
   memorization_direction?: Student['memorizationDirection'];
   pre_memorized_start_surah?: number;
@@ -351,6 +356,7 @@ interface HalaqahStore {
   setProfile: (profile: Profile | null) => void;
   createSupervisor: (name: string) => Promise<string | null>;
   joinSupervisor: (code: string) => Promise<boolean>;
+  acceptSupervisorMemberInvitation: (code: string) => Promise<boolean>;
   fetchTeachers: () => Promise<void>;
   addTeacher: (email: string, halaqahId?: string) => Promise<void>;
   removeTeacher: (id: string) => Promise<void>;
@@ -592,13 +598,31 @@ export const useStore = create<HalaqahStore>((set, get) => ({
     if (data && !error) {
       set({ profile: { id: data.id, fullName: data.full_name, role: data.role } });
       
-      if (data.role === 'supervisor') {
+      const { data: supervisoryData, error: supervisoryError } = await supabase
+        .rpc('get_my_supervisors');
+      const organizations = Array.isArray(supervisoryData)
+        ? supervisoryData as Array<{ id: string; name: string; role: Supervisor['role'] }>
+        : [];
+
+      if (!supervisoryError) {
+        set({ currentSupervisor: organizations[0] || null });
+      } else if (data.role === 'supervisor') {
+        // Compatibility fallback until the P7.3 migration is applied.
         const { data: supData } = await supabase
           .from('supervisors')
           .select('*')
           .eq('owner_id', user.id)
           .maybeSingle();
-        if (supData) set({ currentSupervisor: { id: supData.id, name: supData.name, code: supData.code } });
+        if (supData) {
+          set({
+            currentSupervisor: {
+              id: supData.id,
+              name: supData.name,
+              role: 'owner',
+              code: supData.code,
+            },
+          });
+        }
       }
     } else {
       // Check if user owns any centers (fallback for admins)
@@ -637,16 +661,13 @@ export const useStore = create<HalaqahStore>((set, get) => ({
     const user = get().user;
     if (!user) return null;
 
-    const code = 'HAL-' + Math.random().toString(36).substring(2, 8).toUpperCase();
     const { data, error } = await supabase
-      .from('supervisors')
-      .insert([{ name, code, owner_id: user.id }])
-      .select()
-      .single();
+      .rpc('create_supervisor_organization', { p_name: name.trim() });
 
     if (data && !error) {
-      set({ currentSupervisor: { id: data.id, name: data.name, code: data.code } });
-      return code;
+      const organization = data as { id: string; name: string; role: Supervisor['role'] };
+      set({ currentSupervisor: organization });
+      return organization.id;
     }
     return null;
   },
@@ -656,21 +677,22 @@ export const useStore = create<HalaqahStore>((set, get) => ({
     const center = get().currentCenter;
     if (!center) return false;
 
-    const { data: supData } = await supabase
-      .from('supervisors')
-      .select('id')
-      .eq('code', code)
-      .single();
+    const { data, error } = await supabase.rpc(
+      'accept_supervisor_center_invitation',
+      { p_center_id: center.id, p_code: code.trim().toUpperCase() },
+    );
+    return !error && Boolean((data as { success?: boolean } | null)?.success);
+  },
 
-    if (supData) {
-      const { error } = await supabase
-        .from('centers')
-        .update({ supervisor_id: supData.id })
-        .eq('id', center.id);
-      
-      return !error;
-    }
-    return false;
+  acceptSupervisorMemberInvitation: async (code) => {
+    if (!supabase) return false;
+    const { data, error } = await supabase.rpc(
+      'accept_supervisor_member_invitation',
+      { p_code: code.trim().toUpperCase() },
+    );
+    if (error || !(data as { success?: boolean } | null)?.success) return false;
+    await get().fetchProfile();
+    return true;
   },
 
   fetchTeachers: async () => {
@@ -819,6 +841,7 @@ export const useStore = create<HalaqahStore>((set, get) => ({
         const mapped = (data as StudentRow[]).map((s) => ({
           id: s.id,
           qrCode: s.qr_code,
+          studentCode: s.student_code,
           name: s.name,
           phone: s.phone,
           parentPhone: s.parent_phone,
@@ -829,6 +852,7 @@ export const useStore = create<HalaqahStore>((set, get) => ({
           photoUrl: s.photo_url,
           planType: s.plan_type,
           planAmount: s.plan_amount,
+          reviewPlanAmount: s.review_plan_amount ?? 10,
           status: s.status,
           memorizationDirection: s.memorization_direction || 'desc',
           preMemorizedStartSurah: s.pre_memorized_start_surah,
@@ -868,6 +892,7 @@ export const useStore = create<HalaqahStore>((set, get) => ({
           join_date: student.joinDate,
           plan_type: student.planType,
           plan_amount: student.planAmount,
+          review_plan_amount: student.reviewPlanAmount,
           status: student.status,
           center_id: center.id,
           halaqa_id: center.activeHalaqa?.id, // Assign to current halaqa
@@ -889,6 +914,7 @@ export const useStore = create<HalaqahStore>((set, get) => ({
         const mapped = {
           id: data.id,
           qrCode: data.qr_code,
+          studentCode: data.student_code,
           name: data.name,
           phone: data.phone,
           parentPhone: data.parent_phone,
@@ -898,6 +924,7 @@ export const useStore = create<HalaqahStore>((set, get) => ({
           joinDate: data.join_date,
           planType: data.plan_type,
           planAmount: data.plan_amount,
+          reviewPlanAmount: data.review_plan_amount ?? 10,
           status: data.status,
           memorizationDirection: data.memorization_direction || 'desc',
           preMemorizedStartSurah: data.pre_memorized_start_surah,
@@ -926,6 +953,7 @@ export const useStore = create<HalaqahStore>((set, get) => ({
         join_date: student.joinDate,
         plan_type: student.planType,
         plan_amount: student.planAmount,
+        review_plan_amount: student.reviewPlanAmount,
         status: student.status,
       };
       if (student.familyId !== undefined) {
@@ -1637,6 +1665,7 @@ export const useStore = create<HalaqahStore>((set, get) => ({
       get().updateStudent(plan.studentId, {
         planType: plan.unit,
         planAmount: plan.newAmount,
+        reviewPlanAmount: plan.reviewAmount,
       }),
     ]);
   },
@@ -1660,10 +1689,17 @@ export const useStore = create<HalaqahStore>((set, get) => ({
     const { error } = await supabase.from('plans').update(payload).eq('id', id);
     if (error) throw error;
     const plan = get().plans.find((item) => item.id === id);
-    if (plan && (changes.unit !== undefined || changes.newAmount !== undefined) && plan.status === 'active') {
+    if (
+      plan &&
+      (changes.unit !== undefined ||
+        changes.newAmount !== undefined ||
+        changes.reviewAmount !== undefined) &&
+      plan.status === 'active'
+    ) {
       await get().updateStudent(plan.studentId, {
         planType: changes.unit ?? plan.unit,
         planAmount: changes.newAmount ?? plan.newAmount,
+        reviewPlanAmount: changes.reviewAmount ?? plan.reviewAmount,
       });
     }
     await get().fetchPlans();

@@ -13,7 +13,9 @@ import {
   ChevronLeft,
   LayoutGrid,
   Loader2,
-  Settings
+  Settings,
+  ShieldCheck,
+  UserPlus
 } from "lucide-react";
 import { useStore } from "@/store/useStore";
 import { supabase } from "@/lib/supabase";
@@ -36,7 +38,14 @@ type CenterMembershipRow = { centers: CenterOption | CenterOption[] | null };
 
 export default function SelectCenterPage() {
   const router = useRouter();
-  const { user, profile, setCurrentCenter, setUser } = useStore();
+  const {
+    user,
+    profile,
+    currentSupervisor,
+    setCurrentCenter,
+    setUser,
+    acceptSupervisorMemberInvitation,
+  } = useStore();
   const [step, setStep] = useState<"center" | "halaqa">("center");
   const [selectedCenter, setSelectedCenter] = useState<CenterOption | null>(null);
   const [centers, setCenters] = useState<CenterOption[]>([]);
@@ -44,6 +53,9 @@ export default function SelectCenterPage() {
   const [loading, setLoading] = useState(true);
   const [showCreateCenter, setShowCreateCenter] = useState(false);
   const [showCreateHalaqa, setShowCreateHalaqa] = useState(false);
+  const [showJoinSupervisor, setShowJoinSupervisor] = useState(false);
+  const [supervisorMemberCode, setSupervisorMemberCode] = useState("");
+  const [joiningSupervisor, setJoiningSupervisor] = useState(false);
   const [newCenterData, setNewCenterData] = useState({ name: "", address: "", type: "men" as "men" | "women" | "mixed" });
   const [newHalaqaData, setNewHalaqaData] = useState({ name: "", teacher_name: "" });
   
@@ -158,6 +170,10 @@ export default function SelectCenterPage() {
   };
 
   const handleCenterSelect = (center: CenterOption) => {
+    if (currentSupervisor?.role === "analyst" && profile?.role === "supervisor") {
+      router.push("/supervision");
+      return;
+    }
     setSelectedCenter(center);
     fetchHalaqat(center.id);
     setStep("halaqa");
@@ -215,6 +231,21 @@ export default function SelectCenterPage() {
     setLoading(false);
   };
 
+  const handleJoinSupervisorTeam = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!supervisorMemberCode.trim()) return;
+    setJoiningSupervisor(true);
+    const success = await acceptSupervisorMemberInvitation(supervisorMemberCode);
+    setJoiningSupervisor(false);
+    if (!success) {
+      alert("تعذر قبول الدعوة. تأكد من البريد المرتبط بالحساب ومن صلاحية الكود.");
+      return;
+    }
+    setShowJoinSupervisor(false);
+    setSupervisorMemberCode("");
+    router.push("/supervision");
+  };
+
   if (loading && step === "center" && centers.length === 0) {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-950 flex items-center justify-center">
@@ -237,6 +268,15 @@ export default function SelectCenterPage() {
           <p className="text-gray-500 dark:text-gray-400 font-medium text-lg">
             {step === "center" ? "يرجى تحديد المنظمة أو المسجد المراد إدارته" : "اختر الحلقة لمتابعة المدرس والطلاب"}
           </p>
+          {step === "center" && currentSupervisor && (
+            <button
+              onClick={() => router.push("/supervision")}
+              className="mx-auto mt-5 inline-flex items-center gap-2 rounded-2xl bg-amber-50 px-5 py-3 text-sm font-black text-amber-700 transition-colors hover:bg-amber-100 dark:bg-amber-900/20 dark:text-amber-300"
+            >
+              <ShieldCheck className="h-5 w-5" />
+              لوحة {currentSupervisor.name}
+            </button>
+          )}
         </div>
 
         {/* Selection Area */}
@@ -245,8 +285,16 @@ export default function SelectCenterPage() {
             <>
               {centers.length === 0 ? (
                 <div className="md:col-span-2 text-center py-20 bg-white dark:bg-gray-900 rounded-3xl border-2 border-dashed border-gray-200 dark:border-gray-800">
-                  <p className="text-gray-400 font-black mb-6">لا يوجد مراكز مسجلة باسمك حالياً</p>
-                  <button onClick={() => setShowCreateCenter(true)} className="px-8 py-4 bg-teal-600 text-white rounded-2xl font-black text-sm">إنشاء مركز جديد</button>
+                  <p className="text-gray-400 font-black mb-6">
+                    {profile?.role === 'supervisor'
+                      ? "لا توجد مراكز مرتبطة بالجهة حتى الآن"
+                      : "لا يوجد مراكز مسجلة باسمك حالياً"}
+                  </p>
+                  {profile?.role === 'supervisor' ? (
+                    <button onClick={() => router.push("/supervision")} className="px-8 py-4 bg-amber-500 text-white rounded-2xl font-black text-sm">فتح لوحة الإشراف وإنشاء دعوة</button>
+                  ) : (
+                    <button onClick={() => setShowCreateCenter(true)} className="px-8 py-4 bg-teal-600 text-white rounded-2xl font-black text-sm">إنشاء مركز جديد</button>
+                  )}
                 </div>
               ) : (
                 <div className="md:col-span-2 grid md:grid-cols-2 gap-8">
@@ -267,13 +315,15 @@ export default function SelectCenterPage() {
                         <div className="flex-1">
                           <h3 className="text-xl font-black text-gray-900 dark:text-white group-hover:text-teal-600 transition-colors">{center.name}</h3>
                           <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mt-1">
-                            {center.type === 'men' ? "قطاع البنين" : center.type === 'women' ? "قطاع البنات" : "مركز مختلط"}
+                            {currentSupervisor?.role === "analyst" && profile?.role === "supervisor"
+                              ? "متاح في التقرير التجميعي فقط"
+                              : center.type === 'men' ? "قطاع البنين" : center.type === 'women' ? "قطاع البنات" : "مركز مختلط"}
                           </p>
                         </div>
                       </div>
 
                       <div className="flex items-center gap-2">
-                        {(profile?.role === 'center_admin' || center.owner_id === user?.id) && (
+                        {(profile?.role === 'center_admin' || center.owner_id === user?.id || currentSupervisor?.role === 'owner' || currentSupervisor?.role === 'admin') && (
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
@@ -294,12 +344,14 @@ export default function SelectCenterPage() {
                       </div>
                     </div>
                   ))}
-                  <button 
-                    onClick={() => setShowCreateCenter(true)}
-                    className="md:col-span-2 py-6 border-2 border-dashed border-gray-200 dark:border-gray-800 rounded-2xl flex items-center justify-center gap-3 text-gray-400 font-black hover:border-teal-500 hover:text-teal-600 transition-all"
-                  >
-                    <Plus className="w-6 h-6" /> إضافة مركز آخر
-                  </button>
+                  {profile?.role !== 'supervisor' && (
+                    <button
+                      onClick={() => setShowCreateCenter(true)}
+                      className="md:col-span-2 py-6 border-2 border-dashed border-gray-200 dark:border-gray-800 rounded-2xl flex items-center justify-center gap-3 text-gray-400 font-black hover:border-teal-500 hover:text-teal-600 transition-all"
+                    >
+                      <Plus className="w-6 h-6" /> إضافة مركز آخر
+                    </button>
+                  )}
                 </div>
               )}
             </>
@@ -350,6 +402,14 @@ export default function SelectCenterPage() {
 
         {/* Footer */}
         <div className="pt-10 flex flex-col items-center gap-6">
+          {!currentSupervisor && (
+            <button
+              onClick={() => setShowJoinSupervisor(true)}
+              className="flex items-center gap-2 text-amber-600 hover:text-amber-700 font-black text-sm transition-colors"
+            >
+              <UserPlus className="w-4 h-4" /> قبول دعوة فريق إشرافي
+            </button>
+          )}
           <button 
             onClick={handleLogout}
             className="flex items-center gap-2 text-gray-400 hover:text-rose-600 font-black text-sm transition-colors"
@@ -359,6 +419,42 @@ export default function SelectCenterPage() {
           <p className="text-[10px] font-black text-gray-300 dark:text-gray-700 uppercase tracking-widest">تطبيق حلقتي - يخدم كتاب الله وأهله</p>
         </div>
       </div>
+
+      {showJoinSupervisor && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/60 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-[2.5rem] bg-white p-9 shadow-2xl dark:bg-gray-900">
+            <h3 className="text-2xl font-black text-gray-900 dark:text-white">الانضمام لفريق إشرافي</h3>
+            <p className="mt-3 text-sm leading-7 text-gray-500 dark:text-gray-400">
+              الدعوة مرتبطة ببريد حسابك، وتعمل مرة واحدة فقط خلال المدة المحددة.
+            </p>
+            <form onSubmit={handleJoinSupervisorTeam} className="mt-7 space-y-5">
+              <input
+                value={supervisorMemberCode}
+                onChange={(event) => setSupervisorMemberCode(event.target.value.toUpperCase())}
+                placeholder="HAL-TEAM-..."
+                autoComplete="off"
+                className="w-full rounded-2xl border border-gray-200 bg-gray-50 px-5 py-4 font-mono text-sm font-bold tracking-wide outline-none focus:border-amber-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+              />
+              <div className="flex gap-3">
+                <button
+                  type="submit"
+                  disabled={joiningSupervisor || !supervisorMemberCode.trim()}
+                  className="flex-1 rounded-2xl bg-amber-500 px-5 py-4 text-sm font-black text-white disabled:opacity-50"
+                >
+                  {joiningSupervisor ? "جارٍ التحقق..." : "قبول الدعوة"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowJoinSupervisor(false)}
+                  className="rounded-2xl bg-gray-100 px-6 py-4 text-sm font-black text-gray-600 dark:bg-gray-800 dark:text-gray-300"
+                >
+                  إلغاء
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Create Center Modal */}
       {showCreateCenter && (

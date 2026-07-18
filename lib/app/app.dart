@@ -82,3 +82,69 @@ class HalaqahApp extends StatelessWidget {
     );
   }
 }
+
+class HalaqahStartupFailureApp extends StatelessWidget {
+  final String incidentCode;
+
+  const HalaqahStartupFailureApp({
+    super.key,
+    required this.incidentCode,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      locale: const Locale('ar'),
+      theme: AppTheme.lightTheme,
+      darkTheme: AppTheme.darkTheme,
+      home: Directionality(
+        textDirection: TextDirection.rtl,
+        child: Scaffold(
+          body: SafeArea(
+            child: Center(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.health_and_safety_outlined,
+                      size: 64,
+                      color: Colors.red,
+                    ),
+                    const SizedBox(height: 16),
+                    const Text(
+                      'تعذر إكمال تشغيل حلقتي',
+                      style: TextStyle(
+                        fontSize: 21,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 10),
+                    const Text(
+                      'لم تُحذف بياناتك. أغلق التطبيق وافتحه مرة أخرى، ولا تمسح بياناته أو تعِد تثبيته قبل أخذ نسخة احتياطية.',
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 12),
+                    SelectableText(
+                      'رمز الحادثة: $incidentCode',
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 20),
+                    FilledButton.icon(
+                      onPressed: SystemNavigator.pop,
+                      icon: const Icon(Icons.close),
+                      label: const Text('إغلاق التطبيق'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}

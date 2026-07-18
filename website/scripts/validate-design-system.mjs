@@ -28,6 +28,19 @@ assertIncludes(
 assertIncludes(read("lib/screens/students/students_screen.dart"), ["AppSearchField", "AppEmptyState", "StudentCard"], "Flutter students");
 assertIncludes(read("lib/screens/reports/reports_screen.dart"), ["AppPageIntro", "AppSectionHeader", "StudentCard"], "Flutter reports");
 
+const notifications = read("lib/screens/notifications/notifications_screen.dart");
+assertIncludes(
+  notifications,
+  ["Expanded(\n                                  child: Text(\n                                    notification.title", "TextOverflow.ellipsis", "Expanded(\n                                        child: Text(\n                                          'الطالب:"],
+  "Flutter notification responsive rows",
+);
+
+assertIncludes(
+  read("android/app/src/main/AndroidManifest.xml"),
+  ['<uses-permission android:name="android.permission.INTERNET"/>'],
+  "Android production networking",
+);
+
 const webDesign = read("website/src/components/ui/AppDesign.tsx");
 assertIncludes(
   webDesign,

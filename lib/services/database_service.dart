@@ -28,6 +28,8 @@ import 'memorized_content_service.dart';
 import 'recitation_record_math.dart';
 import 'behavior_point_policy.dart';
 import 'student_status_policy.dart';
+import 'daily_excellence_service.dart';
+import 'recitation_points_policy.dart';
 
 class DatabaseService {
   static final DatabaseService _instance = DatabaseService._internal();
@@ -46,7 +48,7 @@ class DatabaseService {
     String path = join(await getDatabasesPath(), 'halaqah.db');
     return await openDatabase(
       path,
-      version: 14,
+      version: 18,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
       onConfigure: (db) async {
@@ -63,8 +65,10 @@ class DatabaseService {
         phone TEXT,
         guardian_phone TEXT,
         qr_code TEXT UNIQUE,
+        student_code TEXT NOT NULL UNIQUE,
         plan_type TEXT DEFAULT 'ayahs',
         plan_amount INTEGER DEFAULT 5,
+        review_plan_amount INTEGER DEFAULT 10,
         total_memorized INTEGER DEFAULT 0,
         join_date TEXT NOT NULL,
         status TEXT DEFAULT 'active',
@@ -189,6 +193,10 @@ class DatabaseService {
     await _upgradeToVersion12(db);
     await _upgradeToVersion13(db);
     await _upgradeToVersion14(db);
+    await _upgradeToVersion15(db);
+    await _upgradeToVersion16(db);
+    await _upgradeToVersion17(db);
+    await _upgradeToVersion18(db);
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -231,6 +239,101 @@ class DatabaseService {
     if (oldVersion < 14) {
       await _upgradeToVersion14(db);
     }
+    if (oldVersion < 15) {
+      await _upgradeToVersion15(db);
+    }
+    if (oldVersion < 16) {
+      await _upgradeToVersion16(db);
+    }
+    if (oldVersion < 17) {
+      await _upgradeToVersion17(db);
+    }
+    if (oldVersion < 18) {
+      await _upgradeToVersion18(db);
+    }
+  }
+
+  Future<void> _upgradeToVersion18(Database db) async {
+    final columns = await db.rawQuery('PRAGMA table_info(families)');
+    if (!columns.any((column) => column['name'] == 'family_code')) {
+      await db.execute('ALTER TABLE families ADD COLUMN family_code TEXT');
+    }
+    await db.execute(
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_families_family_code '
+      'ON families(family_code) WHERE family_code IS NOT NULL',
+    );
+  }
+
+  Future<void> _upgradeToVersion17(Database db) async {
+    final columns = await db.rawQuery('PRAGMA table_info(students)');
+    if (!columns.any((column) => column['name'] == 'review_plan_amount')) {
+      await db.execute(
+        'ALTER TABLE students ADD COLUMN review_plan_amount INTEGER DEFAULT 10',
+      );
+    }
+    await db.execute(
+      'UPDATE students SET review_plan_amount = 10 '
+      'WHERE review_plan_amount IS NULL OR review_plan_amount < 1',
+    );
+  }
+
+  Future<void> _upgradeToVersion16(Database db) async {
+    final columns = await db.rawQuery('PRAGMA table_info(fund_transactions)');
+    if (!columns.any((column) => column['name'] == 'behavior_point_id')) {
+      await db.execute(
+        'ALTER TABLE fund_transactions ADD COLUMN behavior_point_id TEXT',
+      );
+    }
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_fund_transactions_behavior_point '
+      'ON fund_transactions(behavior_point_id)',
+    );
+  }
+
+  Future<void> _upgradeToVersion15(Database db) async {
+    final columns = await db.rawQuery('PRAGMA table_info(students)');
+    final hasStudentCode = columns.any((column) => column['name'] == 'student_code');
+    if (!hasStudentCode) {
+      await db.execute('ALTER TABLE students ADD COLUMN student_code TEXT');
+    }
+
+    final rows = await db.query(
+      'students',
+      columns: ['id', 'qr_code', 'student_code'],
+    );
+    final used = <String>{};
+    for (final row in rows) {
+      final current = row['student_code']?.toString().trim() ?? '';
+      var source = current.isNotEmpty
+          ? current
+          : (row['qr_code']?.toString().trim().isNotEmpty ?? false)
+              ? row['qr_code'].toString()
+              : row['id'].toString();
+      source = source.replaceAll(RegExp(r'[^A-Za-z0-9]'), '').toUpperCase();
+      var candidate = source.length >= 20
+          ? source.substring(0, 20)
+          : source.padRight(20, '0');
+      if (used.contains(candidate)) {
+        final fallback = row['id']
+            .toString()
+            .replaceAll(RegExp(r'[^A-Za-z0-9]'), '')
+            .toUpperCase();
+        candidate = fallback.length >= 20
+            ? fallback.substring(0, 20)
+            : fallback.padRight(20, '0');
+      }
+      used.add(candidate);
+      await db.update(
+        'students',
+        {'student_code': candidate},
+        where: 'id = ?',
+        whereArgs: [row['id']],
+      );
+    }
+    await db.execute(
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_students_student_code '
+      'ON students(student_code)',
+    );
   }
 
   Future<void> _upgradeToVersion14(Database db) async {
@@ -344,6 +447,7 @@ class DatabaseService {
       CREATE TABLE IF NOT EXISTS families (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
+        family_code TEXT,
         reference_name TEXT,
         notes TEXT,
         created_at TEXT NOT NULL,
@@ -371,6 +475,10 @@ class DatabaseService {
     if (!studentColumnNames.contains('family_id')) {
       await db.execute('ALTER TABLE students ADD COLUMN family_id TEXT');
     }
+    await db.execute(
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_families_family_code '
+      'ON families(family_code) WHERE family_code IS NOT NULL',
+    );
     await db.execute(
       'CREATE INDEX IF NOT EXISTS idx_students_family ON students(family_id)',
     );
@@ -552,12 +660,14 @@ class DatabaseService {
       CREATE TABLE IF NOT EXISTS fund_transactions (
         id TEXT PRIMARY KEY,
         student_id TEXT,
+        behavior_point_id TEXT,
         type TEXT NOT NULL,
         amount REAL NOT NULL,
         note TEXT,
         date TEXT NOT NULL,
         created_at TEXT NOT NULL,
-        FOREIGN KEY (student_id) REFERENCES students (id) ON DELETE SET NULL
+        FOREIGN KEY (student_id) REFERENCES students (id) ON DELETE SET NULL,
+        FOREIGN KEY (behavior_point_id) REFERENCES behavior_points (id) ON DELETE SET NULL
       )
     ''');
 
@@ -596,6 +706,7 @@ class DatabaseService {
     ''');
 
     await db.execute('CREATE INDEX IF NOT EXISTS idx_fund_transactions_student ON fund_transactions(student_id)');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_fund_transactions_behavior_point ON fund_transactions(behavior_point_id)');
     await db.execute('CREATE INDEX IF NOT EXISTS idx_plans_student ON plans(student_id)');
     await db.execute('CREATE INDEX IF NOT EXISTS idx_notifications_student ON notifications(student_id)');
   }
@@ -1253,6 +1364,20 @@ class DatabaseService {
         previousTrackedCount: previousTrackedCount,
       );
     });
+    if (!original.isRevision) {
+      await recalculateDailyRecitationPoints(
+        studentId: original.studentId,
+        date: original.date,
+      );
+    }
+    if (!updated.isRevision &&
+        (_dateKey(updated.date) != _dateKey(original.date) ||
+            original.isRevision)) {
+      await recalculateDailyRecitationPoints(
+        studentId: updated.studentId,
+        date: updated.date,
+      );
+    }
   }
 
   Future<void> deleteMemorizationProgress(MemorizationProgress progress) async {
@@ -1298,6 +1423,12 @@ class DatabaseService {
         previousTrackedCount: previousTrackedCount,
       );
     });
+    if (!progress.isRevision) {
+      await recalculateDailyRecitationPoints(
+        studentId: progress.studentId,
+        date: progress.date,
+      );
+    }
   }
 
   void _validateMemorizationRange(MemorizationProgress progress) {
@@ -1845,6 +1976,110 @@ class DatabaseService {
       limit: 1,
     );
     return rows.isNotEmpty;
+  }
+
+  /// يعيد احتساب نقاط إنجاز الحفظ لليوم كله، بصرف النظر عن عدد التسجيلات.
+  Future<RecitationPointsResult> recalculateDailyRecitationPoints({
+    required String studentId,
+    required DateTime date,
+  }) async {
+    await QuranService.instance.initialize();
+    final student = await getStudent(studentId);
+    if (student == null) throw StateError('الطالب المحدد غير موجود');
+    final day = DateTime(date.year, date.month, date.day);
+    final progress = await getStudentMemorizationInRange(
+      studentId,
+      day,
+      day,
+    );
+    final surahs = {
+      for (final surah in QuranService.instance.surahs) surah.number: surah,
+    };
+    final actualAmount = DailyExcellenceService.calculateActualAmount(
+      progress: progress,
+      surahs: surahs,
+      unit: student.planType,
+    );
+    final result = RecitationPointsPolicy.calculate(
+      actualAmount: actualAmount,
+      planAmount: student.planAmount.toDouble(),
+    );
+
+    const automaticReason = 'إنجاز المقرر اليومي (تلقائي)';
+    const legacyReason = 'زيادة عن المقرر اليومي';
+    final db = await database;
+    final dateKey = day.toIso8601String().split('T')[0];
+    final existingRows = await db.query(
+      'behavior_points',
+      where: 'student_id = ? AND date = ? AND reason IN (?, ?)',
+      whereArgs: [studentId, dateKey, automaticReason, legacyReason],
+      orderBy: 'created_at ASC',
+    );
+    final details =
+        'المسمّع ${result.actualAmount.toStringAsFixed(2)} من '
+        '${result.planAmount.toStringAsFixed(2)} ${student.planType}؛ '
+        '${result.completionPoints} للمقرر و${result.bonusPoints} للزيادة';
+
+    await db.transaction((txn) async {
+      if (result.totalPoints <= 0) {
+        for (final row in existingRows) {
+          await txn.delete(
+            'behavior_points',
+            where: 'id = ?',
+            whereArgs: [row['id']],
+          );
+          await _appendDeletedIds(
+            txn,
+            'deleted_behavior_point_ids',
+            [row['id'].toString()],
+          );
+        }
+        return;
+      }
+
+      if (existingRows.isEmpty) {
+        await txn.insert(
+          'behavior_points',
+          BehaviorPoint(
+            studentId: studentId,
+            type: 'positive',
+            reason: automaticReason,
+            points: result.totalPoints,
+            date: day,
+            resolved: true,
+            notes: details,
+          ).toMap(),
+        );
+        return;
+      }
+
+      final retainedId = existingRows.first['id'].toString();
+      await txn.update(
+        'behavior_points',
+        {
+          'type': 'positive',
+          'reason': automaticReason,
+          'points': result.totalPoints,
+          'resolved': 1,
+          'notes': details,
+        },
+        where: 'id = ?',
+        whereArgs: [retainedId],
+      );
+      for (final duplicate in existingRows.skip(1)) {
+        await txn.delete(
+          'behavior_points',
+          where: 'id = ?',
+          whereArgs: [duplicate['id']],
+        );
+        await _appendDeletedIds(
+          txn,
+          'deleted_behavior_point_ids',
+          [duplicate['id'].toString()],
+        );
+      }
+    });
+    return result;
   }
 
   Future<List<BehaviorPoint>> getUnresolvedViolations(String studentId) async {
@@ -2909,6 +3144,7 @@ class DatabaseService {
       {
         'plan_type': plan.unit,
         'plan_amount': plan.newAmount,
+        'review_plan_amount': plan.reviewAmount,
         'updated_at': DateTime.now().toIso8601String(),
       },
       where: 'id = ?',

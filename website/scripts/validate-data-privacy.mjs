@@ -14,7 +14,7 @@ const pubspec = read("pubspec.yaml");
 assertIncludes(
   pubspec,
   [
-    "version: 3.7.0-alpha.1+37",
+    "version: 4.1.0-alpha.1+41",
     "cryptography: ^2.9.0",
     "cryptography_flutter: ^2.3.4",
     "flutter_secure_storage: ^10.3.1",
@@ -51,7 +51,7 @@ const database = read("lib/services/database_service.dart");
 assertIncludes(
   database,
   [
-    "version: 14",
+    "version: 18",
     "CREATE TABLE IF NOT EXISTS audit_events",
     "_createAuditTriggers",
     "saveAuditEvent",

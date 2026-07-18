@@ -180,6 +180,15 @@ export default function AuthPage() {
                 {isLogin ? "ليس لديك حساب؟ إنشاء حساب جديد ✨" : "لديك حساب بالفعل؟ سجل دخولك 👋"}
               </button>
             </div>
+            <div className="text-center border-t border-gray-100 dark:border-gray-800 pt-5">
+              <button
+                type="button"
+                onClick={() => router.push("/portal")}
+                className="text-sm font-black text-teal-700 dark:text-teal-300 hover:underline"
+              >
+                دخول الطالب أو ولي الأمر
+              </button>
+            </div>
           </form>
         </div>
       </div>

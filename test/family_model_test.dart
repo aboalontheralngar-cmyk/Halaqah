@@ -15,6 +15,18 @@ void main() {
     expect(family.toMap()['reference_name'], 'الجد الأول');
   });
 
+  test('family prefers the global cloud code and preserves it in SQLite maps', () {
+    final family = Family(
+      id: '1234abcd-5678-90ef-1234-567890abcdef',
+      name: 'عائلة البوابة',
+      familyCode: 'A1B2C3D4E5F60718293A',
+    );
+
+    expect(family.displayCode, 'FAM-A1B2C-3D4E5-F6071-8293A');
+    expect(family.toMap()['family_code'], 'A1B2C3D4E5F60718293A');
+    expect(Family.fromMap(family.toMap()).familyCode, family.familyCode);
+  });
+
   test('guardian preserves primary contact and relationship contract', () {
     final guardian = FamilyGuardian(
       id: 'guardian-1',

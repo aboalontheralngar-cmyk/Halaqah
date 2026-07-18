@@ -100,14 +100,14 @@ export default function SettingsPage() {
                 <h3 className="text-xl font-black text-gray-900 dark:text-white mb-2 flex items-center gap-3">
                   <ShieldCheck className="w-6 h-6 text-teal-600" /> الربط بجهة إشرافية
                 </h3>
-                <p className="text-gray-500 dark:text-gray-400 text-xs font-medium mb-8">اربط مركزك بجمعية أو مؤسسة إشرافية لمشاركة الإحصاءات العامة.</p>
+                <p className="text-gray-500 dark:text-gray-400 text-xs font-medium mb-8">استخدم دعوة مؤقتة صادرة من الجهة. لا تعمل الدعوة بعد انتهاء مدتها أو اكتمال عدد استخداماتها.</p>
                 
                 <div className="flex gap-4">
                   <div className="relative flex-1 group">
                     <Zap className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 group-focus-within:text-teal-600" />
                     <input 
                       type="text" 
-                      placeholder="أدخل كود الجهة الإشرافية (مثلاً: HAL-123456)" 
+                      placeholder="ألصق دعوة ربط المركز (HAL-SUP-...)"
                       className="w-full pr-12 pl-4 py-4 bg-gray-50 dark:bg-gray-800 border-none rounded-2xl text-sm font-bold outline-none focus:ring-2 ring-teal-500/20 dark:text-white"
                       value={supervisorCode}
                       onChange={(e) => setSupervisorCode(e.target.value)}
@@ -116,8 +116,12 @@ export default function SettingsPage() {
                   <button 
                     onClick={async () => {
                       const success = await joinSupervisor(supervisorCode);
-                      if (success) alert("تم ربط المركز بالجهة الإشرافية بنجاح!");
-                      else alert("الكود غير صحيح، يرجى التأكد من الكود والمحاولة مرة أخرى.");
+                      if (success) {
+                        setSupervisorCode("");
+                        alert("تم ربط المركز بالجهة الإشرافية بنجاح.");
+                      } else {
+                        alert("تعذر الربط. تأكد من أن الدعوة صحيحة وسارية وأنك مالك المركز.");
+                      }
                     }}
                     className="bg-gray-900 dark:bg-white dark:text-gray-900 text-white px-8 py-4 rounded-2xl font-black text-sm hover:scale-105 transition-all shadow-lg"
                   >
@@ -127,13 +131,13 @@ export default function SettingsPage() {
               </div>
             )}
 
-            {profile?.role === 'supervisor' && currentSupervisor && (
+            {currentSupervisor && (
               <div className="bg-white dark:bg-gray-900 rounded-[3rem] border border-gray-100 dark:border-gray-800 p-10 shadow-sm overflow-hidden relative">
                 <div className="absolute top-0 left-0 w-2 h-full bg-amber-500" />
                 <h3 className="text-xl font-black text-gray-900 dark:text-white mb-2 flex items-center gap-3">
-                  <Star className="w-6 h-6 text-amber-500" /> كود الربط الخاص بك
+                  <Star className="w-6 h-6 text-amber-500" /> إدارة الجهة الإشرافية
                 </h3>
-                <p className="text-gray-500 dark:text-gray-400 text-xs font-medium mb-8">شارك هذا الكود مع مدراء المراكز ليتمكنوا من الانضمام لجهتكم الإشرافية.</p>
+                <p className="text-gray-500 dark:text-gray-400 text-xs font-medium mb-8">أنشئ دعوات مؤقتة للمراكز، وأدر فريق الإشراف، واطبع التقرير التجميعي من لوحة واحدة.</p>
                 
                 <div className="flex items-center justify-between p-6 bg-amber-50 dark:bg-amber-900/20 rounded-[2rem] border border-amber-100 dark:border-amber-800">
                   <div className="flex items-center gap-4">
@@ -141,19 +145,16 @@ export default function SettingsPage() {
                       <Zap className="w-6 h-6" />
                     </div>
                     <div>
-                      <p className="text-[10px] font-black text-amber-600 uppercase tracking-widest">كود الجهة الإشرافية</p>
-                      <p className="text-2xl font-black text-gray-900 dark:text-white tracking-widest">{currentSupervisor.code}</p>
+                      <p className="text-[10px] font-black text-amber-600 uppercase tracking-widest">الجهة الحالية</p>
+                      <p className="text-lg font-black text-gray-900 dark:text-white">{currentSupervisor.name}</p>
                     </div>
                   </div>
-                  <button 
-                    onClick={() => {
-                      navigator.clipboard.writeText(currentSupervisor.code);
-                      alert("تم نسخ الكود بنجاح!");
-                    }}
+                  <Link
+                    href="/supervision"
                     className="bg-amber-500 text-white px-6 py-3 rounded-xl font-black text-xs hover:bg-amber-600 transition-all shadow-md"
                   >
-                    نسخ الكود
-                  </button>
+                    فتح لوحة الإشراف
+                  </Link>
                 </div>
               </div>
             )}
