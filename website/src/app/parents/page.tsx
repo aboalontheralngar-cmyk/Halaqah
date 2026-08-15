@@ -1,10 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import {
   BadgeCheck,
   Copy,
   Edit3,
+  FileClock,
   House,
   KeyRound,
   Link2,
@@ -84,6 +86,17 @@ type FamilyPortalStatus = {
   pin_changed_at?: string | null;
 };
 
+type GuardianReportSubscriptionStatus = {
+  configured: boolean;
+  enabled: boolean;
+  frequency: "weekly" | "monthly";
+  delivery_channel: "portal" | "webhook";
+  consent_at?: string | null;
+  next_run_at?: string | null;
+  last_published_at?: string | null;
+  primary_guardian_available?: boolean;
+};
+
 const familyCode = (code?: string) => {
   if (!code) return "كود البوابة غير مفعّل";
   const normalized = code.replace(/[^a-zA-Z0-9]/g, "").toUpperCase().slice(0, 20);
@@ -103,7 +116,17 @@ function generateSixDigitPin(): string {
 }
 
 export default function ParentsPage() {
-  const { students, currentCenter, fetchStudents } = useStore();
+  const {
+    students,
+    currentCenter,
+    fetchStudents
+  } = useStore(
+    useShallow((state) => ({
+      students: state.students,
+      currentCenter: state.currentCenter,
+      fetchStudents: state.fetchStudents,
+    })),
+  );
   const [families, setFamilies] = useState<FamilyRecord[]>([]);
   const [guardians, setGuardians] = useState<GuardianRecord[]>([]);
   const [selectedFamilyId, setSelectedFamilyId] = useState<string | null>(null);
@@ -121,6 +144,19 @@ export default function ParentsPage() {
   const [portalNotice, setPortalNotice] = useState("");
   const [portalPinSaved, setPortalPinSaved] = useState(false);
   const [portalError, setPortalError] = useState("");
+  const [reportFamily, setReportFamily] = useState<FamilyRecord | null>(null);
+  const [reportStatus, setReportStatus] =
+    useState<GuardianReportSubscriptionStatus | null>(null);
+  const [reportEnabled, setReportEnabled] = useState(true);
+  const [reportFrequency, setReportFrequency] =
+    useState<"weekly" | "monthly">("monthly");
+  const [reportChannel, setReportChannel] =
+    useState<"portal" | "webhook">("portal");
+  const [reportConsent, setReportConsent] = useState(false);
+  const [reportLoading, setReportLoading] = useState(false);
+  const [reportSaving, setReportSaving] = useState(false);
+  const [reportError, setReportError] = useState("");
+  const [reportNotice, setReportNotice] = useState("");
 
   const halaqaId = currentCenter?.activeHalaqa?.id;
 
@@ -182,7 +218,13 @@ export default function ParentsPage() {
   }, [currentCenter, halaqaId]);
 
   useEffect(() => {
-    load();
+    let active = true;
+    queueMicrotask(() => {
+      if (active) void load();
+    });
+    return () => {
+      active = false;
+    };
   }, [load]);
 
   const filteredFamilies = useMemo(() => {
@@ -212,10 +254,10 @@ export default function ParentsPage() {
     <div className="space-y-6 pb-20" dir="rtl">
       <header className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
-          <h1 className="flex items-center gap-3 text-3xl font-black text-gray-900 dark:text-white">
+          <h1 className="flex items-center gap-3 text-3xl font-black text-[var(--foreground)]">
             <House className="h-8 w-8 text-teal-600" /> العائلات وأولياء الأمور
           </h1>
-          <p className="mt-2 font-medium text-gray-500 dark:text-gray-400">
+          <p className="mt-2 font-medium text-[var(--muted)]">
             ربط صريح للإخوة والأقارب وبيانات تواصل موحدة دون الاعتماد على تشابه الأسماء.
           </p>
         </div>
@@ -272,7 +314,7 @@ export default function ParentsPage() {
                       : "border-transparent hover:bg-gray-50 dark:hover:bg-gray-800"
                   }`}
                 >
-                  <div className="font-black text-gray-900 dark:text-white">{family.name}</div>
+                  <div className="font-black text-[var(--foreground)]">{family.name}</div>
                   <div className="mt-1 text-xs font-bold text-gray-500">
                     {familyCode(family.familyCode)} · {memberCount} طالب
                   </div>
@@ -296,18 +338,24 @@ export default function ParentsPage() {
               <section className="rounded-3xl border border-gray-200 bg-white p-6 dark:border-gray-800 dark:bg-gray-900">
                 <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                   <div>
-                    <h2 className="text-2xl font-black text-gray-900 dark:text-white">{selectedFamily.name}</h2>
+                    <h2 className="text-2xl font-black text-[var(--foreground)]">{selectedFamily.name}</h2>
                     <p className="mt-1 font-mono text-sm font-bold text-teal-600">{familyCode(selectedFamily.familyCode)}</p>
                     {selectedFamily.referenceName && (
                       <p className="mt-2 text-sm font-bold text-gray-500">المرجع العائلي: {selectedFamily.referenceName}</p>
                     )}
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2">
                     <button
                       onClick={() => openFamilyPortal(selectedFamily)}
                       className="flex items-center gap-2 rounded-xl bg-teal-50 px-3 py-2 font-black text-teal-700 hover:bg-teal-100 dark:bg-teal-950/30 dark:text-teal-300"
                     >
                       <KeyRound className="h-5 w-5" /> بوابة ولي الأمر
+                    </button>
+                    <button
+                      onClick={() => openAutomaticReports(selectedFamily)}
+                      className="flex items-center gap-2 rounded-xl bg-violet-50 px-3 py-2 font-black text-violet-700 hover:bg-violet-100 dark:bg-violet-950/30 dark:text-violet-300"
+                    >
+                      <FileClock className="h-5 w-5" /> التقارير التلقائية
                     </button>
                     <button onClick={() => setFamilyForm(selectedFamily)} className="rounded-xl bg-blue-50 p-3 text-blue-600 hover:bg-blue-100 dark:bg-blue-950/30">
                       <Edit3 className="h-5 w-5" />
@@ -324,7 +372,7 @@ export default function ParentsPage() {
                 <div className="mt-4 grid gap-3 md:grid-cols-2">
                   {selectedMembers.map((student) => (
                     <div key={student.id} className="rounded-2xl bg-gray-50 p-4 dark:bg-gray-800">
-                      <div className="font-black text-gray-900 dark:text-white">{student.name}</div>
+                      <div className="font-black text-[var(--foreground)]">{student.name}</div>
                       <div className="mt-1 text-xs font-bold text-gray-500">{student.status} · {student.parentPhone || "لا يوجد رقم ولي"}</div>
                     </div>
                   ))}
@@ -339,7 +387,7 @@ export default function ParentsPage() {
                     <div key={guardian.id} className="rounded-2xl border border-gray-200 p-5 dark:border-gray-700">
                       <div className="flex items-start justify-between gap-4">
                         <div>
-                          <div className="flex items-center gap-2 font-black text-gray-900 dark:text-white">
+                          <div className="flex items-center gap-2 font-black text-[var(--foreground)]">
                             {guardian.name}
                             {guardian.isPrimary && <BadgeCheck className="h-5 w-5 text-teal-600" />}
                           </div>
@@ -401,7 +449,6 @@ export default function ParentsPage() {
             setPortalPin(value.replace(/\D/g, "").slice(0, 6));
             setPortalPinSaved(false);
             setPortalError("");
-            setPortalError("");
           }}
           onGenerate={() => {
             setPortalPin(generateSixDigitPin());
@@ -418,6 +465,34 @@ export default function ParentsPage() {
             setPortalPin("");
             setPortalNotice("");
             setPortalPinSaved(false);
+          }}
+        />
+      )}
+      {reportFamily && (
+        <AutomaticReportsModal
+          family={reportFamily}
+          status={reportStatus}
+          enabled={reportEnabled}
+          frequency={reportFrequency}
+          channel={reportChannel}
+          consent={reportConsent}
+          loading={reportLoading}
+          saving={reportSaving}
+          error={reportError}
+          notice={reportNotice}
+          onEnabledChange={setReportEnabled}
+          onFrequencyChange={setReportFrequency}
+          onChannelChange={(value) => {
+            setReportChannel(value);
+            setReportConsent(false);
+          }}
+          onConsentChange={setReportConsent}
+          onSave={saveAutomaticReports}
+          onClose={() => {
+            setReportFamily(null);
+            setReportStatus(null);
+            setReportError("");
+            setReportNotice("");
           }}
         />
       )}
@@ -445,10 +520,10 @@ export default function ParentsPage() {
 
   async function deleteFamily(family: FamilyRecord) {
     if (!supabase || !confirm(`حذف عائلة «${family.name}»؟ لن تحذف سجلات الطلاب.`)) return;
-    const { error: unlinkError } = await supabase.from("students").update({ family_id: null }).eq("family_id", family.id);
-    if (unlinkError) return setError(unlinkError.message);
-    const { error: deleteError } = await supabase.from("families").delete().eq("id", family.id);
-    if (deleteError) return setError(deleteError.message);
+    const { error: deleteError } = await supabase.rpc("delete_family_atomic", {
+      p_family_id: family.id,
+    });
+    if (deleteError) return setError("تعذر حذف العائلة ذريًا. تأكد من تنفيذ SQL Build 74 ثم أعد المحاولة.");
     await Promise.all([load(), fetchStudents()]);
   }
 
@@ -462,77 +537,40 @@ export default function ParentsPage() {
       input.isPrimary ||
       selectedGuardians.length <= 1 ||
       (editing?.isPrimary === true && !hasOtherPrimary);
-    if (effectivePrimary) {
-      const { error } = await supabase
-        .from("family_guardians")
-        .update({ is_primary: false })
-        .eq("family_id", selectedFamily.id);
-      if (error) return setError(error.message);
-    }
-    const payload = {
-      family_id: selectedFamily.id,
-      center_id: currentCenter.id,
-      halaqa_id: halaqaId,
-      name: input.name.trim(),
-      phone: input.phone.trim(),
-      email: input.email?.trim() || null,
-      relationship: input.relationship,
-      is_primary: effectivePrimary,
-      notes: input.notes?.trim() || null,
-      updated_at: new Date().toISOString(),
-    };
-    const result = editing
-      ? await supabase.from("family_guardians").update(payload).eq("id", editing.id)
-      : await supabase.from("family_guardians").insert(payload);
-    if (result.error) return setError(result.error.message);
-    if (effectivePrimary) {
-      await supabase
-        .from("students")
-        .update({ parent_phone: input.phone.trim() })
-        .eq("family_id", selectedFamily.id);
-      await fetchStudents();
+    const { error: guardianError } = await supabase.rpc("save_family_guardian_atomic", {
+      p_family_id: selectedFamily.id,
+      p_guardian_id: editing?.id ?? null,
+      p_name: input.name.trim(),
+      p_phone: input.phone.trim(),
+      p_email: input.email?.trim() || null,
+      p_relationship: input.relationship,
+      p_is_primary: effectivePrimary,
+      p_notes: input.notes?.trim() || null,
+    });
+    if (guardianError) {
+      return setError("تعذر حفظ ولي الأمر ذريًا. تأكد من تنفيذ SQL Build 74 ثم أعد المحاولة.");
     }
     setGuardianForm(null);
-    await load();
+    await Promise.all([load(), fetchStudents()]);
   }
 
   async function deleteGuardian(guardian: GuardianRecord) {
     if (!supabase || !confirm(`حذف ولي الأمر «${guardian.name}»؟`)) return;
-    const { error: deleteError } = await supabase.from("family_guardians").delete().eq("id", guardian.id);
-    if (deleteError) return setError(deleteError.message);
-    if (guardian.isPrimary) {
-      const next = selectedGuardians.find((item) => item.id !== guardian.id);
-      if (next) {
-        const { error: primaryError } = await supabase
-          .from("family_guardians")
-          .update({ is_primary: true })
-          .eq("id", next.id);
-        if (primaryError) return setError(primaryError.message);
-        await supabase
-          .from("students")
-          .update({ parent_phone: next.phone })
-          .eq("family_id", next.familyId);
-        await fetchStudents();
-      }
-    }
-    await load();
+    const { error: deleteError } = await supabase.rpc("delete_family_guardian_atomic", {
+      p_guardian_id: guardian.id,
+    });
+    if (deleteError) return setError("تعذر حذف ولي الأمر ذريًا. تأكد من تنفيذ SQL Build 74 ثم أعد المحاولة.");
+    await Promise.all([load(), fetchStudents()]);
   }
 
   async function saveMembers(selected: Set<string>) {
     if (!supabase || !selectedFamily) return;
-    const currentIds = students
-      .filter((student) => student.familyId === selectedFamily.id)
-      .map((student) => student.id);
-    for (const id of currentIds.filter((id) => !selected.has(id))) {
-      const { error: unlinkError } = await supabase.from("students").update({ family_id: null }).eq("id", id);
-      if (unlinkError) return setError(unlinkError.message);
-    }
-    if (selected.size) {
-      const { error: assignError } = await supabase.rpc("assign_students_to_family", {
-        p_family_id: selectedFamily.id,
-        p_student_ids: Array.from(selected),
-      });
-      if (assignError) return setError(assignError.message);
+    const { error: membershipError } = await supabase.rpc("set_family_students_atomic", {
+      p_family_id: selectedFamily.id,
+      p_student_ids: Array.from(selected),
+    });
+    if (membershipError) {
+      return setError("تعذر تحديث أفراد العائلة ذريًا. تأكد من تنفيذ SQL Build 74 ثم أعد المحاولة.");
     }
     setShowMembers(false);
     await Promise.all([fetchStudents(), load()]);
@@ -617,6 +655,73 @@ export default function ParentsPage() {
     setPortalSaving(false);
   }
 
+  async function openAutomaticReports(family: FamilyRecord) {
+    if (!supabase) return;
+    setReportFamily(family);
+    setReportStatus(null);
+    setReportEnabled(true);
+    setReportFrequency("monthly");
+    setReportChannel("portal");
+    setReportConsent(false);
+    setReportError("");
+    setReportNotice("");
+    setReportLoading(true);
+    const { data, error: subscriptionError } = await supabase.rpc(
+      "get_guardian_report_subscription",
+      { p_family_id: family.id },
+    );
+    if (subscriptionError) {
+      setReportError(
+        `${subscriptionError.message} — نفّذ migration المرحلة P1.21 ثم أعد المحاولة.`,
+      );
+    } else {
+      const status = (data || {
+        configured: false,
+        enabled: false,
+        frequency: "monthly",
+        delivery_channel: "portal",
+      }) as GuardianReportSubscriptionStatus;
+      setReportStatus(status);
+      setReportEnabled(status.enabled);
+      setReportFrequency(status.frequency);
+      setReportChannel(status.delivery_channel);
+      setReportConsent(status.enabled);
+    }
+    setReportLoading(false);
+  }
+
+  async function saveAutomaticReports() {
+    if (
+      !supabase ||
+      !reportFamily ||
+      (reportEnabled && !reportConsent)
+    ) return;
+    setReportSaving(true);
+    setReportError("");
+    setReportNotice("");
+    const { data, error: saveError } = await supabase.rpc(
+      "set_guardian_report_subscription",
+      {
+        p_family_id: reportFamily.id,
+        p_enabled: reportEnabled,
+        p_frequency: reportFrequency,
+        p_delivery_channel: reportChannel,
+      },
+    );
+    if (saveError) {
+      setReportError(saveError.message);
+    } else {
+      const status = data as GuardianReportSubscriptionStatus;
+      setReportStatus(status);
+      setReportNotice(
+        reportEnabled
+          ? "حُفظت الجدولة. سيظهر أول تقرير تلقائي داخل بوابة العائلة عند دورة النشر التالية."
+          : "أُوقفت التقارير الجديدة، وبقيت التقارير المنشورة سابقًا محفوظة.",
+      );
+    }
+    setReportSaving(false);
+  }
+
   async function copyPortalValue(value: string, notice: string) {
     try {
       await navigator.clipboard.writeText(value);
@@ -652,7 +757,7 @@ function Stat({ label, value, icon, color }: { label: string; value: number; ico
   return (
     <div className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-gray-900">
       <div className={`mb-3 ${colorClass}`}>{icon}</div>
-      <div className="text-3xl font-black text-gray-900 dark:text-white">{value}</div>
+      <div className="text-3xl font-black text-[var(--foreground)]">{value}</div>
       <div className="text-sm font-bold text-gray-500">{label}</div>
     </div>
   );
@@ -662,7 +767,7 @@ function SectionTitle({ title, icon, action, onClick }: { title: string; icon: R
   return (
     <div className="flex items-center gap-3">
       <span className="text-teal-600">{icon}</span>
-      <h3 className="flex-1 text-xl font-black text-gray-900 dark:text-white">{title}</h3>
+      <h3 className="flex-1 text-xl font-black text-[var(--foreground)]">{title}</h3>
       <button onClick={onClick} className="flex items-center gap-1 rounded-xl bg-teal-50 px-3 py-2 text-sm font-black text-teal-700 dark:bg-teal-950/30 dark:text-teal-300">
         <Plus className="h-4 w-4" /> {action}
       </button>
@@ -809,6 +914,169 @@ function FamilyPortalModal({
               إيقاف الدخول وإلغاء الجلسات
             </button>
           )}
+        </div>
+      )}
+    </ModalShell>
+  );
+}
+
+function AutomaticReportsModal({
+  family,
+  status,
+  enabled,
+  frequency,
+  channel,
+  consent,
+  loading,
+  saving,
+  error,
+  notice,
+  onEnabledChange,
+  onFrequencyChange,
+  onChannelChange,
+  onConsentChange,
+  onSave,
+  onClose,
+}: {
+  family: FamilyRecord;
+  status: GuardianReportSubscriptionStatus | null;
+  enabled: boolean;
+  frequency: "weekly" | "monthly";
+  channel: "portal" | "webhook";
+  consent: boolean;
+  loading: boolean;
+  saving: boolean;
+  error: string;
+  notice: string;
+  onEnabledChange: (value: boolean) => void;
+  onFrequencyChange: (value: "weekly" | "monthly") => void;
+  onChannelChange: (value: "portal" | "webhook") => void;
+  onConsentChange: (value: boolean) => void;
+  onSave: () => void;
+  onClose: () => void;
+}) {
+  const formatDateTime = (value?: string | null) => {
+    if (!value) return "لم يصدر بعد";
+    return new Date(value).toLocaleString("ar", {
+      dateStyle: "medium",
+      timeStyle: "short",
+    });
+  };
+
+  return (
+    <ModalShell title={`التقارير التلقائية — ${family.name}`} onClose={onClose}>
+      {loading ? (
+        <div className="grid min-h-48 place-items-center text-teal-600">
+          <Loader2 className="h-8 w-8 animate-spin" />
+        </div>
+      ) : (
+        <div className="space-y-5">
+          {notice && (
+            <p role="status" className="rounded-2xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-bold text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200">
+              {notice}
+            </p>
+          )}
+          {error && (
+            <p role="alert" className="rounded-2xl border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-800 dark:border-red-900 dark:bg-red-950/30 dark:text-red-200">
+              {error}
+            </p>
+          )}
+
+          <label className="flex items-start gap-3 rounded-2xl border border-gray-200 p-4 dark:border-gray-700">
+            <input
+              type="checkbox"
+              checked={enabled}
+              onChange={(event) => onEnabledChange(event.target.checked)}
+              className="mt-1"
+            />
+            <span>
+              <span className="block font-black">تفعيل التقارير الدورية</span>
+              <span className="mt-1 block text-xs font-bold text-gray-500">
+                ينشئ النظام لقطة تاريخية ويعرضها داخل بوابة ولي الأمر.
+              </span>
+            </span>
+          </label>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="text-sm font-black">
+              الدورية
+              <select
+                value={frequency}
+                disabled={!enabled}
+                onChange={(event) =>
+                  onFrequencyChange(event.target.value as "weekly" | "monthly")
+                }
+                className="mt-2 w-full rounded-xl border border-gray-200 bg-white p-3 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800"
+              >
+                <option value="weekly">أسبوعي</option>
+                <option value="monthly">شهري</option>
+              </select>
+            </label>
+            <label className="text-sm font-black">
+              طريقة التسليم
+              <select
+                value={channel}
+                disabled={!enabled}
+                onChange={(event) =>
+                  onChannelChange(event.target.value as "portal" | "webhook")
+                }
+                className="mt-2 w-full rounded-xl border border-gray-200 bg-white p-3 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800"
+              >
+                <option value="portal">داخل البوابة</option>
+                <option value="webhook">البوابة + مزود إرسال خارجي</option>
+              </select>
+            </label>
+          </div>
+
+          {channel === "webhook" && enabled && (
+            <p className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-xs font-bold leading-6 text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+              يحتاج الإرسال الخارجي إعداد عنوان HTTPS ومفتاح توقيع في وظيفة
+              الخادم. يبقى التقرير منشورًا في البوابة حتى عند تعذر المزود.
+              {!status?.primary_guardian_available &&
+                " أضف وليًا أساسيًا ورقم هاتف أو بريدًا قبل الحفظ."}
+            </p>
+          )}
+
+          {enabled && (
+            <label className="flex items-start gap-3 rounded-2xl bg-gray-50 p-4 text-sm font-bold dark:bg-gray-800">
+              <input
+                type="checkbox"
+                checked={consent}
+                onChange={(event) => onConsentChange(event.target.checked)}
+                className="mt-1"
+              />
+              أؤكد موافقة ولي الأمر على إنشاء هذه التقارير وتسليمها بالطريقة
+              المحددة، ويمكنه إيقافها بطلب من إدارة الحلقة.
+            </label>
+          )}
+
+          {status?.configured && (
+            <div className="grid gap-2 rounded-2xl bg-gray-50 p-4 text-xs font-bold text-gray-600 dark:bg-gray-800 dark:text-gray-300 sm:grid-cols-2">
+              <p>آخر تقرير: {formatDateTime(status.last_published_at)}</p>
+              <p>الموعد التالي: {formatDateTime(status.next_run_at)}</p>
+            </div>
+          )}
+
+          <button
+            type="button"
+            disabled={
+              saving ||
+              Boolean(error) ||
+              (enabled && !consent) ||
+              (enabled &&
+                channel === "webhook" &&
+                !status?.primary_guardian_available)
+            }
+            onClick={onSave}
+            className="flex w-full items-center justify-center gap-2 rounded-2xl bg-teal-600 py-3 font-black text-white disabled:opacity-40"
+          >
+            {saving ? (
+              <Loader2 className="h-5 w-5 animate-spin" />
+            ) : (
+              <FileClock className="h-5 w-5" />
+            )}
+            حفظ الجدولة
+          </button>
         </div>
       )}
     </ModalShell>

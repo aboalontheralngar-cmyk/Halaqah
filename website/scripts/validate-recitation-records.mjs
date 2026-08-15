@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const root = resolve(import.meta.dirname, '../..');
-const database = readFileSync(resolve(root, 'lib/services/database_service.dart'), 'utf8');
+const database = readFileSync(resolve(root, 'lib/services/database_service.dart'), 'utf8') + readFileSync(resolve(root, 'lib/services/local_database_schema.dart'), 'utf8');
 const history = readFileSync(
   resolve(root, 'lib/screens/memorization/recitation_history_screen.dart'),
   'utf8',
@@ -30,7 +30,8 @@ for (const fragment of [
 
 for (const fragment of [
   'سجل التسميع والمراجعة',
-  'بحث باسم الطالب أو السورة',
+  'الاسم أو كود الطالب أو السورة',
+  '_normalizeSearch',
   'تعديل السجل',
   'حذف السجل',
   'rebuildStudentProgress',

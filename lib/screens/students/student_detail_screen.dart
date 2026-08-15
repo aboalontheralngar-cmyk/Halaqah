@@ -11,12 +11,15 @@ import '../../models/behavior_point.dart';
 import '../../models/settings.dart';
 import '../../models/homework_grade.dart';
 import '../../models/student_hold.dart';
+import '../../models/student_admin_action.dart';
 import '../../models/plan.dart';
+import '../../models/memorization.dart';
 import '../../models/family.dart';
 import '../../services/daily_excellence_service.dart';
 import '../../services/supabase_service.dart';
 import '../../utils/helpers.dart';
 import '../../utils/quran_data.dart';
+import '../../widgets/app_design_widgets.dart';
 import '../memorization/mushaf_visualizer_screen.dart';
 import '../memorization/recitation_history_screen.dart';
 import 'student_form_screen.dart';
@@ -41,6 +44,7 @@ class _StudentDetailScreenState extends State<StudentDetailScreen>
   List<DailyRecord> _records = [];
   List<BehaviorPoint> _behaviorPoints = [];
   List<HomeworkGrade> _homeworkGrades = [];
+  List<StudentAdminAction> _adminActions = [];
   int _totalPoints = 0;
   Map<String, dynamic> _stats = {};
   int _uniquePagesCount = 0;
@@ -56,7 +60,7 @@ class _StudentDetailScreenState extends State<StudentDetailScreen>
   void initState() {
     super.initState();
     _student = widget.student;
-    _tabController = TabController(length: 4, vsync: this);
+    _tabController = TabController(length: 5, vsync: this);
     _loadData();
   }
 
@@ -69,26 +73,37 @@ class _StudentDetailScreenState extends State<StudentDetailScreen>
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
     try {
-      final records = await _db.getStudentRecords(_student.id);
-      final points = await _db.getStudentBehaviorPoints(_student.id);
-      final totalPoints = await _db.getStudentTotalPoints(_student.id);
-      final stats = await _db.getStudentStatistics(_student.id);
-      final grades = await _db.getStudentHomeworkGrades(_student.id);
-      final settings = await _db.getSettings();
-      final activeHold = await _db.getActiveStudentHold(_student.id);
-      final activePlan = await _db.getActiveStudentPlan(_student.id);
-      final todayProgress = await _db.getStudentMemorizationInRange(
-        _student.id,
-        DateTime.now(),
-        DateTime.now(),
-      );
-      final updatedStudent = await _db.getStudent(_student.id);
+      final now = DateTime.now();
+      final results = await Future.wait<dynamic>([
+        _db.getStudentRecords(_student.id),
+        _db.getStudentBehaviorPoints(_student.id),
+        _db.getStudentTotalPoints(_student.id),
+        _db.getStudentStatistics(_student.id),
+        _db.getStudentHomeworkGrades(_student.id),
+        _db.getStudentAdminActions(_student.id),
+        _db.getSettings(),
+        _db.getActiveStudentHold(_student.id),
+        _db.getActiveStudentPlan(_student.id),
+        _db.getStudentMemorizationInRange(_student.id, now, now),
+        _db.getStudent(_student.id),
+        QuranService.instance.initialize(),
+      ]);
+      final records = results[0] as List<DailyRecord>;
+      final points = results[1] as List<BehaviorPoint>;
+      final totalPoints = results[2] as int;
+      final stats = results[3] as Map<String, dynamic>;
+      final grades = results[4] as List<HomeworkGrade>;
+      final adminActions = results[5] as List<StudentAdminAction>;
+      final settings = results[6] as HalaqahSettings;
+      final activeHold = results[7] as StudentHold?;
+      final activePlan = results[8] as SmartPlan?;
+      final todayProgress = results[9] as List<MemorizationProgress>;
+      final updatedStudent = results[10] as Student?;
       final resolvedStudent = updatedStudent ?? _student;
       final family = resolvedStudent.familyId == null
           ? null
           : await _db.getFamily(resolvedStudent.familyId!);
-      
-      await QuranService.instance.initialize();
+
       final todayPlanActual = DailyExcellenceService.calculateActualAmount(
         progress: todayProgress,
         surahs: {
@@ -97,24 +112,29 @@ class _StudentDetailScreenState extends State<StudentDetailScreen>
         },
         unit: resolvedStudent.planType,
       );
-      
+
       final uniquePages = <int>{};
       final uniqueAyahs = <String>{};
-      
       for (final grade in grades) {
         if (grade.gradeMark == 'absent') continue;
-        final range = QuranService.instance.getAyahRange(grade.surahId, grade.fromAyah, grade.toAyah);
+        final range = QuranService.instance.getAyahRange(
+          grade.surahId,
+          grade.fromAyah,
+          grade.toAyah,
+        );
         for (final ayah in range) {
           uniquePages.add(ayah.page);
           uniqueAyahs.add('${grade.surahId}_${ayah.number}');
         }
       }
-      
+
+      if (!mounted) return;
       setState(() {
         if (updatedStudent != null) _student = updatedStudent;
         _records = records;
         _behaviorPoints = points;
         _homeworkGrades = grades;
+        _adminActions = adminActions;
         _totalPoints = totalPoints;
         _stats = stats;
         _uniquePagesCount = uniquePages.length;
@@ -127,7 +147,7 @@ class _StudentDetailScreenState extends State<StudentDetailScreen>
         _isLoading = false;
       });
     } catch (e) {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -187,8 +207,10 @@ class _StudentDetailScreenState extends State<StudentDetailScreen>
                     const SizedBox(width: 8),
                     Text(
                       _activeHold == null
-                          ? 'إيقاف التسميع مؤقتًا'
-                          : 'إنهاء إيقاف التسميع',
+                          ? 'توقف / إيقاف مؤقت'
+                          : _activeHold!.exemptsAttendance
+                              ? 'إنهاء التوقف المؤقت'
+                              : 'إنهاء إيقاف التسميع',
                     ),
                   ],
                 ),
@@ -221,12 +243,17 @@ class _StudentDetailScreenState extends State<StudentDetailScreen>
           ),
         ],
         bottom: TabBar(
+          labelColor: Theme.of(context).colorScheme.onPrimary,
+          unselectedLabelColor: Theme.of(context).colorScheme.onPrimary.withValues(alpha: 0.72),
+          indicatorColor: Theme.of(context).colorScheme.secondary,
           controller: _tabController,
+          isScrollable: true,
           tabs: const [
             Tab(text: 'نظرة عامة'),
             Tab(text: 'الحضور'),
             Tab(text: 'الحفظ'),
             Tab(text: 'النقاط'),
+            Tab(text: 'إداريات'),
           ],
         ),
       ),
@@ -239,6 +266,7 @@ class _StudentDetailScreenState extends State<StudentDetailScreen>
                 _buildAttendanceTab(),
                 _buildMemorizationTab(),
                 _buildPointsTab(),
+                _buildAdminActionsTab(),
               ],
             ),
     );
@@ -269,7 +297,7 @@ class _StudentDetailScreenState extends State<StudentDetailScreen>
           children: [
             CircleAvatar(
               radius: 50,
-              backgroundColor: Theme.of(context).primaryColor.withOpacity(0.1),
+              backgroundColor: Theme.of(context).primaryColor.withValues(alpha: 0.1),
               child: Text(
                 _student.name.isNotEmpty ? _student.name[0] : '؟',
                 style: TextStyle(
@@ -291,7 +319,7 @@ class _StudentDetailScreenState extends State<StudentDetailScreen>
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
               decoration: BoxDecoration(
-                color: _getStatusColor(_student.status).withOpacity(0.1),
+                color: _getStatusColor(_student.status).withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(20),
               ),
               child: Text(
@@ -308,8 +336,8 @@ class _StudentDetailScreenState extends State<StudentDetailScreen>
                 width: double.infinity,
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: Colors.orange.withOpacity(0.1),
-                  border: Border.all(color: Colors.orange.withOpacity(0.4)),
+                  color: Colors.orange.withValues(alpha: 0.1),
+                  border: Border.all(color: Colors.orange.withValues(alpha: 0.4)),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Column(
@@ -333,9 +361,12 @@ class _StudentDetailScreenState extends State<StudentDetailScreen>
                     if (_activeHold!.notes?.isNotEmpty ?? false)
                       Text('ملاحظة: ${_activeHold!.notes}'),
                     const SizedBox(height: 4),
-                    const Text(
+                    Text(
                       'يبقى تسجيل الحضور متاحًا خلال الإيقاف.',
-                      style: TextStyle(fontSize: 11, color: Colors.grey),
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
                     ),
                   ],
                 ),
@@ -377,7 +408,7 @@ class _StudentDetailScreenState extends State<StudentDetailScreen>
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(20),
       ),
       child: Column(
@@ -394,7 +425,7 @@ class _StudentDetailScreenState extends State<StudentDetailScreen>
             label,
             style: TextStyle(
               fontSize: 12,
-              color: Colors.grey[600],
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),
           ),
         ],
@@ -419,7 +450,7 @@ class _StudentDetailScreenState extends State<StudentDetailScreen>
         _buildStatCard('نسبة الحضور', '$attendanceRate%', Icons.calendar_today, Colors.green),
         _buildStatCard('أيام الحضور', '$presentDays', Icons.check_circle, Colors.blue),
         _buildStatCard('مقرر الحفظ', '${_student.planAmount} ${_getPlanLabel(_student.planType)}', Icons.book, Colors.orange),
-        _buildStatCard('مقرر المراجعة', '${_student.reviewPlanAmount} ${_getPlanLabel(_student.planType)}', Icons.replay, Colors.teal),
+        _buildStatCard('مقرر المراجعة', '${_student.reviewPlanAmount} ${_getPlanLabel(_student.reviewPlanType)}', Icons.replay, Colors.teal),
         _buildStatCard('إجمالي المحفوظ', '${_student.totalMemorized} آية', Icons.auto_stories, Colors.indigo),
         _buildStatCard('النقاط', '$_totalPoints', Icons.stars, _totalPoints >= 0 ? Colors.amber : Colors.red),
       ],
@@ -446,7 +477,7 @@ class _StudentDetailScreenState extends State<StudentDetailScreen>
               label,
               style: TextStyle(
                 fontSize: 12,
-                color: Colors.grey[600],
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
               ),
             ),
           ],
@@ -550,11 +581,11 @@ class _StudentDetailScreenState extends State<StudentDetailScreen>
       Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, size: 20, color: Colors.grey[600]),
+          Icon(icon, size: 20, color: Theme.of(context).colorScheme.onSurfaceVariant),
           const SizedBox(width: 10),
           SizedBox(
             width: 82,
-            child: Text(label, style: TextStyle(color: Colors.grey[600])),
+            child: Text(label, style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
           ),
           Expanded(child: Text(value, style: const TextStyle(fontWeight: FontWeight.w500))),
         ],
@@ -607,23 +638,12 @@ class _StudentDetailScreenState extends State<StudentDetailScreen>
   Widget _buildInfoRow(String label, String value) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 100,
-            child: Text(
-              label,
-              style: TextStyle(color: Colors.grey[600]),
-            ),
-          ),
-          Expanded(
-            child: Text(
-              value,
-              style: const TextStyle(fontWeight: FontWeight.w500),
-            ),
-          ),
-        ],
+      child: AppResponsiveInfoRow(
+        label: label,
+        value: value,
+        labelWidth: 100,
+        labelStyle: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
+        valueStyle: const TextStyle(fontWeight: FontWeight.w500),
       ),
     );
   }
@@ -644,38 +664,37 @@ class _StudentDetailScreenState extends State<StudentDetailScreen>
           margin: const EdgeInsets.only(bottom: 8),
           child: ListTile(
             leading: CircleAvatar(
-              backgroundColor: _getAttendanceColor(record.attendance).withOpacity(0.1),
+              backgroundColor: _getAttendanceColor(record.attendance).withValues(alpha: 0.1),
               child: Icon(
                 _getAttendanceIcon(record.attendance),
                 color: _getAttendanceColor(record.attendance),
               ),
             ),
             title: Text(Helpers.getFullHijriDate(record.date)),
-            subtitle: Row(
+            subtitle: Wrap(
+              spacing: 6,
+              runSpacing: 4,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
                 Text(_getAttendanceLabel(record.attendance)),
-                if (record.memorizationDone) ...[
-                  const SizedBox(width: 8),
+                if (record.memorizationDone)
                   const Chip(
                     label: Text('حفظ', style: TextStyle(fontSize: 10)),
                     padding: EdgeInsets.zero,
                     visualDensity: VisualDensity.compact,
                   ),
-                ],
-                if (record.revisionDone) ...[
-                  const SizedBox(width: 4),
+                if (record.revisionDone)
                   const Chip(
                     label: Text('مراجعة', style: TextStyle(fontSize: 10)),
                     padding: EdgeInsets.zero,
                     visualDensity: VisualDensity.compact,
                   ),
-                ],
               ],
             ),
             trailing: record.arrivalTime != null
                 ? Text(
                     Helpers.formatTime(record.arrivalTime!, format: _settings.timeFormat, context: context),
-                    style: TextStyle(color: Colors.grey[600]),
+                    style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
                   )
                 : null,
           ),
@@ -713,12 +732,12 @@ class _StudentDetailScreenState extends State<StudentDetailScreen>
                     const SizedBox(height: 8),
                     LinearProgressIndicator(
                       value: _student.totalMemorized / QuranData.totalAyahs,
-                      backgroundColor: Colors.grey[200],
+                      backgroundColor: Theme.of(context).colorScheme.surfaceContainer,
                     ),
                     const SizedBox(height: 4),
                     Text(
                       '${(_student.totalMemorized / QuranData.totalAyahs * 100).toStringAsFixed(1)}% من القرآن',
-                      style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                      style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 12),
                     ),
                   ],
                 ),
@@ -878,12 +897,16 @@ class _StudentDetailScreenState extends State<StudentDetailScreen>
                               width: double.infinity,
                               padding: const EdgeInsets.all(8),
                               decoration: BoxDecoration(
-                                color: Colors.grey.shade50,
+                                color: Theme.of(context).colorScheme.surfaceContainerLow,
                                 borderRadius: BorderRadius.circular(6),
                               ),
                               child: Text(
                                 'توصية الشيخ: ${grade.remark}',
-                                style: TextStyle(fontSize: 12, color: Colors.grey.shade700, fontStyle: FontStyle.italic),
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                                  fontStyle: FontStyle.italic,
+                                ),
                               ),
                             ),
                           ],
@@ -951,8 +974,8 @@ class _StudentDetailScreenState extends State<StudentDetailScreen>
                 child: ListTile(
                   leading: CircleAvatar(
                     backgroundColor: point.isPositive
-                        ? Colors.green.withOpacity(0.1)
-                        : Colors.red.withOpacity(0.1),
+                        ? Colors.green.withValues(alpha: 0.1)
+                        : Colors.red.withValues(alpha: 0.1),
                     child: Icon(
                       point.isPositive ? Icons.add : Icons.remove,
                       color: point.isPositive ? Colors.green : Colors.red,
@@ -971,6 +994,165 @@ class _StudentDetailScreenState extends State<StudentDetailScreen>
               )),
       ],
     );
+  }
+
+  Widget _buildAdminActionsTab() {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        Row(
+          children: [
+            const Expanded(
+              child: Text(
+                'السجل الإداري',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+            ),
+            FilledButton.icon(
+              onPressed: const {'active', 'suspended'}.contains(_student.status)
+                  ? _addAdminAction
+                  : null,
+              icon: const Icon(Icons.add),
+              label: const Text('إضافة'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        if (_adminActions.isEmpty)
+          const Card(
+            child: Padding(
+              padding: EdgeInsets.all(28),
+              child: Center(
+                child: Text('لا توجد إنذارات أو إجراءات إدارية مسجلة'),
+              ),
+            ),
+          )
+        else
+          ..._adminActions.map(
+            (action) => Card(
+              margin: const EdgeInsets.only(bottom: 8),
+              child: ListTile(
+                leading: CircleAvatar(
+                  child: Icon(action.resolved
+                      ? Icons.task_alt
+                      : Icons.admin_panel_settings_outlined),
+                ),
+                title: Text(
+                  StudentAdminActionType.label(action.actionType),
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                subtitle: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(Helpers.getFullHijriDate(action.date)),
+                    Text(action.details),
+                    if (action.followUp?.trim().isNotEmpty == true)
+                      Text('المتابعة: ${action.followUp}'),
+                  ],
+                ),
+                trailing: IconButton(
+                  tooltip: action.resolved ? 'إعادة فتح' : 'تمت المعالجة',
+                  icon: Icon(action.resolved
+                      ? Icons.restart_alt
+                      : Icons.check_circle_outline),
+                  onPressed: () async {
+                    await _db.setStudentAdminActionResolved(
+                      action.id,
+                      !action.resolved,
+                    );
+                    await _loadData();
+                  },
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Future<void> _addAdminAction() async {
+    var type = StudentAdminActionType.warning;
+    final detailsController = TextEditingController();
+    final followUpController = TextEditingController();
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text('إجراء إداري — ${_student.name}'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: StudentAdminActionType.labels.entries.map((entry) {
+                    return ChoiceChip(
+                      label: Text(entry.value),
+                      selected: type == entry.key,
+                      onSelected: (_) => setDialogState(() => type = entry.key),
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: detailsController,
+                  maxLines: 3,
+                  decoration: const InputDecoration(
+                    labelText: 'التفاصيل (إلزامي)',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: followUpController,
+                  maxLines: 2,
+                  decoration: const InputDecoration(
+                    labelText: 'المتابعة المطلوبة (اختياري)',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('إلغاء'),
+            ),
+            FilledButton(
+              onPressed: () {
+                if (detailsController.text.trim().isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('اكتب تفاصيل الإجراء الإداري')),
+                  );
+                  return;
+                }
+                Navigator.pop(context, true);
+              },
+              child: const Text('حفظ'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (accepted == true) {
+      await _db.saveStudentAdminAction(
+        StudentAdminAction(
+          studentId: _student.id,
+          actionType: type,
+          date: DateTime.now(),
+          details: detailsController.text.trim(),
+          followUp: followUpController.text.trim().isEmpty
+              ? null
+              : followUpController.text.trim(),
+        ),
+      );
+      await _loadData();
+    }
+    detailsController.dispose();
+    followUpController.dispose();
   }
 
   void _editStudent() async {
@@ -1036,21 +1218,58 @@ class _StudentDetailScreenState extends State<StudentDetailScreen>
   Future<void> _showStudentHoldDialog() async {
     final reasonController = TextEditingController();
     final notesController = TextEditingController();
+    var scope = StudentHoldScope.recitationOnly;
     var startDate = DateTime.now();
     var endDate = DateTime.now().add(const Duration(days: 1));
     final accepted = await showDialog<bool>(
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
-          title: const Text('إيقاف التسميع مؤقتًا'),
+          title: const Text('توقف / إيقاف مؤقت'),
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text(
-                  'سيظل الطالب ظاهرًا في الحضور، ويُمنع فقط من تسجيل الحفظ والمراجعة خلال المدة.',
+                Text(
+                  scope == StudentHoldScope.fullPause
+                      ? 'التوقف الكامل مخصص لظروف الدراسة أو العمل ونحوها؛ لا يُطلب من الطالب حضور ولا تسميع خلال المدة.'
+                      : 'إيقاف التسميع فقط يبقي الطالب مطلوبًا في الحضور ويعفيه من الحفظ والمراجعة.',
                 ),
                 const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    ChoiceChip(
+                      label: const Text('إيقاف التسميع فقط'),
+                      selected: scope == StudentHoldScope.recitationOnly,
+                      onSelected: (_) => setDialogState(
+                        () => scope = StudentHoldScope.recitationOnly,
+                      ),
+                    ),
+                    ChoiceChip(
+                      label: const Text('توقف كامل'),
+                      selected: scope == StudentHoldScope.fullPause,
+                      onSelected: (_) => setDialogState(
+                        () => scope = StudentHoldScope.fullPause,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 6,
+                  children: ['دراسة', 'عمل', 'ظرف عائلي'].map((reason) =>
+                    ActionChip(
+                      label: Text(reason),
+                      onPressed: () {
+                        reasonController.text = reason;
+                        setDialogState(() {});
+                      },
+                    ),
+                  ).toList(),
+                ),
+                const SizedBox(height: 8),
                 TextField(
                   controller: reasonController,
                   decoration: const InputDecoration(
@@ -1128,6 +1347,7 @@ class _StudentDetailScreenState extends State<StudentDetailScreen>
           startDate: startDate,
           endDate: endDate,
           reason: reasonController.text.trim(),
+          scope: scope,
           notes: notesController.text.trim().isEmpty
               ? null
               : notesController.text.trim(),
@@ -1322,9 +1542,12 @@ class _StudentDetailScreenState extends State<StudentDetailScreen>
                     ),
                   ],
                 ),
-                const Text(
+                Text(
                   'تغيير الرقم يلغي جميع الجلسات القديمة. لا يُحفظ الرقم كنص، ولن يظهر مرة أخرى بعد إغلاق النافذة.',
-                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
                 ),
               ],
             ),
@@ -1409,33 +1632,6 @@ class _StudentDetailScreenState extends State<StudentDetailScreen>
     pinController.dispose();
   }
 
-  void _confirmDelete() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('حذف ${GenderHelper.student(_settings.gender)}'),
-        content: Text('هل أنت متأكد من حذف ${_student.name}؟\nسيتم حذف جميع بياناته.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('إلغاء'),
-          ),
-          TextButton(
-            onPressed: () async {
-              await _db.deleteStudent(_student.id);
-              if (mounted) {
-                Navigator.pop(context);
-                Navigator.pop(context);
-              }
-            },
-            style: TextButton.styleFrom(foregroundColor: Colors.red),
-            child: const Text('حذف'),
-          ),
-        ],
-      ),
-    );
-  }
-
   Future<void> _addBehaviorPoint() async {
     final saved = await Navigator.push<bool>(
       context,
@@ -1462,7 +1658,7 @@ class _StudentDetailScreenState extends State<StudentDetailScreen>
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
-                  value: status,
+                  initialValue: status,
                   decoration: const InputDecoration(labelText: 'حالة الأرشفة'),
                   items: const [
                     DropdownMenuItem(value: 'expelled', child: Text('مفصول')),
@@ -1616,6 +1812,7 @@ class _StudentDetailScreenState extends State<StudentDetailScreen>
       case 'ayahs': return 'آية';
       case 'lines': return 'سطر';
       case 'pages': return 'صفحة';
+      case 'hizbs': return 'حزب';
       default: return '';
     }
   }

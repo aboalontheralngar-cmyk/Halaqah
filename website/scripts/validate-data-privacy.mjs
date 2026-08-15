@@ -14,10 +14,10 @@ const pubspec = read("pubspec.yaml");
 assertIncludes(
   pubspec,
   [
-    "version: 4.1.0-alpha.1+41",
-    "cryptography: ^2.9.0",
-    "cryptography_flutter: ^2.3.4",
-    "flutter_secure_storage: ^10.3.1",
+    "version: 4.3.0-alpha.22+76",
+    "cryptography: 2.9.0",
+    "cryptography_flutter: 2.3.4",
+    "flutter_secure_storage: 10.3.1",
   ],
   "Flutter backup security dependencies",
 );
@@ -47,11 +47,11 @@ assertIncludes(
   "Versioned backup and restore",
 );
 
-const database = read("lib/services/database_service.dart");
+const database = read("lib/services/database_service.dart") + read("lib/services/local_database_schema.dart");
 assertIncludes(
   database,
   [
-    "version: 18",
+    "version: 24",
     "CREATE TABLE IF NOT EXISTS audit_events",
     "_createAuditTriggers",
     "saveAuditEvent",

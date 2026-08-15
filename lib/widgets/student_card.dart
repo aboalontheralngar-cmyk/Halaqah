@@ -48,17 +48,20 @@ class StudentCard extends StatelessWidget {
     final statusColor = _getStatusColor(student.status);
 
     return Card(
-      margin: const EdgeInsets.only(bottom: AppSpacing.sm),
+      margin: const EdgeInsets.only(bottom: AppSpacing.xs),
       child: InkWell(
         onTap: onTap,
         onLongPress: onLongPress,
         borderRadius: BorderRadius.circular(AppRadii.md),
         child: Padding(
-          padding: AppSpacing.card,
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.sm,
+            vertical: AppSpacing.xs,
+          ),
           child: Row(
             children: [
-              _buildAvatar(context, 28),
-              const SizedBox(width: 16),
+              _buildAvatar(context, 22),
+              const SizedBox(width: AppSpacing.sm),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -68,10 +71,7 @@ class StudentCard extends StatelessWidget {
                         Expanded(
                           child: Text(
                             student.name,
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                            ),
+                            style: Theme.of(context).textTheme.titleSmall,
                           ),
                         ),
                         _buildStatusChip(statusColor),
@@ -133,7 +133,7 @@ class StudentCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(AppRadii.pill),
       ),
       child: Text(
@@ -147,9 +147,9 @@ class StudentCard extends StatelessWidget {
     if (points == null) return null;
     final isPositive = points! >= 0;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
       decoration: BoxDecoration(
-        color: (isPositive ? Colors.green : Colors.red).withOpacity(0.1),
+        color: (isPositive ? Colors.green : Colors.red).withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(16),
       ),
       child: Text(
@@ -204,6 +204,8 @@ class StudentCard extends StatelessWidget {
         return 'سطر';
       case 'pages':
         return 'صفحة';
+      case 'hizbs':
+        return 'حزب';
       default:
         return planType;
     }

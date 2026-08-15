@@ -1,19 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:pdf/pdf.dart';
 import 'package:printing/printing.dart';
-import 'package:share_plus/share_plus.dart';
 import '../../services/database_service.dart';
 import '../../services/pdf_service.dart';
-import '../../services/qr_service.dart';
+import '../../services/halaqah_period_report_service.dart';
 import '../../services/student_period_report_service.dart';
+import '../../models/halaqah_period_report.dart';
 import '../../models/student.dart';
-import '../../models/daily_record.dart';
 import '../../utils/helpers.dart';
 import '../../app/design_tokens.dart';
 import '../../widgets/app_design_widgets.dart';
 import '../../widgets/student_card.dart';
 import 'student_period_report_screen.dart';
 import 'halaqah_period_report_screen.dart';
+import 'student_receipt_screen.dart';
 
 class ReportsScreen extends StatefulWidget {
   final VoidCallback? onOpenMenu;
@@ -28,7 +28,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
   final DatabaseService _db = DatabaseService();
   final PdfService _pdf = PdfService();
   late final StudentPeriodReportService _periodReports;
+  late final HalaqahPeriodReportService _halaqahReports;
   List<Student> _students = [];
+  HalaqahPeriodReport? _dashboard;
+  String? _dashboardError;
   bool _isLoading = true;
   bool _isBatchExporting = false;
 
@@ -36,19 +39,38 @@ class _ReportsScreenState extends State<ReportsScreen> {
   void initState() {
     super.initState();
     _periodReports = StudentPeriodReportService(database: _db);
+    _halaqahReports = HalaqahPeriodReportService(database: _db);
     _loadData();
   }
 
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
     try {
-      final students = await _db.getStudents();
+      final today = DateTime.now();
+      final results = await Future.wait<dynamic>([
+        _db.getStudents(),
+        _halaqahReports.generate(
+          startDate: DateTime(today.year, today.month, 1),
+          endDate: DateTime(today.year, today.month, today.day),
+        ),
+      ]);
+      final students = results[0] as List<Student>;
       setState(() {
         _students = students;
+        _dashboard = results[1] as HalaqahPeriodReport;
+        _dashboardError = null;
         _isLoading = false;
       });
     } catch (e) {
-      setState(() => _isLoading = false);
+      final students = await _db.getStudents().catchError(
+        (_) => <Student>[],
+      );
+      if (!mounted) return;
+      setState(() {
+        _students = students;
+        _dashboardError = e.toString();
+        _isLoading = false;
+      });
     }
   }
 
@@ -76,12 +98,207 @@ class _ReportsScreenState extends State<ReportsScreen> {
                       'ملخصات يومية وتقارير دورية قابلة للطباعة والمشاركة.',
                   icon: Icons.assessment_outlined,
                 ),
+                const SizedBox(height: AppSpacing.lg),
+                _buildDashboard(),
                 const SizedBox(height: AppSpacing.xl),
                 _buildReportTypeSection(),
                 const SizedBox(height: AppSpacing.xxl),
                 _buildStudentReportsSection(),
               ],
             ),
+    );
+  }
+
+  Widget _buildDashboard() {
+    final report = _dashboard;
+    if (report == null) {
+      return Card(
+        child: Padding(
+          padding: const EdgeInsets.all(AppSpacing.lg),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(
+                Icons.info_outline,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  _dashboardError == null
+                      ? 'لا توجد بيانات كافية لقياس أداء الحلقة.'
+                      : 'تعذر حساب لوحة الأداء الآن. اسحب للتحديث أو افتح تقرير الفترة للمحاولة مجددًا.',
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    final scheme = Theme.of(context).colorScheme;
+    final topStudent =
+        report.topStudents.isEmpty ? null : report.topStudents.first;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.lg),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'لوحة أداء الحلقة',
+                        style: Theme.of(context).textTheme.titleLarge,
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'من بداية الشهر حتى اليوم',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: scheme.onSurfaceVariant,
+                            ),
+                      ),
+                    ],
+                  ),
+                ),
+                SizedBox(
+                  width: 74,
+                  height: 74,
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      CircularProgressIndicator(
+                        value: report.performanceScore / 100,
+                        strokeWidth: 7,
+                        backgroundColor: scheme.surfaceContainerHigh,
+                      ),
+                      Text(
+                        '${report.performanceScore}%',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.md),
+            Wrap(
+              spacing: AppSpacing.xs,
+              runSpacing: AppSpacing.xs,
+              children: [
+                _dashboardMetric(
+                  'الحضور',
+                  '${report.attendanceRate}%',
+                  Icons.how_to_reg_outlined,
+                  context.semanticColors.success,
+                ),
+                _dashboardMetric(
+                  'الحفظ',
+                  '${report.totalMemorizedAyahs} آية',
+                  Icons.menu_book_outlined,
+                  scheme.primary,
+                ),
+                _dashboardMetric(
+                  'المراجعة',
+                  '${report.totalRevisedAyahs} آية',
+                  Icons.replay_outlined,
+                  context.semanticColors.info,
+                ),
+                _dashboardMetric(
+                  'تحتاج متابعة',
+                  '${report.attentionStudents.length}',
+                  Icons.flag_outlined,
+                  context.semanticColors.warning,
+                ),
+              ],
+            ),
+            if (topStudent != null) ...[
+              const SizedBox(height: AppSpacing.md),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(AppSpacing.sm),
+                decoration: BoxDecoration(
+                  color: scheme.primaryContainer,
+                  borderRadius: BorderRadius.circular(AppRadii.sm),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.emoji_events_outlined,
+                      color: scheme.onPrimaryContainer,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'الأعلى أداءً: ${topStudent.student.name}',
+                        style: TextStyle(
+                          color: scheme.onPrimaryContainer,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    Text(
+                      '${topStudent.performanceScore}%',
+                      style: TextStyle(
+                        color: scheme.onPrimaryContainer,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            const SizedBox(height: AppSpacing.sm),
+            Align(
+              alignment: AlignmentDirectional.centerEnd,
+              child: TextButton.icon(
+                onPressed: () => _openHalaqahReport('month'),
+                icon: const Icon(Icons.analytics_outlined),
+                label: const Text('فتح التحليل الكامل'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _dashboardMetric(
+    String label,
+    String value,
+    IconData icon,
+    Color color,
+  ) {
+    return Container(
+      constraints: const BoxConstraints(minWidth: 128),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.sm,
+        vertical: AppSpacing.xs,
+      ),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.09),
+        borderRadius: BorderRadius.circular(AppRadii.sm),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: color, size: 19),
+          const SizedBox(width: 7),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(value, style: const TextStyle(fontWeight: FontWeight.bold)),
+              Text(
+                label,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 
@@ -145,10 +362,45 @@ class _ReportsScreenState extends State<ReportsScreen> {
               Colors.red,
               _isBatchExporting ? () {} : _startBatchPeriodExport,
             ),
+            _buildReportCard(
+              'بطاقات QR للطلاب',
+              Icons.qr_code_2_outlined,
+              Colors.indigo,
+              _printStudentQrCards,
+            ),
           ],
         ),
       ],
     );
+  }
+
+  Future<void> _printStudentQrCards() async {
+    final students = _students
+        .where((student) => student.status == 'active')
+        .toList();
+    if (students.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('لا يوجد طلاب نشطون لطباعة بطاقاتهم')),
+      );
+      return;
+    }
+    try {
+      final settings = await _db.getSettings();
+      final bytes = await _pdf.generateStudentQrCards(
+        students: students,
+        halaqahName: settings.halaqahName,
+        mosqueName: settings.mosqueName,
+      );
+      await Printing.layoutPdf(onLayout: (_) async => bytes);
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('تعذر إنشاء بطاقات الطلاب: $error'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   Widget _buildReportCard(
@@ -187,17 +439,20 @@ class _ReportsScreenState extends State<ReportsScreen> {
     var endDate = DateTime(today.year, today.month, today.day);
     var useA5 = false;
     var activeOnly = true;
+    String? selectedHijriMonthKey;
+    final hijriRanges = Helpers.recentHijriMonths();
+    final hijriRangeByKey = {
+      for (final range in hijriRanges) range.key: range,
+    };
 
     final options = await showDialog<_BatchReportOptions>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
-          title: const Row(
-            children: [
-              Icon(Icons.picture_as_pdf_outlined, color: Colors.red),
-              SizedBox(width: 8),
-              Expanded(child: Text('تصدير تقارير جميع الطلاب')),
-            ],
+          title: const AppDialogTitle(
+            icon: Icons.picture_as_pdf_outlined,
+            iconColor: Colors.red,
+            title: 'تصدير تقارير جميع الطلاب',
           ),
           content: SingleChildScrollView(
             child: Column(
@@ -208,6 +463,37 @@ class _ReportsScreenState extends State<ReportsScreen> {
                   'سينشأ ملف PDF واحد، ويبدأ تقرير كل طالب في صفحة مستقلة.',
                 ),
                 const SizedBox(height: 16),
+                DropdownButtonFormField<String>(
+                  initialValue: selectedHijriMonthKey,
+                  decoration: const InputDecoration(
+                    labelText: 'اختيار شهر هجري',
+                    prefixIcon: Icon(Icons.brightness_2_outlined),
+                    border: OutlineInputBorder(),
+                  ),
+                  hint: const Text('محرم أو شهر هجري آخر'),
+                  isExpanded: true,
+                  items: hijriRanges
+                      .map(
+                        (range) => DropdownMenuItem(
+                          value: range.key,
+                          child: Text(
+                            range.label,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (rangeKey) {
+                    final range = hijriRangeByKey[rangeKey];
+                    if (range == null) return;
+                    setDialogState(() {
+                      selectedHijriMonthKey = range.key;
+                      startDate = range.startDate;
+                      endDate = range.endDate;
+                    });
+                  },
+                ),
+                const SizedBox(height: 8),
                 ListTile(
                   contentPadding: EdgeInsets.zero,
                   leading: const Icon(Icons.date_range_outlined),
@@ -245,19 +531,27 @@ class _ReportsScreenState extends State<ReportsScreen> {
                 ),
                 const Divider(),
                 const Text('حجم الورق', style: TextStyle(fontWeight: FontWeight.bold)),
-                RadioListTile<bool>(
-                  value: false,
+                RadioGroup<bool>(
                   groupValue: useA5,
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('A4 — مناسب للتقارير المفصلة'),
-                  onChanged: (value) => setDialogState(() => useA5 = value ?? false),
-                ),
-                RadioListTile<bool>(
-                  value: true,
-                  groupValue: useA5,
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('A5 — حجم أصغر للطباعة'),
-                  onChanged: (value) => setDialogState(() => useA5 = value ?? true),
+                  onChanged: (value) {
+                    if (value != null) {
+                      setDialogState(() => useA5 = value);
+                    }
+                  },
+                  child: Column(
+                    children: const [
+                      RadioListTile<bool>(
+                        value: false,
+                        contentPadding: EdgeInsets.zero,
+                        title: Text('A4 — مناسب للتقارير المفصلة'),
+                      ),
+                      RadioListTile<bool>(
+                        value: true,
+                        contentPadding: EdgeInsets.zero,
+                        title: Text('A5 — حجم أصغر للطباعة'),
+                      ),
+                    ],
+                  ),
                 ),
                 SwitchListTile(
                   value: activeOnly,
@@ -328,9 +622,12 @@ class _ReportsScreenState extends State<ReportsScreen> {
                 const SizedBox(height: 12),
                 Text('تم تجهيز $completed من ${students.length}'),
                 const SizedBox(height: 4),
-                const Text(
+                Text(
                   'يرجى إبقاء هذه الشاشة مفتوحة حتى يكتمل إنشاء الملف.',
-                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
                   textAlign: TextAlign.center,
                 ),
               ],
@@ -353,6 +650,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
         pageFormat: options.pageFormat,
         halaqahName: settings.halaqahName,
         mosqueName: settings.mosqueName,
+        useHijriCalendar: settings.useHijriCalendar,
       );
       if (!mounted) return;
       Navigator.of(context, rootNavigator: true).pop();
@@ -450,38 +748,28 @@ class _ReportsScreenState extends State<ReportsScreen> {
   }
 
   void _generateDailyReport() {
-    _showReportPreview('التقرير اليومي', _buildDailyReportContent(), _printDailyReport);
+    _openHalaqahReport('day');
   }
 
   void _generateWeeklyReport() {
-    _showReportPreview('التقرير الأسبوعي', _buildWeeklyReportContent(), _printWeeklyReport);
+    _openHalaqahReport('week');
   }
 
   void _generateMonthlyReport() {
-    _showReportPreview('التقرير الشهري', _buildMonthlyReportContent(), _printMonthlyReport);
+    _openHalaqahReport('month');
   }
 
   void _showHalaqahStats() {
+    _openHalaqahReport('month');
+  }
+
+  void _openHalaqahReport(String period) {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => const HalaqahPeriodReportScreen(),
-      ),
-    );
-  }
-
-  Widget _buildStatRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(label),
-          Text(
-            value,
-            style: const TextStyle(fontWeight: FontWeight.bold),
-          ),
-        ],
+        builder: (_) => HalaqahPeriodReportScreen(
+          initialPeriod: period,
+        ),
       ),
     );
   }
@@ -510,212 +798,28 @@ class _ReportsScreenState extends State<ReportsScreen> {
         );
         break;
       case 'full':
-        _showStudentFullReport(student);
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => StudentPeriodReportScreen(
+              initialStudent: student,
+              initialPeriod: 'month',
+            ),
+          ),
+        );
         break;
       case 'receipt':
-        _showStudentReceipt(student);
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => StudentReceiptScreen(student: student),
+          ),
+        );
         break;
       case 'attendance':
         _showStudentAttendanceReport(student);
         break;
     }
-  }
-
-  // يبني تقريراً شهرياً منسّقاً بالإيموجي جاهزاً للإرسال عبر واتساب لولي الأمر
-  Future<String> _buildWhatsAppReportText(Student student) async {
-    final stats = await _db.getStudentStatistics(student.id);
-    final attendance = stats['attendance'] as Map<String, dynamic>? ?? {};
-    final points = stats['points'] ?? 0;
-    final memorized = stats['memorization'] ?? 0;
-
-    final present = attendance['present'] ?? 0;
-    final late = attendance['late'] ?? 0;
-    final absent = attendance['absent'] ?? 0;
-    final total = attendance['total'] ?? 0;
-    final pct = (total is int && total > 0)
-        ? (((present is int ? present : 0) + (late is int ? late : 0)) / total * 100).round()
-        : 0;
-
-    final monthName = Helpers.getHijriMonthName(DateTime.now().month);
-    final child = 'ابنكم';
-
-    final buffer = StringBuffer();
-    buffer.writeln('🕌 *تقرير شهر $monthName*');
-    buffer.writeln('');
-    buffer.writeln('السلام عليكم ورحمة الله وبركاته 🌿');
-    buffer.writeln('نوافيكم بتقرير أداء $child *${student.name}* لهذا الشهر:');
-    buffer.writeln('');
-    buffer.writeln('📅 *الحضور والمواظبة:*');
-    buffer.writeln('✅ أيام الحضور: $present');
-    if (late is int && late > 0) buffer.writeln('⏰ أيام التأخر: $late');
-    buffer.writeln('❌ أيام الغياب: $absent');
-    buffer.writeln('📊 نسبة الحضور: $pct%');
-    buffer.writeln('');
-    buffer.writeln('📖 *الحفظ:*');
-    buffer.writeln('📗 إجمالي المحفوظ: $memorized آية');
-    buffer.writeln('🎯 المقرر اليومي: ${student.planAmount} ${_getPlanLabel(student.planType)}');
-    buffer.writeln('');
-    buffer.writeln('🏆 *النقاط السلوكية:* $points');
-    buffer.writeln('');
-    if (pct >= 90) {
-      buffer.writeln('🌟 أداء متميز، بارك الله فيه وزاده توفيقاً.');
-    } else if (pct >= 70) {
-      buffer.writeln('👍 أداء جيد، نتطلع لمزيد من المواظبة.');
-    } else {
-      buffer.writeln('🤝 نأمل تعزيز المواظبة، ونسعد بتعاونكم لرفع المستوى.');
-    }
-    buffer.writeln('');
-    buffer.writeln('جزاكم الله خيراً على متابعتكم 🌹');
-    return buffer.toString();
-  }
-
-  void _showWhatsAppMonthlyReport(Student student) async {
-    final text = await _buildWhatsAppReportText(student);
-    if (!mounted) return;
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Row(
-          children: [
-            Icon(Icons.chat, color: Colors.green),
-            SizedBox(width: 8),
-            Text('تقرير واتساب الشهري'),
-          ],
-        ),
-        content: SingleChildScrollView(
-          child: Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.grey[100],
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Text(text, style: const TextStyle(fontSize: 13, height: 1.5)),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('إغلاق'),
-          ),
-          ElevatedButton.icon(
-            onPressed: () {
-              Navigator.pop(context);
-              Share.share(text, subject: 'تقرير ${student.name} الشهري');
-            },
-            icon: const Icon(Icons.share, size: 18),
-            label: const Text('إرسال / مشاركة'),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showStudentFullReport(Student student) async {
-    final stats = await _db.getStudentStatistics(student.id);
-    final attendance = stats['attendance'] as Map<String, dynamic>? ?? {};
-
-    if (!mounted) return;
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('تقرير ${student.name}'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildStatRow('الحفظ الكلي', '${student.totalMemorized} آية'),
-              _buildStatRow('المقرر اليومي', '${student.planAmount} ${_getPlanLabel(student.planType)}'),
-              _buildStatRow('أيام الحضور', '${attendance['present'] ?? 0}'),
-              _buildStatRow('أيام الغياب', '${attendance['absent'] ?? 0}'),
-              _buildStatRow('أيام التأخير', '${attendance['late'] ?? 0}'),
-              const Divider(),
-              const Text(
-                'تعتمد صحة هذا التقرير على البيانات المدخلة',
-                style: TextStyle(fontSize: 10, color: Colors.grey),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('إغلاق'),
-          ),
-          TextButton(
-            onPressed: () async {
-              Navigator.pop(context);
-              await _printStudentReport(student);
-            },
-            child: const Text('طباعة'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showStudentReceipt(Student student) async {
-    final stats = await _db.getStudentStatistics(student.id);
-    final points = await _db.getStudentTotalPoints(student.id);
-
-    if (!mounted) return;
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('سند استلام'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(
-                child: Text(
-                  student.name,
-                  style: const TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-              const Divider(),
-              Text('التاريخ: ${Helpers.getFullHijriDate(DateTime.now())}'),
-              const SizedBox(height: 8),
-              _buildStatRow('الحفظ الكلي', '${student.totalMemorized} آية'),
-              _buildStatRow('أيام الحضور', '${stats['presentDays'] ?? 0}'),
-              _buildStatRow('أيام الغياب', '${stats['absentDays'] ?? 0}'),
-              _buildStatRow('النقاط', '$points'),
-              const Divider(),
-              const Text(
-                'توقيع ولي الأمر: _________________',
-                style: TextStyle(fontSize: 12),
-              ),
-              const SizedBox(height: 16),
-              const Text(
-                'تعتمد صحة هذا التقرير على البيانات المدخلة',
-                style: TextStyle(fontSize: 10, color: Colors.grey),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('إغلاق'),
-          ),
-          TextButton(
-            onPressed: () async {
-              Navigator.pop(context);
-              await _printStudentReceipt(student);
-            },
-            child: const Text('طباعة'),
-          ),
-        ],
-      ),
-    );
   }
 
   void _showStudentAttendanceReport(Student student) async {
@@ -758,90 +862,6 @@ class _ReportsScreenState extends State<ReportsScreen> {
     );
   }
 
-  void _showReportPreview(String title, Widget content, Future<void> Function() onPrint) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(title),
-        content: SingleChildScrollView(child: content),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('إغلاق'),
-          ),
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              onPrint();
-            },
-            child: const Text('طباعة'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildDailyReportContent() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text('التاريخ: ${Helpers.getFullHijriDate(DateTime.now())}'),
-        const Divider(),
-        _buildStatRow('عدد الطلاب', '${_students.length}'),
-        const Text(
-          '\nتعتمد صحة هذا التقرير على البيانات المدخلة',
-          style: TextStyle(fontSize: 10, color: Colors.grey),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildWeeklyReportContent() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text('الأسبوع المنتهي في: ${Helpers.getFullHijriDate(DateTime.now())}'),
-        const Divider(),
-        _buildStatRow('عدد الطلاب', '${_students.length}'),
-        const Text(
-          '\nتعتمد صحة هذا التقرير على البيانات المدخلة',
-          style: TextStyle(fontSize: 10, color: Colors.grey),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildMonthlyReportContent() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text('الشهر: ${Helpers.getHijriMonthName(DateTime.now().month)}'),
-        const Divider(),
-        _buildStatRow('عدد الطلاب', '${_students.length}'),
-        _buildStatRow(
-          'إجمالي الحفظ',
-          '${_students.fold(0, (sum, s) => sum + s.totalMemorized)} آية',
-        ),
-        const Text(
-          '\nتعتمد صحة هذا التقرير على البيانات المدخلة',
-          style: TextStyle(fontSize: 10, color: Colors.grey),
-        ),
-      ],
-    );
-  }
-
-  String _getPlanLabel(String type) {
-    switch (type) {
-      case 'ayahs': return 'آية';
-      case 'lines': return 'سطر';
-      case 'pages': return 'صفحة';
-      default: return '';
-    }
-  }
-
   IconData _getAttendanceIcon(String status) {
     switch (status) {
       case 'present': return Icons.check_circle;
@@ -869,91 +889,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
     }
   }
 
-  Future<void> _printStudentReport(Student student) async {
-    try {
-      final records = await _db.getStudentRecords(student.id, limit: 30);
-      final points = await _db.getStudentTotalPoints(student.id);
-      
-      final data = {
-        'records': records,
-        'points': points,
-      };
-      
-      final pdfBytes = await _pdf.generateStudentFullReport(student, data, 'حلقتي');
-      await Printing.layoutPdf(onLayout: (_) => pdfBytes);
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('خطأ في الطباعة: $e'), backgroundColor: Colors.red),
-        );
-      }
-    }
-  }
 
-  Future<void> _printStudentReceipt(Student student) async {
-    try {
-      final stats = await _db.getStudentStatistics(student.id);
-      final qrData = QrService.generateQrData(student.qrCode);
-      final pdfBytes = await _pdf.generateStudentReceipt(student, stats, 'حلقتي', 'المسجد', qrData);
-      await Printing.layoutPdf(onLayout: (_) => pdfBytes);
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('خطأ في الطباعة: $e'), backgroundColor: Colors.red),
-        );
-      }
-    }
-  }
-
-  Future<void> _printDailyReport() async {
-    try {
-      final records = await _db.getDailyRecordsForDate(DateTime.now());
-      final pdfBytes = await _pdf.generateDailyReport(DateTime.now(), records, _students, 'حلقتي');
-      await Printing.layoutPdf(onLayout: (_) => pdfBytes);
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('خطأ في الطباعة: $e'), backgroundColor: Colors.red),
-        );
-      }
-    }
-  }
-
-  Future<void> _printWeeklyReport() async {
-    try {
-      final startDate = DateTime.now().subtract(const Duration(days: 7));
-      final weeklyRecords = <String, List<DailyRecord>>{};
-      for (final student in _students) {
-        final records = await _db.getStudentRecords(student.id, limit: 7);
-        weeklyRecords[student.id] = records;
-      }
-      final pdfBytes = await _pdf.generateWeeklyReport(startDate, _students, weeklyRecords, 'حلقتي');
-      await Printing.layoutPdf(onLayout: (_) => pdfBytes);
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('خطأ في الطباعة: $e'), backgroundColor: Colors.red),
-        );
-      }
-    }
-  }
-
-  Future<void> _printMonthlyReport() async {
-    try {
-      final stats = <String, dynamic>{
-        'totalStudents': _students.length,
-        'totalMemorized': _students.fold(0, (sum, s) => sum + s.totalMemorized),
-      };
-      final pdfBytes = await _pdf.generateMonthlyReport(DateTime.now(), _students, stats, 'حلقتي');
-      await Printing.layoutPdf(onLayout: (_) => pdfBytes);
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('خطأ في الطباعة: $e'), backgroundColor: Colors.red),
-        );
-      }
-    }
-  }
 }
 
 class _BatchReportOptions {

@@ -3,8 +3,8 @@ import 'package:intl/intl.dart' as intl;
 import '../../models/fund_transaction.dart';
 import '../../models/student.dart';
 import '../../services/database_service.dart';
-import '../../app/theme.dart';
 import '../../models/settings.dart';
+import '../../models/behavior_point.dart';
 
 class FundScreen extends StatefulWidget {
   const FundScreen({super.key});
@@ -30,15 +30,18 @@ class _FundScreenState extends State<FundScreen> {
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
     try {
-      final balance = await _db.getFundBalance();
-      final transactions = await _db.getFundTransactions();
-      final students = await _db.getStudents();
-      final settings = await _db.getSettings();
+      final values = await Future.wait<dynamic>([
+        _db.getFundBalance(),
+        _db.getFundTransactions(),
+        _db.getStudents(),
+        _db.getSettings(),
+      ]);
+      if (!mounted) return;
       setState(() {
-        _balance = balance;
-        _transactions = transactions;
-        _students = students;
-        _settings = settings;
+        _balance = values[0] as double;
+        _transactions = values[1] as List<FundTransaction>;
+        _students = values[2] as List<Student>;
+        _settings = values[3] as HalaqahSettings;
         _isLoading = false;
       });
     } catch (e) {
@@ -54,6 +57,10 @@ class _FundScreenState extends State<FundScreen> {
 
   void _showAddTransactionDialog() {
     String? selectedStudentId;
+    String? selectedBehaviorPointId;
+    List<BehaviorPoint> studentPenalties = [];
+    int outstandingNegativePoints = 0;
+    int settledNegativePoints = 0;
     String selectedType = 'subscription';
     double amount = 0.0;
     String note = '';
@@ -106,7 +113,8 @@ class _FundScreenState extends State<FundScreen> {
                   const SizedBox(height: 20),
                   
                   // Transaction Type Segmented Control
-                  Center(
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
                     child: SegmentedButton<String>(
                       segments: const [
                         ButtonSegment(value: 'subscription', label: Text('اشتراك')),
@@ -115,10 +123,29 @@ class _FundScreenState extends State<FundScreen> {
                         ButtonSegment(value: 'donation', label: Text('تبرع')),
                       ],
                       selected: {selectedType},
-                      onSelectionChanged: (set) {
+                      onSelectionChanged: (set) async {
                         setModalState(() {
                           selectedType = set.first;
+                          selectedBehaviorPointId = null;
+                          studentPenalties = [];
+                          outstandingNegativePoints = 0;
+                          settledNegativePoints = 0;
                         });
+                        if (set.first == 'penalty' &&
+                            selectedStudentId != null) {
+                          final values = await Future.wait<dynamic>([
+                            _db.getStudentBehaviorPoints(selectedStudentId!),
+                            _db.getOutstandingNegativePoints(selectedStudentId!),
+                          ]);
+                          final points = values[0] as List<BehaviorPoint>;
+                          if (!context.mounted) return;
+                          setModalState(() {
+                            studentPenalties = points
+                                .where((point) => point.points < 0)
+                                .toList();
+                            outstandingNegativePoints = values[1] as int;
+                          });
+                        }
                       },
                     ),
                   ),
@@ -150,17 +177,37 @@ class _FundScreenState extends State<FundScreen> {
                         labelText: 'الطالب المرتبط',
                         prefixIcon: Icon(Icons.person),
                       ),
-                      value: selectedStudentId,
-                      items: _students.map((student) {
+                      initialValue: selectedStudentId,
+                      items: (List<Student>.from(_students)
+                            ..sort((a, b) => a.name.compareTo(b.name)))
+                          .map((student) {
                         return DropdownMenuItem(
                           value: student.id,
                           child: Text(student.name),
                         );
                       }).toList(),
-                      onChanged: (val) {
+                      onChanged: (val) async {
                         setModalState(() {
                           selectedStudentId = val;
+                          selectedBehaviorPointId = null;
+                          studentPenalties = [];
+                          outstandingNegativePoints = 0;
+                          settledNegativePoints = 0;
                         });
+                        if (val != null && selectedType == 'penalty') {
+                          final values = await Future.wait<dynamic>([
+                            _db.getStudentBehaviorPoints(val),
+                            _db.getOutstandingNegativePoints(val),
+                          ]);
+                          final points = values[0] as List<BehaviorPoint>;
+                          if (!context.mounted) return;
+                          setModalState(() {
+                            studentPenalties = points
+                                .where((point) => point.points < 0)
+                                .toList();
+                            outstandingNegativePoints = values[1] as int;
+                          });
+                        }
                       },
                       validator: (val) {
                         if ((selectedType == 'subscription' || selectedType == 'penalty') && val == null) {
@@ -171,6 +218,74 @@ class _FundScreenState extends State<FundScreen> {
                     ),
                   if (selectedType == 'subscription' || selectedType == 'penalty')
                     const SizedBox(height: 16),
+
+                  if (selectedType == 'penalty' && selectedStudentId != null) ...[
+                    DropdownButtonFormField<String>(
+                      initialValue: selectedBehaviorPointId,
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                        labelText: 'المخالفة المرتبطة (اختياري)',
+                        prefixIcon: Icon(Icons.link_outlined),
+                      ),
+                      hint: Text(
+                        studentPenalties.isEmpty
+                            ? 'لا توجد مخالفات مسجلة لهذا الطالب'
+                            : 'اختر المخالفة التي نتجت عنها الغرامة',
+                      ),
+                      items: studentPenalties
+                          .map(
+                            (point) => DropdownMenuItem(
+                              value: point.id,
+                              child: Text(
+                                '${BehaviorReason.getLabel(point.reason)} (${point.points})',
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: studentPenalties.isEmpty
+                          ? null
+                          : (value) => setModalState(
+                                () => selectedBehaviorPointId = value,
+                              ),
+                    ),
+                    const SizedBox(height: 16),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.orange.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.orange.withValues(alpha: 0.3)),
+                      ),
+                      child: Text(
+                        'الرصيد السلبي غير المسوّى: $outstandingNegativePoints نقطة. '
+                        'حدد عدد النقاط التي يغطيها هذا السداد؛ تبقى المخالفة محفوظة في السجل التاريخي.',
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      initialValue: '0',
+                      enabled: outstandingNegativePoints > 0,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                        labelText: 'النقاط السلبية التي ستُسوّى',
+                        prefixIcon: Icon(Icons.remove_circle_outline),
+                        helperText: 'يمكن تسوية جزء من الرصيد أو الرصيد كاملًا',
+                      ),
+                      validator: (value) {
+                        final points = int.tryParse(value ?? '') ?? 0;
+                        if (points < 0 || points > outstandingNegativePoints) {
+                          return 'أدخل قيمة بين 0 و$outstandingNegativePoints';
+                        }
+                        return null;
+                      },
+                      onChanged: (value) =>
+                          settledNegativePoints = int.tryParse(value) ?? 0,
+                    ),
+                    const SizedBox(height: 16),
+                  ],
 
                   // Note Field
                   TextFormField(
@@ -192,6 +307,8 @@ class _FundScreenState extends State<FundScreen> {
                         if (formKey.currentState!.validate()) {
                           final tx = FundTransaction(
                             studentId: selectedStudentId,
+                            behaviorPointId: selectedBehaviorPointId,
+                            settledNegativePoints: settledNegativePoints,
                             type: selectedType,
                             amount: amount,
                             note: note.trim().isEmpty ? null : note.trim(),
@@ -285,25 +402,14 @@ class _FundScreenState extends State<FundScreen> {
                     padding: const EdgeInsets.all(16),
                     sliver: SliverToBoxAdapter(
                       child: Container(
-                        height: 160,
+                        height: 132,
                         decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            colors: isDark
-                                ? [const Color(0xFF0D9488), const Color(0xFF0F766E)]
-                                : [const Color(0xFF14B8A6), const Color(0xFF0D9488)],
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                          ),
-                          borderRadius: BorderRadius.circular(28),
-                          boxShadow: [
-                            BoxShadow(
-                              color: const Color(0xFF0D9488).withOpacity(0.3),
-                              blurRadius: 16,
-                              offset: const Offset(0, 8),
-                            )
-                          ],
+                          color: isDark
+                              ? Theme.of(context).colorScheme.primaryContainer
+                              : Theme.of(context).colorScheme.primary,
+                          borderRadius: BorderRadius.circular(18),
                         ),
-                        padding: const EdgeInsets.all(24),
+                        padding: const EdgeInsets.all(18),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -311,9 +417,9 @@ class _FundScreenState extends State<FundScreen> {
                             Text(
                               'رصيد الصندوق الحالي',
                               style: TextStyle(
-                                color: Colors.white.withOpacity(0.9),
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
+                                color: Colors.white.withValues(alpha: 0.9),
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.w600,
                               ),
                             ),
                             Row(
@@ -323,20 +429,20 @@ class _FundScreenState extends State<FundScreen> {
                                   '${_balance.toStringAsFixed(2)} ${_settings.currencySymbol}',
                                   style: TextStyle(
                                     color: Colors.white,
-                                    fontSize: 32,
+                                    fontSize: 23,
                                     fontWeight: FontWeight.bold,
                                   ),
                                 ),
                                 Container(
                                   padding: const EdgeInsets.all(8),
                                   decoration: BoxDecoration(
-                                    color: Colors.white.withOpacity(0.2),
+                                    color: Colors.white.withValues(alpha: 0.2),
                                     shape: BoxShape.circle,
                                   ),
                                   child: const Icon(
                                     Icons.account_balance_wallet,
                                     color: Colors.white,
-                                    size: 28,
+                                    size: 22,
                                   ),
                                 )
                               ],
@@ -364,7 +470,7 @@ class _FundScreenState extends State<FundScreen> {
                           Text(
                             'إجمالي ${_transactions.length} معاملة',
                             style: TextStyle(
-                              color: Theme.of(context).textTheme.bodyMedium?.color?.withOpacity(0.6),
+                              color: Theme.of(context).textTheme.bodyMedium?.color?.withValues(alpha: 0.6),
                               fontSize: 13,
                             ),
                           ),
@@ -384,13 +490,13 @@ class _FundScreenState extends State<FundScreen> {
                             Icon(
                               Icons.history,
                               size: 64,
-                              color: Colors.grey[400],
+                              color: Theme.of(context).colorScheme.onSurfaceVariant,
                             ),
                             const SizedBox(height: 16),
                             Text(
                               'لا توجد عمليات مسجلة في الصندوق حالياً',
                               style: TextStyle(
-                                color: Colors.grey[600],
+                                color: Theme.of(context).colorScheme.onSurfaceVariant,
                                 fontSize: 15,
                               ),
                             ),
@@ -414,7 +520,7 @@ class _FundScreenState extends State<FundScreen> {
                                 leading: Container(
                                   padding: const EdgeInsets.all(10),
                                   decoration: BoxDecoration(
-                                    color: color.withOpacity(0.1),
+                                    color: color.withValues(alpha: 0.1),
                                     shape: BoxShape.circle,
                                   ),
                                   child: Icon(
@@ -423,17 +529,24 @@ class _FundScreenState extends State<FundScreen> {
                                     size: 24,
                                   ),
                                 ),
-                                title: Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                title: Wrap(
+                                  spacing: 8,
+                                  runSpacing: 4,
+                                  alignment: WrapAlignment.spaceBetween,
+                                  crossAxisAlignment: WrapCrossAlignment.center,
                                   children: [
                                     Text(
                                       _getTypeLabel(tx.type),
-                                      style: const TextStyle(fontWeight: FontWeight.bold),
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                      ),
                                     ),
                                     Text(
                                       '${isExpense ? "-" : "+"}${tx.amount.toStringAsFixed(1)} ${_settings.currencySymbol}',
                                       style: TextStyle(
-                                        color: isExpense ? Colors.red : const Color(0xFF10B981),
+                                        color: isExpense
+                                            ? Colors.red
+                                            : const Color(0xFF10B981),
                                         fontWeight: FontWeight.bold,
                                         fontSize: 16,
                                       ),
@@ -442,21 +555,33 @@ class _FundScreenState extends State<FundScreen> {
                                 ),
                                 subtitle: Padding(
                                   padding: const EdgeInsets.only(top: 4),
-                                  child: Row(
-                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
                                       Text(
                                         tx.note ?? 'المرتبط: ${_getStudentName(tx.studentId)}',
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
                                         style: TextStyle(
                                           fontSize: 12,
-                                          color: Theme.of(context).textTheme.bodyMedium?.color?.withOpacity(0.7),
+                                          color: Theme.of(context).textTheme.bodyMedium?.color?.withValues(alpha: 0.7),
                                         ),
                                       ),
+                                      if (tx.settledNegativePoints > 0)
+                                        Text(
+                                          'تمت تسوية ${tx.settledNegativePoints} نقطة سلبية مع إبقاء المخالفة في السجل',
+                                          style: const TextStyle(
+                                            fontSize: 11,
+                                            color: Colors.orange,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      const SizedBox(height: 2),
                                       Text(
                                         intl.DateFormat('yyyy/MM/dd').format(tx.date),
                                         style: TextStyle(
                                           fontSize: 11,
-                                          color: Colors.grey,
+                                          color: Theme.of(context).colorScheme.onSurfaceVariant,
                                         ),
                                       ),
                                     ],

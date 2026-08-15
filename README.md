@@ -7,8 +7,9 @@
 ## الحالة الحالية
 
 - الوظائف الرئيسية منفذة برمجيًا في Flutter وNext.js.
-- واجهة الويب تبني 30 مسارًا بنجاح، وبوابة الجودة تحتوي 28 فحص عقد.
-- هوية Android والويب موحدة بخط Tajawal محلي وألوان قرآنية هادئة وSafe Area شاملة.
+- واجهة الويب تحتوي بوابات إصدار تغطي المسارات التشغيلية، وفحوص الجودة الآلية الحالية تحتوي 61 فحصًا/بوابة تحقق.
+- مركز إغلاق اليوم يراجع الحضور الناقص والغياب وعدم التسميع ثم يعتمد النتائج ذريًا بعد الدوام دون تكرار.
+- هوية Android والويب تستخدم خط Tajawal الثابت للواجهة، مع نظام بصري مسطح ومضغوط بألوان حلقتي الخضراء/الذهبية الدافئة وSafe Area شاملة؛ ويستخدم PDF الخط نفسه لتوحيد العربية وتجنب اختلاف التشكيل بين الواجهة والتصدير.
 - النسخ الجديدة مشفرة بـAES-256-GCM ويمكن حفظها محليًا أو في Supabase Storage.
 - سجل التدقيق وسياسة الخصوصية متاحان في Android والويب.
 - المشروع في مرحلة ما قبل الإطلاق؛ يلزم تطبيق migrations واختبار جهازين
@@ -18,6 +19,9 @@
 
 راجع [خطة المتطلبات](docs/master_backlog.md) و[المراحل المتبقية](docs/remaining_phases_2026-07-12.md)
 بدل الاعتماد على وجود الكود وحده كدليل اكتمال.
+
+أحدث دفعة تطوير موثقة هي **P1.27 Build 76** (`4.3.0-alpha.22+76`، SQLite 25)، وهي جولة إكمال للفجوات التي كشفها تدقيق Build 75.
+تضيف هذه الدفعة إنشاء المراكز مباشرة من بوابة الجهة الإشرافية، النقاط النسبية للتسميع، المحفوظ المستنتج والمراجعة المتصلة، التاريخ الهجري/الميلادي في الخطط، معالجة الإجازة العارضة المتأخرة، مزامنة تلقائية مع tombstones لمنع إحياء المحذوف، التسجيل المتأخر ثلاثة أيام، مجموعات التنافس، والاختبار الشهري 30+30+20+20، مع تحسين التباين والتشخيص والهوية. راجع [سجل التنفيذ](docs/P1.27_IMPLEMENTATION_LOG.md)، [تدقيق الميزات](docs/P1.27_FEATURE_AUDIT.md)، و[ملاحظة التثبيت](P1.27_INSTALL_NOTE.md).
 
 ## البنية
 
@@ -56,6 +60,27 @@ PowerShell -ExecutionPolicy Bypass -File .\tools\staging_preflight.ps1
 
 ## تشغيل الويب
 
+على Windows، وبعد فك أي حزمة مصدر كاملة أو استبدال ملفات المشروع، نفّذ من
+مجلد المشروع الرئيسي:
+
+```powershell
+PowerShell -ExecutionPolicy Bypass -File .\tools\setup_web.ps1
+```
+
+أو على Windows انقر مرتين على الملف الموجود في جذر المشروع:
+
+```text
+SETUP_WEB_WINDOWS.cmd
+```
+
+يثبّت هذا الأمر نسخ الحزم المقفلة في `package-lock.json` ويتحقق من TypeScript
+والعقود ثم يبني الموقع. عدم وجود `website/node_modules` يجعل VS Code يعرض
+أخطاء كاذبة من نوع `Cannot find module 'react'` و`react/jsx-runtime` حتى لو
+كان المصدر سليمًا. بعد نجاح الأمر أعد تشغيل خادم TypeScript من لوحة أوامر
+VS Code.
+
+وللتشغيل اليدوي على الأنظمة الأخرى:
+
 ```bash
 cd website
 cp .env.example .env.local
@@ -68,13 +93,12 @@ npm run dev
 
 ## قاعدة Supabase
 
-- لا تنفذ `website/database_schema.sql` على قاعدة تحتوي بيانات؛ هذا الملف
-  مخصص للتثبيت الجديد وقد يكون مدمرًا.
-- لقواعد البيانات القائمة نفّذ محتويات الملفات في
-  `website/supabase/migrations/` بالترتيب بعد أخذ نسخة احتياطية.
-- لا تكتب اسم ملف migration داخل SQL Editor؛ انسخ محتوى الملف كاملًا كما هو.
-- يشرح [دليل SQL العربي](docs/how_to_run_supabase_sql_ar.md) الأخطاء المعروفة
-  وترتيب التنفيذ والتحقق.
+- لا تنفذ `website/database_schema.sql` على قاعدة تحتوي بيانات؛ هذا الملف مخصص للتثبيت الجديد وقد يكون مدمرًا.
+- مخطط المالك الحالي يؤكد وجود نطاق التطبيق وجداول الإشراف، لذلك **لا تعِد** P7.3 ولا guarded bootstrap ولا SQL P1.24 القديم على هذه القاعدة.
+- قاعدة المالك الحالية اجتازت Build 75؛ للترقية الحالية شغّل **فقط** `website/supabase/P1.27_BUILD76_APPLY.sql`.
+- بعد نجاحه شغّل `website/supabase/P1.27_BUILD76_VERIFY.sql`؛ المطلوب أن تكون كل صفوف `passed=true`.
+- لا تكتب اسم الملف داخل SQL Editor؛ افتح الملف وانسخ **محتواه** كاملًا.
+- مسارات P1.24–P1.26 السابقة تبقى توثيقًا تاريخيًا أو لبيئات أقدم، وليست مسار الإصلاح الحالي. راجع [Build 76 completion](docs/P1.27_BUILD76_COMPLETION.md) و[سجل P1.27](docs/P1.27_IMPLEMENTATION_LOG.md).
 
 قبل تفعيل النسخ السحابي نفّذ:
 
@@ -110,6 +134,41 @@ website/supabase/migrations/20260713000300_p6_data_privacy_cloud_backup.sql
 
 بعده اختبر ربط مركز بدعوة مؤقتة، ثم حساب محلل لا يستطيع تعديل بيانات المركز.
 
+ولميزات الخطط والتقارير P1.15 نفّذ محتوى الملفين بالترتيب:
+
+```text
+website/supabase/migrations/20260722000300_p1_15_urgent_plans_reports.sql
+website/supabase/verification/20260722000300_p1_15_urgent_plans_reports_readiness.sql
+```
+
+الملف الثاني للقراءة فقط، والمتوقع أن يعرض أربعة صفوف كلها `passed=true`.
+
+ولتسجيل السرد الرقمي وربطه بإنجاز الخطة P1.16 نفّذ محتوى الملفين بالترتيب:
+
+```text
+website/supabase/migrations/20260722000400_p1_16_plan_recitation_tracking.sql
+website/supabase/verification/20260722000400_p1_16_plan_recitation_tracking_readiness.sql
+```
+
+المتوقع كذلك أربعة صفوف كلها `passed=true`. لا تنسخ اسم الملف إلى محرر SQL؛
+افتحه وانسخ محتواه كاملًا.
+
+## ترحيل P1.22 — منفذ ومتحقق
+
+أكد مالك النظام في 2026-08-08 تنفيذ ترحيل P1.22 على Supabase ونجاح فحص التحقق. لقواعد جديدة أو بيئات أخرى يستخدم الملف نفسه بعد أخذ نسخة احتياطية:
+
+```text
+website/supabase/migrations/20260808000100_p1_22_activity_talaqqin_admin.sql
+```
+
+ثم يشغل الفحص القرائي عند تجهيز أي بيئة جديدة:
+
+```text
+website/supabase/verify_p1_22.sql
+```
+
+نتيجة التحقق التي أرفقها المالك أكدت `closing_respects_activity_exemption=true` و`closing_respects_full_pause=true`، وأفاد بأن الاستعلام اكتمل دون مشاكل. يبقى مسار التوافق مع P1.21 للحالات التي تُشغل فيها نسخة التطبيق على بيئة سحابية أقدم. تسجيل Google يحتاج تفعيل موفر Google وRedirect URLs ما لم يكن قد فُعل خارجيًا؛ راجع [دليل P1.22](docs/P1.22_SQL_AND_GOOGLE_SETUP.md).
+
 ## بوابات الجودة
 
 ```bash
@@ -117,7 +176,7 @@ cd website
 npm run quality:ci
 ```
 
-يشمل تدقيق الاعتمادات وESLint و25 فحص عقد وبناء Next.js. GitHub Actions يشغل
+يشمل تدقيق الاعتمادات وESLint و61 فحصًا/بوابة تحقق وبناء Next.js. GitHub Actions يشغل
 أيضًا `flutter analyze` و`flutter test`، وسير بناء APK لا ينتج الملف إلا بعد
 نجاحهما.
 
@@ -132,9 +191,36 @@ npm run quality:ci
 ## التوثيق
 
 - [سجل التحسينات](CHANGELOG.md)
+- [سجل Build 74](docs/P1.26_BUILD74_HARDENING.md)
+- [ملاحظة تثبيت Build 74](P1.26_BUILD74_INSTALL_NOTE.md)
+- [سياسة المنصات المدعومة](docs/supported_platforms.md)
+- [سجل تنفيذ P1.26](docs/P1.26_IMPLEMENTATION_LOG.md)
+- [مسار Supabase الآمن لـP1.26](docs/P1.26_SQL_AND_SETUP.md)
+- [مطابقة مخطط Supabase الفعلي بعد bootstrap](docs/P1.26_CLOUD_SCHEMA_RECONCILIATION.md)
+- [سجل تنفيذ P1.25](docs/P1.25_IMPLEMENTATION_LOG.md)
+- [مسار Supabase الآمن لـP1.25](docs/P1.25_SQL_AND_SETUP.md)
+- [تدقيق الميزات المتبقية P1.25](docs/P1.25_REMAINING_FEATURE_AUDIT.md)
+- [سجل تنفيذ P1.22](docs/P1.22_IMPLEMENTATION_LOG.md)
+- [خطوات SQL وGoogle لـP1.22](docs/P1.22_SQL_AND_GOOGLE_SETUP.md)
 - [ملاحظات الإصدار للمستخدم](docs/release_notes.md)
 - [الخطة الرئيسية](docs/master_backlog.md)
+- [تسليم إغلاق اليوم والتشغيل الآمن P1.13](docs/phase1_13_handoff.md)
+- [تسليم الإغلاق السحابي ودوام الحلقة P1.14](docs/phase1_14_handoff.md)
+- [تسليم الخطط الذكية والتقرير الإداري P1.15](docs/phase1_15_handoff.md)
+- [تسليم السرد الرقمي وإعداد الويب P1.16](docs/phase1_16_handoff.md)
+- [تسليم إصلاح الخطط والتقارير P1.16.1](docs/phase1_16_1_handoff.md)
+- [تسليم استعادة بيئة الويب P1.16.2](docs/phase1_16_2_handoff.md)
+- [الميزات المتبقية بعد P1.16](docs/remaining_feature_work_2026-07-18.md)
 - [تسليم الحماية والجودة P6.1](docs/phase6_1_handoff.md)
 - [تسليم حماية البيانات P6.2](docs/phase6_2_handoff.md)
 - [تسليم الهوية والمساحة الآمنة P6.2.1](docs/phase6_2_1_handoff.md)
 - [دليل هوية الواجهات](docs/design_identity_guide.md)
+
+
+## P1.22 build 66 hotfix (2026-08-08)
+
+- Fixed Flutter compilation in the student period/WhatsApp report by importing `daily_record.dart` for `DailyActivityType`.
+- Study-day suspension now preserves all manually entered `daily_records`; suspended dates are excluded by policy instead of deleting history.
+- The P1.22 Supabase migration now bootstraps `public.student_holds` when an older deployment is missing the P3 migration, then applies `scope`, trigger, RLS, and the P1.22 closing logic.
+- Student-hold cloud sync now tolerates a missing remote table until the owner runs the migration.
+- The previous SQL failure `42P01: relation public.student_holds does not exist` is therefore addressed in this build.

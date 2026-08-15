@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo, useEffect, useCallback } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { 
   Search, 
   Plus, 
@@ -25,6 +26,7 @@ import {
   ShieldOff,
   Loader2
 } from "lucide-react";
+import Link from "next/link";
 import { useStore, Student } from "@/store/useStore";
 import { QRCodeSVG } from "qrcode.react";
 import { encodeStudentQr } from "@/lib/studentQr";
@@ -32,6 +34,7 @@ import MushafVisualizer from "@/components/MushafVisualizer";
 import { quranService } from "@/services/quranService";
 import { EmptyState, PageHeader, SearchField, Surface } from "@/components/ui/AppDesign";
 import { supabase } from "@/lib/supabase";
+import { localDateKey } from "@/utils/dateUtils";
 
 const levels = [
   { id: "الكل", label: "الكل" },
@@ -41,15 +44,25 @@ const levels = [
 ];
 
 export default function StudentsPage() {
-  const { 
-    students, 
-    addStudent, 
-    updateStudent, 
+  const {
+    students,
+    addStudent,
+    updateStudent,
     changeStudentStatus,
-    homeworkGrades, 
+    homeworkGrades,
     attendance,
     fetchCenterData
-  } = useStore();
+  } = useStore(
+    useShallow((state) => ({
+      students: state.students,
+      addStudent: state.addStudent,
+      updateStudent: state.updateStudent,
+      changeStudentStatus: state.changeStudentStatus,
+      homeworkGrades: state.homeworkGrades,
+      attendance: state.attendance,
+      fetchCenterData: state.fetchCenterData,
+    })),
+  );
   const surahs = quranService.getSurahs();
   const [search, setSearch] = useState("");
   const [selectedLevel, setSelectedLevel] = useState("الكل");
@@ -179,7 +192,7 @@ export default function StudentsPage() {
     parentPhone: "", 
     age: 10, 
     level: "مبتدئ", 
-    joinDate: new Date().toISOString().split("T")[0],
+    joinDate: localDateKey(),
     planType: 'ayahs',
     planAmount: 5,
     reviewPlanAmount: 10,
@@ -233,7 +246,7 @@ export default function StudentsPage() {
     setEditingStudent(null);
     setFormData({ 
       name: "", phone: "", parentPhone: "", age: 10, level: "مبتدئ", 
-      joinDate: new Date().toISOString().split("T")[0],
+      joinDate: localDateKey(),
       planType: 'ayahs', planAmount: 5, reviewPlanAmount: 10, status: 'active',
       memorizationDirection: 'desc',
       preMemorizedStartSurah: undefined,
@@ -333,7 +346,7 @@ export default function StudentsPage() {
           <>
           <button
             onClick={() => setStatusView(statusView === 'current' ? 'archive' : 'current')}
-            className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 px-5 py-4 rounded-3xl font-black text-sm text-gray-600 dark:text-gray-300 flex items-center gap-2"
+            className="bg-[var(--surface)] border border-gray-200 dark:border-gray-800 px-5 py-4 rounded-3xl font-black text-sm text-gray-600 dark:text-gray-300 flex items-center gap-2"
           >
             {statusView === 'current' ? <Archive className="w-5 h-5" /> : <RotateCcw className="w-5 h-5" />}
             {statusView === 'current'
@@ -422,7 +435,7 @@ export default function StudentsPage() {
         {filteredStudents.map(student => (
           <div 
             key={student.id}
-            className={`group bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 transition-all duration-500 hover:shadow-2xl flex flex-col ${
+            className={`group bg-[var(--surface)] border border-[var(--border)] transition-all duration-500 hover:shadow-2xl flex flex-col ${
               viewMode === "grid" ? "rounded-[3rem] p-8" : "rounded-3xl p-5 md:flex-row md:items-center md:justify-between"
             }`}
           >
@@ -443,7 +456,7 @@ export default function StudentsPage() {
               </div>
 
               <div>
-                <h4 className="text-xl font-black text-gray-900 dark:text-white group-hover:text-teal-600 transition-colors flex flex-wrap items-center gap-2 justify-center md:justify-start">
+                <h4 className="text-xl font-black text-[var(--foreground)] group-hover:text-teal-600 transition-colors flex flex-wrap items-center gap-2 justify-center md:justify-start">
                   {student.name}
                   {statusView === 'current' && checkDidNotReciteLastClass(student.id) && (
                     <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-amber-50 dark:bg-amber-950/20 text-amber-700 dark:text-amber-400 rounded-lg text-[9px] font-black border border-amber-100/30">
@@ -456,7 +469,7 @@ export default function StudentsPage() {
                     مستوى {student.level}
                   </span>
                   <span className="text-[10px] font-black text-gray-400 flex items-center gap-1">
-                    <Target className="w-3 h-3" /> الخطة: {student.planAmount} {student.planType === 'ayahs' ? 'آيات' : student.planType === 'lines' ? 'أسطر' : 'صفحات'}
+                    <Target className="w-3 h-3" /> الخطة: {student.planAmount} {student.planType === 'ayahs' ? 'آيات' : student.planType === 'lines' ? 'أسطر' : student.planType === 'hizbs' ? 'أحزاب' : 'صفحات'}
                   </span>
                 </div>
                 {(() => {
@@ -473,6 +486,13 @@ export default function StudentsPage() {
             </div>
 
             <div className={`flex flex-wrap gap-3 ${viewMode === "grid" ? "mt-8 justify-center border-t border-gray-50 dark:border-gray-800 pt-8" : "mt-4 md:mt-0"}`}>
+              <Link
+                href={`/students/${student.id}`}
+                className="flex h-12 items-center justify-center rounded-2xl bg-gray-100 px-4 text-xs font-black text-gray-700 transition-all hover:bg-gray-800 hover:text-white dark:bg-gray-800 dark:text-gray-200"
+                title="الملف التفصيلي"
+              >
+                الملف التفصيلي
+              </Link>
               <button 
                 onClick={() => setVisualizingStudent(student)} 
                 className="w-12 h-12 bg-teal-50 dark:bg-teal-900/20 text-teal-600 rounded-2xl flex items-center justify-center hover:bg-teal-600 hover:text-white transition-all"
@@ -510,9 +530,9 @@ export default function StudentsPage() {
       {/* Student Form Modal */}
       {showForm && (
         <div className="fixed inset-0 bg-gray-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-300">
-          <div className="bg-white dark:bg-gray-900 rounded-[3rem] p-10 w-full max-w-2xl shadow-2xl relative animate-in zoom-in-95 duration-300 overflow-y-auto max-h-[90vh]">
+          <div className="bg-[var(--surface)] rounded-[3rem] p-10 w-full max-w-2xl shadow-2xl relative animate-in zoom-in-95 duration-300 overflow-y-auto max-h-[90vh]">
             <button onClick={() => setShowForm(false)} className="absolute top-8 left-8 p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors"><X className="w-6 h-6 text-gray-400" /></button>
-            <h3 className="text-3xl font-black text-gray-900 dark:text-white mb-2">{editingStudent ? "تعديل بيانات الطالب" : "إضافة طالب جديد"}</h3>
+            <h3 className="text-3xl font-black text-[var(--foreground)] mb-2">{editingStudent ? "تعديل بيانات الطالب" : "إضافة طالب جديد"}</h3>
             <p className="text-gray-400 font-medium mb-10">أدخل بيانات الطالب وخطة حفظه اليومية بدقة.</p>
             
             <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -699,17 +719,17 @@ export default function StudentsPage() {
                       <div className="flex justify-around items-center bg-white dark:bg-gray-800 p-4 rounded-2xl text-center border border-amber-100/50 dark:border-amber-900/10">
                         <div>
                           <div className="text-xs font-black text-amber-600 dark:text-amber-400">سور</div>
-                          <div className="text-sm font-black text-gray-850 dark:text-gray-200 mt-0.5">{stats.surahs}</div>
+                          <div className="text-sm font-black text-gray-800 dark:text-gray-200 mt-0.5">{stats.surahs}</div>
                         </div>
                         <div className="w-[1px] h-6 bg-gray-100 dark:bg-gray-700" />
                         <div>
                           <div className="text-xs font-black text-amber-600 dark:text-amber-400">آيات</div>
-                          <div className="text-sm font-black text-gray-850 dark:text-gray-200 mt-0.5">{stats.ayahs}</div>
+                          <div className="text-sm font-black text-gray-800 dark:text-gray-200 mt-0.5">{stats.ayahs}</div>
                         </div>
                         <div className="w-[1px] h-6 bg-gray-100 dark:bg-gray-700" />
                         <div>
                           <div className="text-xs font-black text-amber-600 dark:text-amber-400">صفحات</div>
-                          <div className="text-sm font-black text-gray-850 dark:text-gray-200 mt-0.5">{stats.pages}</div>
+                          <div className="text-sm font-black text-gray-800 dark:text-gray-200 mt-0.5">{stats.pages}</div>
                         </div>
                       </div>
                     );
@@ -724,10 +744,11 @@ export default function StudentsPage() {
                 </div>
                 <div>
                   <label className="block text-[10px] font-black text-teal-600 uppercase mb-2">نوع الحساب</label>
-                  <select value={formData.planType} onChange={e => setFormData({...formData, planType: e.target.value as 'ayahs' | 'pages' | 'lines'})} className="w-full bg-white dark:bg-gray-800 border-none rounded-xl px-4 py-3 text-xs font-bold outline-none">
+                  <select value={formData.planType} onChange={e => setFormData({...formData, planType: e.target.value as 'ayahs' | 'pages' | 'lines' | 'hizbs'})} className="w-full bg-white dark:bg-gray-800 border-none rounded-xl px-4 py-3 text-xs font-bold outline-none">
                     <option value="ayahs">بعدد الآيات</option>
                     <option value="pages">بعدد الصفحات</option>
                     <option value="lines">بعدد الأسطر</option>
+                    <option value="hizbs">بعدد الأحزاب</option>
                   </select>
                 </div>
                 <div>
@@ -763,10 +784,10 @@ export default function StudentsPage() {
 
       {statusStudent && (
         <div className="fixed inset-0 bg-gray-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-gray-900 rounded-[2.5rem] p-8 w-full max-w-lg shadow-2xl">
+          <div className="bg-[var(--surface)] rounded-[2.5rem] p-8 w-full max-w-lg shadow-2xl">
             <div className="flex items-start justify-between gap-4 mb-6">
               <div>
-                <h3 className="text-2xl font-black text-gray-900 dark:text-white">
+                <h3 className="text-2xl font-black text-[var(--foreground)]">
                   {archiveStatus === 'active' ? 'إعادة تفعيل الطالب' : 'نقل الطالب إلى الأرشيف'}
                 </h3>
                 <p className="text-sm text-gray-500 mt-2 font-bold">{statusStudent.name}</p>
@@ -818,10 +839,10 @@ export default function StudentsPage() {
 
       {portalStudent && (
         <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-md flex items-center justify-center z-50 p-4" onClick={() => setPortalStudent(null)}>
-          <div className="bg-white dark:bg-gray-900 rounded-[2.5rem] p-7 sm:p-9 w-full max-w-lg shadow-2xl" onClick={(event) => event.stopPropagation()}>
+          <div className="bg-[var(--surface)] rounded-[2.5rem] p-7 sm:p-9 w-full max-w-lg shadow-2xl" onClick={(event) => event.stopPropagation()}>
             <div className="flex items-start justify-between gap-4">
               <div>
-                <h3 className="text-2xl font-black text-gray-900 dark:text-white">بوابة الطالب وولي الأمر</h3>
+                <h3 className="text-2xl font-black text-[var(--foreground)]">بوابة الطالب وولي الأمر</h3>
                 <p className="text-sm text-gray-500 mt-2 font-bold">{portalStudent.name}</p>
               </div>
               <button onClick={() => setPortalStudent(null)} className="p-2 text-gray-400"><X className="w-5 h-5" /></button>
@@ -829,7 +850,7 @@ export default function StudentsPage() {
 
             <div className="mt-6 rounded-2xl bg-teal-50 dark:bg-teal-950/20 border border-teal-100 dark:border-teal-900 p-4">
               <p className="text-xs font-bold text-teal-700 dark:text-teal-300">كود الدخول العام</p>
-              <p dir="ltr" className="mt-2 text-left font-black tracking-wide text-gray-900 dark:text-white">
+              <p dir="ltr" className="mt-2 text-left font-black tracking-wide text-[var(--foreground)]">
                 {portalStudent.studentCode
                   ? `HAL-${portalStudent.studentCode.match(/.{1,5}/g)?.join('-')}`
                   : 'نفّذ SQL هوية الطالب أولًا'}
@@ -873,9 +894,9 @@ export default function StudentsPage() {
       {/* QR Modal Placeholder (Same as before but with Dark Mode support) */}
       {showQR && (
         <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-md flex items-center justify-center z-50 p-4" onClick={() => setShowQR(null)}>
-          <div className="bg-white dark:bg-gray-900 rounded-[3rem] p-10 w-full max-w-sm text-center relative" onClick={e => e.stopPropagation()}>
+          <div className="bg-[var(--surface)] rounded-[3rem] p-10 w-full max-w-sm text-center relative" onClick={e => e.stopPropagation()}>
             <QRCodeSVG value={encodeStudentQr(showQR.qrCode || showQR.id)} size={200} className="mx-auto mb-6 p-4 bg-white rounded-3xl border-4 border-teal-500/20" />
-            <h3 className="text-xl font-black text-gray-900 dark:text-white">{showQR.name}</h3>
+            <h3 className="text-xl font-black text-[var(--foreground)]">{showQR.name}</h3>
             <p className="text-xs font-bold text-gray-400 mt-2">كود الحضور الذكي</p>
           </div>
         </div>
@@ -892,7 +913,7 @@ export default function StudentsPage() {
       {/* Timeline Modal */}
       {timelineStudent && (
         <div className="fixed inset-0 bg-gray-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-300">
-          <div className="bg-white dark:bg-gray-900 rounded-[3rem] p-10 w-full max-w-2xl shadow-2xl relative animate-in zoom-in-95 duration-300 flex flex-col max-h-[85vh]">
+          <div className="bg-[var(--surface)] rounded-[3rem] p-10 w-full max-w-2xl shadow-2xl relative animate-in zoom-in-95 duration-300 flex flex-col max-h-[85vh]">
             <button onClick={() => setTimelineStudent(null)} className="absolute top-8 left-8 p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors"><X className="w-6 h-6 text-gray-400" /></button>
             
             <div className="flex items-center gap-4 mb-6">
@@ -921,7 +942,7 @@ export default function StudentsPage() {
                 }
 
                 return (
-                  <div className="relative border-r-2 border-gray-100 dark:border-gray-800 mr-4 pl-4 space-y-8">
+                  <div className="relative border-r-2 border-[var(--border)] mr-4 pl-4 space-y-8">
                     {grades.map(grade => {
                       const gradeColors: Record<string, {bg: string, text: string, label: string}> = {
                         excellent: { bg: "bg-green-50 dark:bg-green-950/20", text: "text-green-600", label: "ممتاز 🌟" },
@@ -964,7 +985,7 @@ export default function StudentsPage() {
                               )}
 
                               {grade.remark && (
-                                <p className="text-xs text-gray-500 dark:text-gray-400 bg-white dark:bg-gray-900/40 p-3 rounded-xl border border-gray-50 dark:border-gray-800 font-medium">
+                                <p className="text-xs text-[var(--muted)] bg-[var(--surface)]/40 p-3 rounded-xl border border-gray-50 dark:border-gray-800 font-medium">
                                   📝 {grade.remark}
                                 </p>
                               )}

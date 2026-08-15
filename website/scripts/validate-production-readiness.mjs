@@ -39,13 +39,13 @@ const envExample = read("website/.env.example");
 assertIncludes(envExample, ["NEXT_PUBLIC_SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_ANON_KEY"], "Environment example");
 
 const packageJson = JSON.parse(read("website/package.json"));
-if (packageJson.dependencies.next !== "16.2.10") throw new Error("Next.js security patch is not pinned");
+if (packageJson.dependencies.next !== "16.2.12") throw new Error("Next.js security patch is not pinned");
 if (packageJson.dependencies["@supabase/supabase-js"] !== "2.110.2") {
   throw new Error("Supabase JS security patch is not pinned");
 }
 assertIncludes(
   JSON.stringify(packageJson.scripts),
-  ["audit:production", "--audit-level=high", "--max-warnings 23"],
+  ["audit:production", "--audit-level=high", "--max-warnings 0"],
   "Release scripts",
 );
 
@@ -68,7 +68,7 @@ assertIncludes(
     "java-version: '17'",
     "channel: stable",
     "actions/upload-artifact@v4",
-    "Validate production secrets",
+    "Validate cloud and production secrets",
     "Verify signature and checksum",
   ],
   "APK workflow",

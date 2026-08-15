@@ -1,22 +1,39 @@
 import 'package:flutter/material.dart';
 import '../../services/database_service.dart';
 import '../../services/quran_service.dart';
-import '../../services/memorization_measure_service.dart';
 import '../../services/memorization_progression_service.dart';
+import '../../services/quran_cross_surah_range_service.dart';
+import '../../services/mushaf_service.dart';
+import '../../services/student_learning_policy.dart';
+import '../../services/recitation_flow_coordinator.dart';
+import '../../services/recitation_attendance_guard.dart';
+import '../../services/backdated_entry_policy.dart';
+import '../../app/design_tokens.dart';
+import '../../widgets/app_design_widgets.dart';
 import '../../models/student.dart';
 import '../../models/memorization.dart';
 import '../../models/daily_record.dart';
-import '../../models/behavior_point.dart';
-import '../../models/settings.dart';
+import '../../models/homework_grade.dart';
 import '../../utils/quran_data.dart';
+import '../../utils/helpers.dart';
 import '../../widgets/surah_picker.dart';
 import '../../widgets/ayah_range_picker.dart';
+import '../../widgets/quran_endpoint_picker.dart';
 import '../../widgets/quality_rating.dart';
 
 class AddMemorizationScreen extends StatefulWidget {
   final Student? student;
+  final String? planUnitOverride;
+  final int? planAmountOverride;
+  final String? courseTitle;
 
-  const AddMemorizationScreen({super.key, this.student});
+  const AddMemorizationScreen({
+    super.key,
+    this.student,
+    this.planUnitOverride,
+    this.planAmountOverride,
+    this.courseTitle,
+  });
 
   @override
   State<AddMemorizationScreen> createState() => _AddMemorizationScreenState();
@@ -36,25 +53,74 @@ class _AddMemorizationScreenState extends State<AddMemorizationScreen> {
   String _notes = '';
   bool _isLoading = true;
   bool _isSaving = false;
+  bool _ownsRecitationFlow = false;
+  String? _flowStudentId;
+  QuranCrossSurahRange? _connectedRange;
+  DateTime _recordDate = BackdatedEntryPolicy.dateOnly(DateTime.now());
 
-  HalaqahSettings _settings = HalaqahSettings();
 
   @override
   void initState() {
     super.initState();
     _selectedStudent = widget.student;
+    if (widget.student != null) {
+      _ownsRecitationFlow = RecitationFlowCoordinator.acquire(
+        widget.student!.id,
+        this,
+      );
+      if (_ownsRecitationFlow) _flowStudentId = widget.student!.id;
+      if (!_ownsRecitationFlow) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'توجد شاشة تسميع أو حفظ مفتوحة لهذا الطالب. أغلقها أولًا ثم أعد المحاولة.',
+              ),
+            ),
+          );
+          Navigator.maybePop(context);
+        });
+        return;
+      }
+    }
     _loadStudents();
+  }
+
+  @override
+  void dispose() {
+    if (_ownsRecitationFlow && _flowStudentId != null) {
+      RecitationFlowCoordinator.release(_flowStudentId!, this);
+    }
+    super.dispose();
+  }
+
+  bool _switchRecitationFlow(Student? student) {
+    final nextId = student?.id;
+    if (nextId == _flowStudentId) return true;
+    if (_ownsRecitationFlow && _flowStudentId != null) {
+      RecitationFlowCoordinator.release(_flowStudentId!, this);
+    }
+    _ownsRecitationFlow = false;
+    _flowStudentId = null;
+    if (nextId == null) return true;
+    final acquired = RecitationFlowCoordinator.acquire(nextId, this);
+    if (acquired) {
+      _ownsRecitationFlow = true;
+      _flowStudentId = nextId;
+    }
+    return acquired;
   }
 
   Future<void> _loadStudents() async {
     setState(() => _isLoading = true);
     try {
       await _quran.initialize();
-      final students = await _db.getStudents(status: 'active');
-      final settings = await _db.getSettings();
+      final students = (await _db.getStudents(status: 'active'))
+          .where(StudentLearningPolicy.canReceiveNewMemorization)
+          .toList();
       setState(() {
         _students = students;
-        _settings = settings;
         if (_selectedStudent != null) {
           _selectedStudent = students.firstWhere(
             (s) => s.id == _selectedStudent!.id,
@@ -65,10 +131,16 @@ class _AddMemorizationScreenState extends State<AddMemorizationScreen> {
       if (_selectedStudent != null) {
         final startPoint = await _getNextMemorizationStartingPoint(_selectedStudent!);
         if (startPoint != null) {
+          final range = _buildPlanRange(
+            _selectedStudent!,
+            startPoint['surahId']!,
+            startPoint['fromAyah']!,
+          );
           setState(() {
             _selectedSurahId = startPoint['surahId'];
             _fromAyah = startPoint['fromAyah']!;
-            _toAyah = startPoint['toAyah']!;
+            _toAyah = range?.segments.first.toAyah ?? startPoint['toAyah']!;
+            _connectedRange = range;
           });
         }
       }
@@ -80,6 +152,20 @@ class _AddMemorizationScreenState extends State<AddMemorizationScreen> {
     }
   }
 
+  Future<void> _pickRecordDate() async {
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _recordDate,
+      firstDate: BackdatedEntryPolicy.earliestAllowed(now),
+      lastDate: BackdatedEntryPolicy.dateOnly(now),
+      helpText: 'تاريخ الحفظ (حتى 3 أيام سابقة)',
+      confirmText: 'اعتماد',
+    );
+    if (picked == null || !mounted) return;
+    setState(() => _recordDate = BackdatedEntryPolicy.dateOnly(picked));
+  }
+
   Map<String, dynamic>? get _selectedSurah {
     if (_selectedSurahId == null) return null;
     return QuranData.surahs.firstWhere(
@@ -88,45 +174,122 @@ class _AddMemorizationScreenState extends State<AddMemorizationScreen> {
     );
   }
 
-  int get _ayahCount => _toAyah - _fromAyah + 1;
+  QuranCrossSurahRange? get _effectiveRange {
+    if (_connectedRange != null) return _connectedRange;
+    if (_selectedSurahId == null) return null;
+    return QuranCrossSurahRangeService.fromAyahs(
+      _quran.getAyahRange(_selectedSurahId!, _fromAyah, _toAyah),
+    );
+  }
+
+  int get _ayahCount => _effectiveRange?.ayahs.length ?? 0;
   double get _estimatedLines {
-    if (_selectedSurahId == null) return 0;
-    return _quran.calculateLines(_selectedSurahId!, _fromAyah, _toAyah);
+    return _effectiveRange?.ayahs.fold<double>(
+          0,
+          (sum, ayah) => sum + ayah.lines,
+        ) ??
+        0;
+  }
+
+  QuranCrossSurahRange? _buildPlanRange(
+    Student student,
+    int surahId,
+    int fromAyah,
+  ) {
+    return QuranCrossSurahRangeService.toAmount(
+      surahs: _quran.surahs,
+      startSurahId: surahId,
+      startAyah: fromAyah,
+      unit: QuranCrossSurahRangeService.unitFromPlanType(
+        widget.planUnitOverride ?? student.planType,
+      ),
+      amount: widget.planAmountOverride ?? student.planAmount,
+      ascendingSurahs: student.memorizationDirection != 'desc',
+    );
+  }
+
+  String _rangeLabel(QuranCrossSurahRange range) {
+    final first = range.ayahs.first;
+    final last = range.ayahs.last;
+    final firstName = _quran.getSurahName(first.surahNumber);
+    final lastName = _quran.getSurahName(last.surahNumber);
+    if (first.surahNumber == last.surahNumber) {
+      return 'سورة $firstName: ${first.number} - ${last.number}';
+    }
+    return 'من $firstName (${first.number}) إلى $lastName (${last.number})';
+  }
+
+  String _qualityToGrade(int quality) {
+    if (quality >= 5) return 'excellent';
+    if (quality == 4) return 'very_good';
+    if (quality == 3) return 'good';
+    return 'needs_work';
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('تسجيل حفظ جديد'),
+        title: const Text('الحفظ المباشر'),
+        actions: [
+          IconButton(
+            onPressed: _pickRecordDate,
+            tooltip: 'تاريخ التسجيل: ${Helpers.formatPlanDate(_recordDate)}',
+            icon: Badge(
+              isLabelVisible: BackdatedEntryPolicy.daysAgo(_recordDate) > 0,
+              label: Text('${BackdatedEntryPolicy.daysAgo(_recordDate)}'),
+              child: const Icon(Icons.calendar_month_outlined),
+            ),
+          ),
+        ],
       ),
       body: SafeArea(
         child: _isLoading
             ? const Center(child: CircularProgressIndicator())
-            : Form(
-                key: _formKey,
-                child: ListView(
-                  padding: const EdgeInsets.all(16),
-                  children: [
-                    if (widget.student == null) _buildStudentSelector(),
-                    if (_selectedStudent != null) ...[
-                      _buildStudentInfo(),
-                      const SizedBox(height: 16),
+            : AppScreenBody(
+                scrollable: true,
+                maxWidth: 760,
+                child: Form(
+                  key: _formKey,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const AppPageIntro(
+                        title: 'اعتماد الحفظ المنفّذ',
+                        subtitle:
+                            'راجع الطالب والنطاق والتقييم، ثم احفظ التسجيل مرة واحدة.',
+                        icon: Icons.auto_stories_outlined,
+                      ),
+                      const SizedBox(height: AppSpacing.lg),
+                      if (widget.student == null) ...[
+                        _buildStudentSelector(),
+                        const SizedBox(height: AppSpacing.sm),
+                      ],
+                      if (_selectedStudent != null) ...[
+                        _buildStudentInfo(),
+                        const SizedBox(height: AppSpacing.sm),
+                      ],
+                      _buildSurahSelector(),
+                      if (_selectedSurahId != null) ...[
+                        const SizedBox(height: AppSpacing.sm),
+                        _buildAyahRangePicker(),
+                        const SizedBox(height: AppSpacing.sm),
+                        OutlinedButton.icon(
+                          onPressed: _selectCrossSurahEnd,
+                          icon: const Icon(Icons.route_outlined),
+                          label: const Text('تحديد النهاية في سورة أخرى'),
+                        ),
+                        const SizedBox(height: AppSpacing.sm),
+                        _buildEstimatedLines(),
+                      ],
+                      const SizedBox(height: AppSpacing.lg),
+                      _buildQualityRating(),
+                      const SizedBox(height: AppSpacing.sm),
+                      _buildNotesField(),
+                      const SizedBox(height: AppSpacing.lg),
+                      _buildSaveButton(),
                     ],
-                    _buildSurahSelector(),
-                    if (_selectedSurahId != null) ...[
-                      const SizedBox(height: 16),
-                      _buildAyahRangePicker(),
-                      const SizedBox(height: 16),
-                      _buildEstimatedLines(),
-                    ],
-                    const SizedBox(height: 24),
-                    _buildQualityRating(),
-                    const SizedBox(height: 16),
-                    _buildNotesField(),
-                    const SizedBox(height: 24),
-                    _buildSaveButton(),
-                  ],
+                  ),
                 ),
               ),
       ),
@@ -146,7 +309,7 @@ class _AddMemorizationScreenState extends State<AddMemorizationScreen> {
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<Student>(
-              value: _selectedStudent,
+              initialValue: _selectedStudent,
               decoration: const InputDecoration(
                 border: OutlineInputBorder(),
                 prefixIcon: Icon(Icons.person),
@@ -159,17 +322,36 @@ class _AddMemorizationScreenState extends State<AddMemorizationScreen> {
                 );
               }).toList(),
               onChanged: (student) async {
+                if (!_switchRecitationFlow(student)) {
+                  if (!mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text(
+                        'توجد شاشة تسميع أو حفظ مفتوحة لهذا الطالب.',
+                      ),
+                    ),
+                  );
+                  return;
+                }
                 setState(() {
                   _selectedStudent = student;
                   _selectedSurahId = null;
+                  _connectedRange = null;
                 });
                 if (student != null) {
                   final startPoint = await _getNextMemorizationStartingPoint(student);
                   if (startPoint != null && _selectedStudent?.id == student.id) {
+                    final range = _buildPlanRange(
+                      student,
+                      startPoint['surahId']!,
+                      startPoint['fromAyah']!,
+                    );
                     setState(() {
                       _selectedSurahId = startPoint['surahId'];
                       _fromAyah = startPoint['fromAyah']!;
-                      _toAyah = startPoint['toAyah']!;
+                      _toAyah = range?.segments.first.toAyah ??
+                          startPoint['toAyah']!;
+                      _connectedRange = range;
                     });
                   }
                 }
@@ -187,21 +369,17 @@ class _AddMemorizationScreenState extends State<AddMemorizationScreen> {
 
   Widget _buildStudentInfo() {
     final student = _selectedStudent!;
-    return Card(
-      color: Theme.of(context).primaryColor.withOpacity(0.1),
-      child: ListTile(
-        leading: CircleAvatar(
-          backgroundColor: Theme.of(context).primaryColor,
-          child: Text(
-            student.name.isNotEmpty ? student.name[0] : '؟',
-            style: const TextStyle(color: Colors.white),
-          ),
-        ),
-        title: Text(student.name, style: const TextStyle(fontWeight: FontWeight.bold)),
-        subtitle: Text(
-          'المقرر: ${student.planAmount} ${_getPlanLabel(student.planType)} | الحفظ: ${student.totalMemorized} آية',
-        ),
-      ),
+    final planUnit = widget.planUnitOverride ?? student.planType;
+    final planAmount = widget.planAmountOverride ?? student.planAmount;
+    final courseSuffix = widget.courseTitle == null
+        ? ''
+        : ' · دورة ${widget.courseTitle}';
+    return AppFocusPanel(
+      eyebrow: 'الطالب المحدد',
+      title: student.name,
+      description:
+          'المقرر $planAmount ${_getPlanLabel(planUnit)}$courseSuffix · المحفوظ ${student.totalMemorized} آية',
+      icon: Icons.person_outline_rounded,
     );
   }
 
@@ -219,12 +397,15 @@ class _AddMemorizationScreenState extends State<AddMemorizationScreen> {
             const SizedBox(height: 12),
             InkWell(
               onTap: _selectSurah,
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(AppRadii.md),
               child: Container(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.all(AppSpacing.md),
                 decoration: BoxDecoration(
-                  border: Border.all(color: Colors.grey[300]!),
-                  borderRadius: BorderRadius.circular(8),
+                  color: Theme.of(context).colorScheme.surfaceContainerLow,
+                  border: Border.all(
+                    color: Theme.of(context).colorScheme.outlineVariant,
+                  ),
+                  borderRadius: BorderRadius.circular(AppRadii.md),
                 ),
                 child: Row(
                   children: [
@@ -244,16 +425,16 @@ class _AddMemorizationScreenState extends State<AddMemorizationScreen> {
                                 ),
                                 Text(
                                   '${_selectedSurah!['ayahs']} آية - الجزء ${_selectedSurah!['juz']}',
-                                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                                  style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant),
                                 ),
                               ],
                             )
                           : Text(
                               'اضغط لاختيار السورة',
-                              style: TextStyle(color: Colors.grey[600]),
+                              style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
                             ),
                     ),
-                    const Icon(Icons.arrow_forward_ios, size: 16),
+                    const Icon(Icons.arrow_back_ios_new_rounded, size: 15),
                   ],
                 ),
               ),
@@ -277,6 +458,7 @@ class _AddMemorizationScreenState extends State<AddMemorizationScreen> {
             setState(() {
               _fromAyah = from;
               _toAyah = to;
+              _connectedRange = null;
             });
           },
         ),
@@ -284,29 +466,76 @@ class _AddMemorizationScreenState extends State<AddMemorizationScreen> {
     );
   }
 
+  Future<void> _selectCrossSurahEnd() async {
+    final student = _selectedStudent;
+    final startSurahId = _selectedSurahId;
+    if (student == null || startSurahId == null) return;
+    final endpoint = await showQuranEndpointPicker(
+      context,
+      initialSurahId: startSurahId,
+      initialAyah: _toAyah,
+      title: 'نهاية الحفظ',
+    );
+    if (endpoint == null || !mounted) return;
+    final range = QuranCrossSurahRangeService.between(
+      surahs: _quran.surahs,
+      startSurahId: startSurahId,
+      startAyah: _fromAyah,
+      endSurahId: endpoint.surahId,
+      endAyah: endpoint.ayah,
+      ascendingSurahs: student.memorizationDirection != 'desc',
+    );
+    if (range == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('نهاية النطاق يجب أن تأتي بعد البداية في اتجاه حفظ الطالب'),
+        ),
+      );
+      return;
+    }
+    setState(() {
+      _connectedRange = range;
+      _toAyah = range.segments.first.toAyah;
+    });
+  }
+
   Widget _buildEstimatedLines() {
     final lines = _estimatedLines;
-    final pages = lines / 15.0;
+    final range = _effectiveRange;
+    final pages = range?.ayahs.map((ayah) => ayah.page).toSet().length ?? 0;
+    final semantic = context.semanticColors;
     return Card(
-      color: Colors.blue.withOpacity(0.1),
+      color: semantic.infoContainer,
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Row(
           children: [
-            const Icon(Icons.straighten, color: Colors.blue),
+            Icon(Icons.straighten, color: semantic.info),
             const SizedBox(width: 12),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'التقدير',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-                Text(
-                  '$_ayahCount آية ≈ ${lines.toStringAsFixed(1)} سطر (${pages.toStringAsFixed(1)} صفحة)',
-                  style: TextStyle(color: Colors.grey[700]),
-                ),
-              ],
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'التقدير',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  Text(
+                    '$_ayahCount آية ≈ ${lines.toStringAsFixed(1)} سطر ($pages صفحة)',
+                    style: TextStyle(color: Theme.of(context).colorScheme.onSurface),
+                  ),
+                  if (range != null && range.segments.length > 1) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      _rangeLabel(range),
+                      style: TextStyle(
+                        color: semantic.info,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
             ),
           ],
         ),
@@ -357,12 +586,15 @@ class _AddMemorizationScreenState extends State<AddMemorizationScreen> {
   Widget _buildSaveButton() {
     return SizedBox(
       width: double.infinity,
-      height: 50,
-      child: ElevatedButton(
+      child: FilledButton.icon(
         onPressed: _isSaving ? null : _saveMemorization,
-        child: _isSaving
-            ? const CircularProgressIndicator(color: Colors.white)
-            : const Text('حفظ التسجيل'),
+        icon: _isSaving
+            ? const SizedBox.square(
+                dimension: 20,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : const Icon(Icons.check_rounded),
+        label: Text(_isSaving ? 'جارٍ الحفظ...' : 'اعتماد وحفظ التسجيل'),
       ),
     );
   }
@@ -378,6 +610,7 @@ class _AddMemorizationScreenState extends State<AddMemorizationScreen> {
         _fromAyah = 1;
         final surah = QuranData.surahs.firstWhere((s) => s['id'] == surahId);
         _toAyah = surah['ayahs'];
+        _connectedRange = null;
       });
     }
   }
@@ -397,7 +630,7 @@ class _AddMemorizationScreenState extends State<AddMemorizationScreen> {
       return;
     }
 
-    if (_selectedStudent!.totalMemorized >= QuranData.totalAyahs) {
+    if (StudentLearningPolicy.hasCompletedQuran(_selectedStudent!)) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('هذا الطالب أتم حفظ القرآن؛ المتاح له هو المراجعة'),
@@ -406,104 +639,136 @@ class _AddMemorizationScreenState extends State<AddMemorizationScreen> {
       return;
     }
 
+    final canRecord = await RecitationAttendanceGuard.confirmPresentIfAbsent(
+      context,
+      database: _db,
+      student: _selectedStudent!,
+      date: _recordDate,
+    );
+    if (!canRecord || !mounted) return;
+
     setState(() => _isSaving = true);
 
     try {
       final currentStudent =
           await _db.getStudent(_selectedStudent!.id) ?? _selectedStudent!;
-      final newlyMemorizedAyahs = await _db.countNewMemorizedAyahs(
-        student: currentStudent,
-        surahId: _selectedSurahId!,
-        fromAyah: _fromAyah,
-        toAyah: _toAyah,
-      );
-      final progress = MemorizationProgress(
-        studentId: _selectedStudent!.id,
-        surahId: _selectedSurahId!,
-        fromAyah: _fromAyah,
-        toAyah: _toAyah,
-        date: DateTime.now(),
-        qualityRating: _qualityRating,
-        isRevision: false,
-        notes: _notes.isEmpty ? null : _notes,
-      );
+      final range = _effectiveRange;
+      if (range == null || range.ayahs.isEmpty) {
+        throw StateError('نطاق الحفظ غير صالح');
+      }
+      var newlyMemorizedAyahs = 0;
+      for (final segment in range.segments) {
+        newlyMemorizedAyahs += await _db.countNewMemorizedAyahs(
+          student: currentStudent,
+          surahId: segment.surahId,
+          fromAyah: segment.fromAyah,
+          toAyah: segment.toAyah,
+        );
+      }
 
-      await _db.insertMemorization(progress);
+      final actualNow = DateTime.now();
+      final recordDate = _recordDate;
+      final isToday = BackdatedEntryPolicy.daysAgo(recordDate, now: actualNow) == 0;
+      final note = _notes.trim();
+      final progressRows = <MemorizationProgress>[];
+      final grades = <HomeworkGrade>[];
+      for (var index = 0; index < range.segments.length; index++) {
+        final segment = range.segments[index];
+        progressRows.add(
+          MemorizationProgress(
+            studentId: _selectedStudent!.id,
+            surahId: segment.surahId,
+            fromAyah: segment.fromAyah,
+            toAyah: segment.toAyah,
+            date: recordDate,
+            qualityRating: _qualityRating,
+            isRevision: false,
+            notes: index == 0 && note.isNotEmpty ? note : null,
+            createdAt: actualNow,
+          ),
+        );
+        grades.add(
+          HomeworkGrade(
+            studentId: _selectedStudent!.id,
+            surahId: segment.surahId,
+            fromAyah: segment.fromAyah,
+            toAyah: segment.toAyah,
+            date: recordDate,
+            gradeMark: _qualityToGrade(_qualityRating),
+            isRevision: false,
+            remark: index == 0 && note.isNotEmpty ? note : null,
+            createdAt: actualNow,
+          ),
+        );
+      }
 
       final existingRecord = await _db.getDailyRecord(
         _selectedStudent!.id,
-        DateTime.now(),
+        recordDate,
       );
 
       final record = (existingRecord ?? DailyRecord(
         studentId: _selectedStudent!.id,
-        date: DateTime.now(),
+        date: recordDate,
       )).copyWith(
         attendance: 'present',
-        arrivalTime: existingRecord?.arrivalTime ?? DateTime.now(),
+        arrivalTime: existingRecord?.arrivalTime ?? (isToday ? actualNow : null),
         memorizationDone: true,
         memorizationAmount:
             (existingRecord?.memorizationAmount ?? 0) + newlyMemorizedAyahs,
-        memorizationNote: _notes.isEmpty ? null : _notes,
+        memorizationNote: note.isEmpty ? existingRecord?.memorizationNote : note,
       );
 
-      await _db.saveDailyRecord(record);
-
-      final updatedStudent = currentStudent.copyWith(
-        totalMemorized:
-            currentStudent.totalMemorized + newlyMemorizedAyahs,
+      final updatedTotal = (currentStudent.totalMemorized + newlyMemorizedAyahs)
+          .clamp(0, QuranData.totalAyahs)
+          .toInt();
+      await _db.saveRecitationSession(
+        progress: progressRows,
+        grades: grades,
+        dailyRecord: record,
+        updatedTotalMemorized: updatedTotal,
       );
-      await _db.updateStudent(updatedStudent);
-
-      bool addedExtraPoints = false;
-      int extraPoints = 0;
-      const bonusReason = 'زيادة عن المقرر اليومي';
-      final selectedSurah = _quran.getSurah(_selectedSurahId!);
-      final exceedsPlan = selectedSurah != null &&
-          MemorizationMeasureService.exceedsPlan(
-            surah: selectedSurah,
-            fromAyah: _fromAyah,
-            toAyah: _toAyah,
-            planType: _selectedStudent!.planType,
-            planAmount: _selectedStudent!.planAmount,
-          );
-      final bonusAlreadyAdded = exceedsPlan &&
-          await _db.hasBehaviorPointForDate(
-            _selectedStudent!.id,
-            bonusReason,
-            DateTime.now(),
-          );
-      if (exceedsPlan && !bonusAlreadyAdded) {
-        extraPoints = _settings.pointsConfig['extra_memorization'] ?? 2;
-        if (extraPoints > 0) {
-          final point = BehaviorPoint(
-            studentId: _selectedStudent!.id,
-            type: 'positive',
-            reason: bonusReason,
-            points: extraPoints,
-            date: DateTime.now(),
-          );
-          await _db.insertBehaviorPoint(point);
-          addedExtraPoints = true;
+      for (final grade in grades) {
+        try {
+          await MushafService().updateProgressAfterGrading(grade);
+        } catch (_) {
+          // The connected memorization record remains valid if map refresh fails.
         }
       }
 
-      final requiresSurahRevision = newlyMemorizedAyahs > 0 &&
-          selectedSurah != null &&
-          await _db.isSurahFullyMemorized(
-            student: updatedStudent,
-            surahId: _selectedSurahId!,
-            totalAyahs: selectedSurah.totalAyahs,
+      final pointsResult = await _db.recalculateDailyRecitationPoints(
+        studentId: _selectedStudent!.id,
+        date: recordDate,
+      );
+
+      final completedSurahNames = <String>[];
+      if (newlyMemorizedAyahs > 0) {
+        for (final segment in range.segments) {
+          final surah = _quran.getSurah(segment.surahId);
+          if (surah == null || segment.toAyah != surah.totalAyahs) continue;
+          final completed = await _db.isSurahFullyMemorized(
+            student: currentStudent,
+            surahId: segment.surahId,
+            totalAyahs: surah.totalAyahs,
           );
+          if (completed) {
+            completedSurahNames.add(surah.name);
+            await _db.ensureSurahCompletionNotification(
+              student: currentStudent,
+              surahName: surah.name,
+            );
+          }
+        }
+      }
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              requiresSurahRevision
-                  ? 'تم إتمام السورة، وأضيفت تلقائيًا إلى المراجعة الإلزامية'
-                  : addedExtraPoints
-                      ? 'تم حفظ التسجيل بنجاح، وإضافة $extraPoints نقاط مكافأة للزيادة 🎉'
+              completedSurahNames.isNotEmpty
+                  ? 'تم إتمام ${completedSurahNames.map((name) => 'سورة $name').join('، ')}، وأضيفت للمراجعة الإلزامية'
+                  : pointsResult.totalPoints > 0
+                      ? 'تم حفظ التسجيل، ورصيد إنجاز اليوم ${pointsResult.totalPoints} نقاط 🎉'
                       : 'تم حفظ التسجيل بنجاح',
             ),
             backgroundColor: Colors.green,
@@ -541,6 +806,8 @@ class _AddMemorizationScreenState extends State<AddMemorizationScreen> {
         return 'سطر';
       case 'pages':
         return 'صفحة';
+      case 'hizbs':
+        return 'حزب';
       default:
         return planType;
     }

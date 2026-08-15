@@ -17,10 +17,10 @@ class _AddPointScreenState extends State<AddPointScreen> {
   final DatabaseService _db = DatabaseService();
   final _formKey = GlobalKey<FormState>();
 
-  Student? _selectedStudent;
+  final Set<String> _selectedStudentIds = <String>{};
   List<Student> _students = [];
   bool _isPositive = true;
-  String? _selectedReason;
+  final Set<String> _selectedReasonIds = <String>{};
   int _customPoints = 0;
   String _notes = '';
   bool _isLoading = true;
@@ -72,7 +72,9 @@ class _AddPointScreenState extends State<AddPointScreen> {
   @override
   void initState() {
     super.initState();
-    _selectedStudent = widget.student;
+    if (widget.student != null) {
+      _selectedStudentIds.add(widget.student!.id);
+    }
     _loadStudents();
   }
 
@@ -94,17 +96,24 @@ class _AddPointScreenState extends State<AddPointScreen> {
   List<PointReason> get _currentReasons =>
       _isPositive ? positiveReasons : negativeReasons;
 
-  int get _selectedPoints {
-    if (_selectedReason == null) return 0;
-    final reason = _currentReasons.firstWhere(
-      (r) => r.id == _selectedReason,
-      orElse: () => const PointReason('', '', 0),
-    );
+  List<PointReason> get _selectedReasons => _currentReasons
+      .where((reason) => _selectedReasonIds.contains(reason.id))
+      .toList();
+
+  bool get _hasCustomReason =>
+      _selectedReasonIds.any((id) => id.startsWith('custom'));
+
+  int _pointsForReason(PointReason reason) {
     if (reason.id.startsWith('custom')) {
-      return _isPositive ? _customPoints : -_customPoints.abs();
+      return _isPositive ? _customPoints.abs() : -_customPoints.abs();
     }
     return reason.points;
   }
+
+  int get _pointsPerStudent => _selectedReasons.fold<int>(
+        0,
+        (sum, reason) => sum + _pointsForReason(reason),
+      );
 
   @override
   Widget build(BuildContext context) {
@@ -120,14 +129,14 @@ class _AddPointScreenState extends State<AddPointScreen> {
                 padding: const EdgeInsets.all(16),
                 children: [
                   if (widget.student == null) _buildStudentSelector(),
-                  if (_selectedStudent != null) ...[
+                  if (_selectedStudentIds.isNotEmpty) ...[
                     _buildStudentInfo(),
                     const SizedBox(height: 16),
                   ],
                   _buildTypeSelector(),
                   const SizedBox(height: 16),
                   _buildReasonSelector(),
-                  if (_selectedReason?.startsWith('custom') == true) ...[
+                  if (_hasCustomReason) ...[
                     const SizedBox(height: 16),
                     _buildCustomPointsInput(),
                   ],
@@ -143,6 +152,13 @@ class _AddPointScreenState extends State<AddPointScreen> {
     );
   }
 
+  List<Student> get _selectedStudents {
+    if (widget.student != null) return [widget.student!];
+    return _students
+        .where((student) => _selectedStudentIds.contains(student.id))
+        .toList();
+  }
+
   Widget _buildStudentSelector() {
     return Card(
       child: Padding(
@@ -150,28 +166,61 @@ class _AddPointScreenState extends State<AddPointScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('اختر الطالب', style: TextStyle(fontWeight: FontWeight.bold)),
-            const SizedBox(height: 12),
-            DropdownButtonFormField<Student>(
-              value: _selectedStudent,
-              decoration: const InputDecoration(
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.person),
-              ),
-              hint: const Text('اختر طالباً'),
-              items: _students.map((student) {
-                final guardian = student.guardianPhone.trim();
-                final identity = guardian.isEmpty
-                    ? student.name
-                    : '${student.name} — ولي الأمر ${_maskedPhone(guardian)}';
-                return DropdownMenuItem(
-                  value: student,
-                  child: Text(identity, overflow: TextOverflow.ellipsis),
+            Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'اختر طالبًا أو أكثر',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
+                TextButton(
+                  onPressed: () => setState(() {
+                    if (_selectedStudentIds.length == _students.length) {
+                      _selectedStudentIds.clear();
+                    } else {
+                      _selectedStudentIds
+                        ..clear()
+                        ..addAll(_students.map((student) => student.id));
+                    }
+                  }),
+                  child: Text(
+                    _selectedStudentIds.length == _students.length
+                        ? 'إلغاء الكل'
+                        : 'تحديد الكل',
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: _students.map((student) {
+                final selected = _selectedStudentIds.contains(student.id);
+                return FilterChip(
+                  label: Text(_studentIdentity(student)),
+                  selected: selected,
+                  avatar: CircleAvatar(
+                    child: Text(student.name.isEmpty ? '؟' : student.name[0]),
+                  ),
+                  onSelected: (value) => setState(() {
+                    if (value) {
+                      _selectedStudentIds.add(student.id);
+                    } else {
+                      _selectedStudentIds.remove(student.id);
+                    }
+                  }),
                 );
               }).toList(),
-              onChanged: (student) => setState(() => _selectedStudent = student),
-              validator: (value) => value == null ? 'يرجى اختيار طالب' : null,
             ),
+            if (_selectedStudentIds.isEmpty) ...[
+              const SizedBox(height: 8),
+              Text(
+                'اختر طالبًا واحدًا على الأقل',
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+            ],
           ],
         ),
       ),
@@ -179,33 +228,41 @@ class _AddPointScreenState extends State<AddPointScreen> {
   }
 
   Widget _buildStudentInfo() {
-    final student = _selectedStudent!;
+    final selected = _selectedStudents;
     return Card(
-      color: Theme.of(context).primaryColor.withOpacity(0.1),
+      color: Theme.of(context).primaryColor.withValues(alpha: 0.1),
       child: ListTile(
         leading: CircleAvatar(
           backgroundColor: Theme.of(context).primaryColor,
           child: Text(
-            student.name.isNotEmpty ? student.name[0] : '؟',
+            selected.length == 1
+                ? (selected.first.name.isNotEmpty ? selected.first.name[0] : '؟')
+                : '${selected.length}',
             style: const TextStyle(color: Colors.white),
           ),
         ),
-        title: Text(student.name, style: const TextStyle(fontWeight: FontWeight.bold)),
+        title: Text(
+          selected.length == 1
+              ? selected.first.name
+              : '${selected.length} طلاب محددين',
+          style: const TextStyle(fontWeight: FontWeight.bold),
+        ),
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              student.guardianPhone.trim().isEmpty
-                  ? 'رقم ولي الأمر غير مسجل'
-                  : 'ولي الأمر: ${_maskedPhone(student.guardianPhone)}',
+              selected.length == 1
+                  ? _guardianIdentity(selected.first)
+                  : selected.map(_studentIdentity).join('، '),
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
             ),
-            FutureBuilder<int>(
-              future: _db.getStudentTotalPoints(student.id),
-              builder: (context, snapshot) {
-                final points = snapshot.data ?? 0;
-                return Text('الرصيد الحالي: $points نقطة');
-              },
-            ),
+            if (selected.length == 1)
+              FutureBuilder<int>(
+                future: _db.getStudentTotalPoints(selected.first.id),
+                builder: (context, snapshot) =>
+                    Text('الرصيد الحالي: ${snapshot.data ?? 0} نقطة'),
+              ),
           ],
         ),
       ),
@@ -227,7 +284,7 @@ class _AddPointScreenState extends State<AddPointScreen> {
                   child: InkWell(
                     onTap: () => setState(() {
                       _isPositive = true;
-                      _selectedReason = null;
+                      _selectedReasonIds.clear();
                     }),
                     borderRadius: BorderRadius.circular(12),
                     child: Container(
@@ -235,7 +292,7 @@ class _AddPointScreenState extends State<AddPointScreen> {
                       decoration: BoxDecoration(
                         color: _isPositive
                             ? Colors.green
-                            : Colors.green.withOpacity(0.1),
+                            : Colors.green.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(
                           color: Colors.green,
@@ -267,7 +324,7 @@ class _AddPointScreenState extends State<AddPointScreen> {
                   child: InkWell(
                     onTap: () => setState(() {
                       _isPositive = false;
-                      _selectedReason = null;
+                      _selectedReasonIds.clear();
                     }),
                     borderRadius: BorderRadius.circular(12),
                     child: Container(
@@ -275,7 +332,7 @@ class _AddPointScreenState extends State<AddPointScreen> {
                       decoration: BoxDecoration(
                         color: !_isPositive
                             ? Colors.red
-                            : Colors.red.withOpacity(0.1),
+                            : Colors.red.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(
                           color: Colors.red,
@@ -311,28 +368,56 @@ class _AddPointScreenState extends State<AddPointScreen> {
   }
 
   Widget _buildReasonSelector() {
+    final semantic = Theme.of(context).colorScheme;
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('السبب', style: TextStyle(fontWeight: FontWeight.bold)),
-            const SizedBox(height: 12),
-            ..._currentReasons.map((reason) => RadioListTile<String>(
-                  value: reason.id,
-                  groupValue: _selectedReason,
-                  title: Text(reason.label),
-                  subtitle: reason.points != 0
-                      ? Text(
-                          '${reason.points > 0 ? '+' : ''}${reason.points} نقطة',
-                          style: TextStyle(
-                            color: reason.points > 0 ? Colors.green : Colors.red,
-                          ),
-                        )
-                      : null,
-                  onChanged: (value) => setState(() => _selectedReason = value),
-                )),
+            Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'الأسباب',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
+                Text(
+                  _selectedReasonIds.isEmpty
+                      ? 'اختر واحدًا أو أكثر'
+                      : '${_selectedReasonIds.length} محدد',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: semantic.onSurfaceVariant,
+                      ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: _currentReasons.map((reason) {
+                final selected = _selectedReasonIds.contains(reason.id);
+                final points = _pointsForReason(reason);
+                return FilterChip(
+                  selected: selected,
+                  showCheckmark: true,
+                  label: Text(
+                    reason.id.startsWith('custom')
+                        ? reason.label
+                        : '${reason.label}  ${points > 0 ? '+' : ''}$points',
+                  ),
+                  onSelected: (value) => setState(() {
+                    if (value) {
+                      _selectedReasonIds.add(reason.id);
+                    } else {
+                      _selectedReasonIds.remove(reason.id);
+                    }
+                  }),
+                );
+              }).toList(),
+            ),
           ],
         ),
       ),
@@ -362,7 +447,7 @@ class _AddPointScreenState extends State<AddPointScreen> {
                 });
               },
               validator: (value) {
-                if (_selectedReason?.startsWith('custom') == true) {
+                if (_hasCustomReason) {
                   final points = int.tryParse(value ?? '') ?? 0;
                   if (points <= 0) return 'يرجى إدخال عدد صحيح موجب';
                 }
@@ -376,37 +461,39 @@ class _AddPointScreenState extends State<AddPointScreen> {
   }
 
   Widget _buildPointsPreview() {
-    if (_selectedReason == null) return const SizedBox.shrink();
+    if (_selectedReasonIds.isEmpty) return const SizedBox.shrink();
 
-    final points = _selectedPoints;
-    final isPositive = points >= 0;
+    final points = _pointsPerStudent;
+    final accent = _isPositive ? Colors.green : Colors.red;
+    final recordsCount = _selectedStudents.length * _selectedReasons.length;
 
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
-        color: (isPositive ? Colors.green : Colors.red).withOpacity(0.1),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: (isPositive ? Colors.green : Colors.red).withOpacity(0.3),
-        ),
+        color: accent.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: accent.withValues(alpha: 0.22)),
       ),
-      child: Column(
+      child: Row(
         children: [
-          Icon(
-            isPositive ? Icons.add_circle : Icons.remove_circle,
-            color: isPositive ? Colors.green : Colors.red,
-            size: 40,
-          ),
-          const SizedBox(height: 8),
-          Text(
-            '${isPositive ? '+' : ''}$points',
-            style: TextStyle(
-              fontSize: 32,
-              fontWeight: FontWeight.bold,
-              color: isPositive ? Colors.green : Colors.red,
+          Icon(_isPositive ? Icons.add_circle_outline : Icons.remove_circle_outline,
+              color: accent),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${points > 0 ? '+' : ''}$points نقطة لكل طالب',
+                  style: TextStyle(fontWeight: FontWeight.bold, color: accent),
+                ),
+                Text(
+                  '${_selectedReasons.length} أسباب × ${_selectedStudents.length} طلاب = $recordsCount سجلات مستقلة',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
             ),
           ),
-          const Text('نقطة'),
         ],
       ),
     );
@@ -453,30 +540,26 @@ class _AddPointScreenState extends State<AddPointScreen> {
 
   Future<void> _savePoint() async {
     if (!_formKey.currentState!.validate()) return;
-    if (_selectedStudent == null) {
+    if (_selectedStudentIds.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('يرجى اختيار طالب')),
+        const SnackBar(content: Text('يرجى اختيار طالب واحد على الأقل')),
+      );
+      return;
+    }
+    if (_selectedReasonIds.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('اختر سببًا واحدًا على الأقل')),
+      );
+      return;
+    }
+    if (_hasCustomReason && _customPoints <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('يرجى إدخال عدد النقاط المخصصة')),
       );
       return;
     }
 
-    if (_selectedReason == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('يرجى اختيار السبب')),
-      );
-      return;
-    }
-
-    if (_selectedReason!.startsWith('custom') && _customPoints <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('يرجى إدخال عدد النقاط')),
-      );
-      return;
-    }
-
-    final selectedReason = _currentReasons.firstWhere(
-      (reason) => reason.id == _selectedReason,
-    );
+    final reasons = _selectedReasons;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -485,20 +568,16 @@ class _AddPointScreenState extends State<AddPointScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('الطالب: ${_selectedStudent!.name}'),
-            Text(
-              _selectedStudent!.guardianPhone.trim().isEmpty
-                  ? 'ولي الأمر: غير مسجل'
-                  : 'ولي الأمر: ${_maskedPhone(_selectedStudent!.guardianPhone)}',
-            ),
+            Text('الطلاب: ${_selectedStudents.map(_studentIdentity).join('، ')}'),
+            Text('عدد الطلاب: ${_selectedStudents.length}'),
             const SizedBox(height: 8),
-            Text('السبب: ${selectedReason.label}'),
+            Text('الأسباب: ${reasons.map((reason) => reason.label).join('، ')}'),
             const SizedBox(height: 8),
             Text(
-              'القيمة: ${_selectedPoints > 0 ? '+' : ''}$_selectedPoints نقطة',
+              'الإجمالي لكل طالب: ${_pointsPerStudent > 0 ? '+' : ''}$_pointsPerStudent نقطة',
               style: TextStyle(
                 fontWeight: FontWeight.bold,
-                color: _selectedPoints >= 0 ? Colors.green : Colors.red,
+                color: _isPositive ? Colors.green : Colors.red,
               ),
             ),
           ],
@@ -518,36 +597,44 @@ class _AddPointScreenState extends State<AddPointScreen> {
     if (confirmed != true || !mounted) return;
 
     setState(() => _isSaving = true);
-
     try {
-      // المخالفات المستمرة (تبقى قائمة حتى يُعدّلها الطالب): المظهر/الحلاقة وعدم لبس الثوب
-      final isAppearanceViolation =
-          _selectedReason == 'appearance_violation' || _selectedReason == 'no_thobe';
+      final now = DateTime.now();
+      final points = <BehaviorPoint>[];
+      for (final student in _selectedStudents) {
+        for (final reason in reasons) {
+          final isPersistentAppearance = reason.id == 'appearance_violation' ||
+              reason.id == 'no_thobe';
+          points.add(
+            BehaviorPoint(
+              studentId: student.id,
+              type: _isPositive ? 'positive' : 'negative',
+              reason: reason.label,
+              points: _pointsForReason(reason),
+              date: now,
+              resolved: !isPersistentAppearance,
+              notes: _notes.isEmpty ? null : _notes,
+            ),
+          );
+        }
+      }
 
-      final point = BehaviorPoint(
-        studentId: _selectedStudent!.id,
-        type: _isPositive ? 'positive' : 'negative',
-        reason: selectedReason.label,
-        points: _selectedPoints,
-        date: DateTime.now(),
-        resolved: !isAppearanceViolation,
-        notes: _notes.isEmpty ? null : _notes,
-      );
-
-      await _db.insertBehaviorPoint(point);
+      // عملية واحدة ذرية: إذا تعذر سجل واحد لا يُحفظ شيء لبقية الطلاب.
+      await _db.insertBehaviorPoints(points);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('تم إضافة ${_selectedPoints} نقطة'),
+            content: Text(
+              'تم إسناد ${reasons.length} أسباب إلى ${_selectedStudents.length} طالب',
+            ),
             backgroundColor: _isPositive ? Colors.green : Colors.red,
           ),
         );
         Navigator.pop(context, true);
       }
     } catch (e) {
-      setState(() => _isSaving = false);
       if (mounted) {
+        setState(() => _isSaving = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('حدث خطأ: $e'), backgroundColor: Colors.red),
         );
@@ -555,11 +642,26 @@ class _AddPointScreenState extends State<AddPointScreen> {
     }
   }
 
+  String _studentIdentity(Student student) {
+    final guardian = student.guardianPhone.trim();
+    return guardian.isEmpty
+        ? student.name
+        : '${student.name} — ولي الأمر ${_maskedPhone(guardian)}';
+  }
+
+  String _guardianIdentity(Student student) {
+    final guardian = student.guardianPhone.trim();
+    return guardian.isEmpty
+        ? 'رقم ولي الأمر غير مسجل'
+        : 'ولي الأمر: ${_maskedPhone(guardian)}';
+  }
+
   String _maskedPhone(String value) {
     final normalized = value.replaceAll(RegExp(r'\s+'), '');
     if (normalized.length <= 4) return normalized;
     return '••••${normalized.substring(normalized.length - 4)}';
   }
+
 }
 
 class PointReason {

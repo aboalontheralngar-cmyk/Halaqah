@@ -71,6 +71,16 @@ class Helpers {
     return days[date.weekday - 1];
   }
 
+  /// A single canonical label for schedules and generated plans.
+  /// Example: "الأحد • 12 صفر 1448هـ • 2026/08/18".
+  static String formatPlanDate(DateTime date, {String separator = ' • '}) {
+    return [
+      getDayName(date),
+      getFullHijriDate(date),
+      formatGregorianDate(date),
+    ].join(separator);
+  }
+
   static int calculateLines(int ayahCount) {
     return (ayahCount / 2.5).ceil();
   }
@@ -135,6 +145,63 @@ class Helpers {
     final hijri = HijriCalendar.fromDate(date);
     return '${getHijriMonthName(hijri.hMonth)} ${hijri.hYear}هـ';
   }
+
+  /// آخر الأشهر الهجرية مع حدودها الميلادية الفعلية لاستخدامها في التقارير.
+  static List<HijriMonthRange> recentHijriMonths({
+    DateTime? anchor,
+    int count = 18,
+  }) {
+    final today = startOfDay(anchor ?? DateTime.now());
+    // Some Hijri calendar implementations may map two adjacent Gregorian
+    // cursors to the same Hijri month around a month boundary. A dropdown must
+    // never receive duplicate values, so the public result is keyed and
+    // de-duplicated here instead of asking every screen to defend itself.
+    final rangesByKey = <String, HijriMonthRange>{};
+    var cursor = today;
+    DateTime? followingMonthStart;
+    var attempts = 0;
+    while (rangesByKey.length < count && attempts < count * 3) {
+      attempts++;
+      final hijri = HijriCalendar.fromDate(cursor);
+      final start = cursor.subtract(Duration(days: hijri.hDay - 1));
+      final end = followingMonthStart == null
+          ? today
+          : followingMonthStart.subtract(const Duration(days: 1));
+      final startHijri = HijriCalendar.fromDate(start);
+      final range = HijriMonthRange(
+        hijriYear: startHijri.hYear,
+        hijriMonth: startHijri.hMonth,
+        startDate: start,
+        endDate: end,
+      );
+      rangesByKey.putIfAbsent(range.key, () => range);
+      followingMonthStart = start;
+      cursor = start.subtract(const Duration(days: 1));
+    }
+    return rangesByKey.values.toList(growable: false);
+  }
+}
+
+class HijriMonthRange {
+  final int hijriYear;
+  final int hijriMonth;
+  final DateTime startDate;
+  final DateTime endDate;
+
+  const HijriMonthRange({
+    required this.hijriYear,
+    required this.hijriMonth,
+    required this.startDate,
+    required this.endDate,
+  });
+
+  /// Stable dropdown value; unlike object identity it survives widget rebuilds.
+  String get key => '$hijriYear-${hijriMonth.toString().padLeft(2, '0')}';
+
+  String get label =>
+      '${Helpers.getHijriMonthName(hijriMonth)} $hijriYearهـ — '
+      '${Helpers.formatGregorianDate(startDate)} إلى '
+      '${Helpers.formatGregorianDate(endDate)}';
 }
 
 class GenderHelper {

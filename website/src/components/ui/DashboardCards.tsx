@@ -18,7 +18,7 @@ export function StatCard({ label, value, icon: Icon, trend, color }: StatCardPro
   };
 
   return (
-    <div className="bg-white dark:bg-gray-900 p-8 rounded-3xl border border-gray-100 dark:border-gray-800 shadow-xl shadow-gray-200/20 dark:shadow-none group hover:-translate-y-1 transition-all duration-500">
+    <div className="bg-[var(--surface)] p-8 rounded-3xl border border-[var(--border)] shadow-xl shadow-gray-200/20 dark:shadow-none group hover:-translate-y-1 transition-all duration-500">
       <div className="flex items-start justify-between mb-6">
         <div className={`p-4 rounded-2xl ${colorClasses[color]} transition-colors`}>
           <Icon className="w-7 h-7" />
@@ -30,7 +30,7 @@ export function StatCard({ label, value, icon: Icon, trend, color }: StatCardPro
         )}
       </div>
       <p className="text-[11px] font-black text-gray-400 dark:text-gray-500 uppercase tracking-[0.2em] mb-1">{label}</p>
-      <h3 className="text-4xl font-black text-gray-900 dark:text-white tracking-tight">{value}</h3>
+      <h3 className="text-4xl font-black text-[var(--foreground)] tracking-tight">{value}</h3>
     </div>
   );
 }
@@ -46,7 +46,7 @@ export function ActionButton({ label, icon: Icon, color, onClick }: ActionButton
   return (
     <button 
       onClick={onClick}
-      className="group flex flex-col items-center justify-center p-8 bg-white dark:bg-gray-900 rounded-3xl border border-gray-100 dark:border-gray-800 shadow-lg shadow-gray-200/20 dark:shadow-none hover:shadow-2xl hover:shadow-teal-100 dark:hover:shadow-none transition-all duration-500 active:scale-95"
+      className="group flex flex-col items-center justify-center p-8 bg-[var(--surface)] rounded-3xl border border-[var(--border)] shadow-lg shadow-gray-200/20 dark:shadow-none hover:shadow-2xl hover:shadow-teal-100 dark:hover:shadow-none transition-all duration-500 active:scale-95"
     >
       <div className={`w-16 h-16 bg-gradient-to-br ${color} rounded-2xl flex items-center justify-center text-white mb-4 shadow-lg transition-transform group-hover:scale-110 group-hover:rotate-3`}>
         <Icon className="w-8 h-8" />

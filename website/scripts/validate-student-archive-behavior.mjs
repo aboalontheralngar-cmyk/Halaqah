@@ -7,7 +7,7 @@ const requireText = (source, text, label) => {
   if (!source.includes(text)) throw new Error(`Missing ${label}: ${text}`);
 };
 
-const database = read("lib/services/database_service.dart");
+const database = read("lib/services/database_service.dart") + read("lib/services/local_database_schema.dart");
 const archive = read("lib/screens/students/student_archive_screen.dart");
 const students = read("lib/screens/students/students_screen.dart");
 const details = read("lib/screens/students/student_detail_screen.dart");
@@ -23,7 +23,7 @@ const behaviorTest = read("test/behavior_point_policy_test.dart");
 const statusTest = read("test/student_status_policy_test.dart");
 
 for (const contract of [
-  "version: 18",
+  "version: 24",
   "CREATE TABLE IF NOT EXISTS student_status_history",
   "CREATE TABLE IF NOT EXISTS behavior_point_corrections",
   "getOperationalStudents",

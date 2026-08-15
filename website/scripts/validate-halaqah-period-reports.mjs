@@ -38,7 +38,8 @@ for (const contract of [
   'التقرير التجميعي للحلقة',
   'يحتاج متابعة',
 ]) requireText(screen, contract, `Android visual report ${contract}`);
-requireText(reportsScreen, 'const HalaqahPeriodReportScreen()', 'reports navigation');
+requireText(reportsScreen, 'HalaqahPeriodReportScreen(', 'reports navigation');
+requireText(reportsScreen, 'initialPeriod:', 'period-aware report navigation');
 requireText(pdf, 'generateHalaqahPeriodReport', 'aggregate PDF');
 requireText(test, 'aggregates real student-period reports', 'aggregate regression test');
 

@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Halaqah Teacher</string>
+	<string>حلقتي</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -15,7 +15,7 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>halaqah_teacher</string>
+	<string>حلقتي</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -66,6 +66,21 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>halaqah</string>
+			</array>
+		</dict>
+	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>نحتاج لاستخدام الكاميرا لقراءة رموز QR داخل الحلقة.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>نحتاج للوصول للصور عند اختيار أو مشاركة ملفات وصور مرتبطة ببيانات الحلقة.</string>
 	<key>NSContactsUsageDescription</key>
 	<string>نحتاج للوصول لجهات الاتصال لتسهيل استيراد وتعبئة أرقام هواتف الطلاب وأولياء أمورهم.</string>
 </dict>

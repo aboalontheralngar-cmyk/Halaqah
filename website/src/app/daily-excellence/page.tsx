@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import {
   Sparkles,
   CalendarDays,
@@ -19,6 +20,7 @@ import {
   useStore,
 } from "@/store/useStore";
 import { quranService } from "@/services/quranService";
+import { localDateKey } from "@/utils/dateUtils";
 
 type Entry = {
   student: Student;
@@ -26,13 +28,13 @@ type Entry = {
   stored?: DailyAchievement;
 };
 
-const dateKey = (date: Date) => date.toISOString().split("T")[0];
+const dateKey = (date: Date) => localDateKey(date);
 
 function calculateActual(
   student: Student,
   records: MemorizationRecord[]
 ): number {
-  const unique = new Map<string, { page: number; lines: number }>();
+  const unique = new Map<string, { page: number; hizb: number; lines: number }>();
   for (const record of records) {
     const surah = quranService.getSurahs().find(item => item.name === record.surah);
     if (!surah) continue;
@@ -43,6 +45,7 @@ function calculateActual(
     )) {
       unique.set(`${surah.number}:${ayah.number}`, {
         page: ayah.page,
+        hizb: ayah.hizb ?? 0,
         lines: ayah.lines || 0,
       });
     }
@@ -53,11 +56,14 @@ function calculateActual(
   if (student.planType === "lines") {
     return [...unique.values()].reduce((sum, item) => sum + item.lines, 0);
   }
+  if (student.planType === "hizbs") {
+    return new Set([...unique.values()].map(item => item.hizb)).size;
+  }
   return unique.size;
 }
 
 const unitLabel = (unit: Student["planType"]) =>
-  unit === "pages" ? "صفحة" : unit === "lines" ? "سطرًا" : "آية";
+  unit === "pages" ? "صفحة" : unit === "lines" ? "سطرًا" : unit === "hizbs" ? "حزبًا" : "آية";
 
 const rewardLabel = (type?: DailyAchievement["rewardType"]) => {
   if (type === "points") return "نقاط مكافأة";
@@ -73,8 +79,16 @@ export default function DailyExcellencePage() {
     memorization,
     dailyAchievements,
     saveDailyAchievement,
-    awardDailyAchievement,
-  } = useStore();
+    awardDailyAchievement
+  } = useStore(
+    useShallow((state) => ({
+      students: state.students,
+      memorization: state.memorization,
+      dailyAchievements: state.dailyAchievements,
+      saveDailyAchievement: state.saveDailyAchievement,
+      awardDailyAchievement: state.awardDailyAchievement,
+    })),
+  );
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [filter, setFilter] = useState<"all" | "automatic" | "manual" | "rewarded">("all");
   const [quranReady, setQuranReady] = useState(false);
@@ -208,7 +222,7 @@ export default function DailyExcellencePage() {
     <div className="space-y-8 pb-20 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-5">
         <div>
-          <h1 className="text-3xl font-black text-gray-900 dark:text-white flex items-center gap-3">
+          <h1 className="text-3xl font-black text-[var(--foreground)] flex items-center gap-3">
             <Sparkles className="w-8 h-8 text-amber-500" /> متميزو اليوم
           </h1>
           <p className="text-gray-500 mt-2 font-medium">واجهة يومية مستقلة لمن تجاوز المقرر ومن يضيفه المعلم تقديرًا لاجتهاده.</p>
@@ -218,11 +232,11 @@ export default function DailyExcellencePage() {
         </button>
       </div>
 
-      <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-3xl p-5 flex items-center justify-between">
+      <div className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-5 flex items-center justify-between">
         <button onClick={() => moveDate(-1)} className="p-3 rounded-xl bg-gray-50 dark:bg-gray-800"><ChevronRight /></button>
         <div className="text-center">
           <CalendarDays className="w-5 h-5 text-teal-600 mx-auto mb-2" />
-          <div className="font-black text-gray-900 dark:text-white">{dateKey(selectedDate)}</div>
+          <div className="font-black text-[var(--foreground)]">{dateKey(selectedDate)}</div>
         </div>
         <button onClick={() => moveDate(1)} disabled={dateKey(selectedDate) === dateKey(new Date())} className="p-3 rounded-xl bg-gray-50 dark:bg-gray-800 disabled:opacity-30"><ChevronLeft /></button>
       </div>
@@ -233,7 +247,7 @@ export default function DailyExcellencePage() {
           ["الإجمالي", entries.length, "text-amber-600"],
           ["تم تكريمهم", rewardedCount, "text-purple-600"],
         ].map(([label, value, color]) => (
-          <div key={String(label)} className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-2xl p-5 text-center">
+          <div key={String(label)} className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-5 text-center">
             <div className={`text-3xl font-black ${color}`}>{value}</div>
             <div className="text-xs font-bold text-gray-500 mt-1">{label}</div>
           </div>
@@ -247,14 +261,14 @@ export default function DailyExcellencePage() {
           ["manual", "إضافة المعلم"],
           ["rewarded", "تم تكريمهم"],
         ] as const).map(([value, label]) => (
-          <button key={value} onClick={() => setFilter(value)} className={`px-5 py-3 rounded-full text-sm font-black ${filter === value ? "bg-teal-600 text-white" : "bg-white dark:bg-gray-900 text-gray-500 border border-gray-200 dark:border-gray-800"}`}>{label}</button>
+          <button key={value} onClick={() => setFilter(value)} className={`px-5 py-3 rounded-full text-sm font-black ${filter === value ? "bg-teal-600 text-white" : "bg-[var(--surface)] text-gray-500 border border-gray-200 dark:border-gray-800"}`}>{label}</button>
         ))}
       </div>
 
       {!quranReady ? (
         <div className="py-20 text-center font-bold text-gray-400">جاري تجهيز بيانات المصحف...</div>
       ) : visibleEntries.length === 0 ? (
-        <div className="py-20 text-center bg-white dark:bg-gray-900 rounded-3xl border-2 border-dashed border-gray-200 dark:border-gray-800">
+        <div className="py-20 text-center bg-[var(--surface)] rounded-3xl border-2 border-dashed border-gray-200 dark:border-gray-800">
           <Award className="w-14 h-14 text-gray-300 mx-auto mb-4" />
           <p className="font-bold text-gray-500">لا يوجد متميزون مسجلون في هذا اليوم</p>
         </div>
@@ -263,11 +277,11 @@ export default function DailyExcellencePage() {
           {visibleEntries.map(entry => {
             const extra = Math.max(0, entry.input.actualAmount - entry.input.planAmount);
             return (
-              <div key={entry.student.id} className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-3xl p-6">
+              <div key={entry.student.id} className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-6">
                 <div className="flex items-start gap-4">
                   <div className="w-12 h-12 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center text-xl font-black">{entry.student.name[0]}</div>
                   <div className="flex-1">
-                    <h3 className="font-black text-lg text-gray-900 dark:text-white">{entry.student.name}</h3>
+                    <h3 className="font-black text-lg text-[var(--foreground)]">{entry.student.name}</h3>
                     <p className="text-xs font-bold text-gray-500 mt-1">{entry.input.reason}</p>
                   </div>
                   {entry.input.source === "automatic" && <span className="text-[10px] font-black bg-teal-50 text-teal-700 px-3 py-1 rounded-full">تلقائي</span>}
@@ -293,7 +307,7 @@ export default function DailyExcellencePage() {
 
       {manualOpen && (
         <div className="fixed inset-0 bg-gray-950/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-gray-900 rounded-3xl p-8 w-full max-w-md">
+          <div className="bg-[var(--surface)] rounded-3xl p-8 w-full max-w-md">
             <div className="flex justify-between mb-6"><h3 className="text-xl font-black">إضافة متميز يدويًا</h3><button onClick={() => setManualOpen(false)}><X /></button></div>
             <div className="space-y-4">
               <select value={manualStudentId} onChange={event => setManualStudentId(event.target.value)} className="w-full bg-gray-50 dark:bg-gray-800 rounded-2xl p-4 font-bold">
@@ -309,7 +323,7 @@ export default function DailyExcellencePage() {
 
       {rewardEntry && (
         <div className="fixed inset-0 bg-gray-950/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-gray-900 rounded-3xl p-8 w-full max-w-md">
+          <div className="bg-[var(--surface)] rounded-3xl p-8 w-full max-w-md">
             <div className="flex justify-between mb-6"><div><h3 className="text-xl font-black">تكريم الطالب</h3><p className="text-sm text-gray-500 mt-1">{rewardEntry.student.name}</p></div><button onClick={() => setRewardEntry(null)}><X /></button></div>
             <div className="space-y-4">
               <select value={rewardType} onChange={event => setRewardType(event.target.value as NonNullable<DailyAchievement["rewardType"]>)} className="w-full bg-gray-50 dark:bg-gray-800 rounded-2xl p-4 font-bold">

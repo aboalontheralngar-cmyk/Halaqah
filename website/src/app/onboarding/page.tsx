@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { useRouter } from "next/navigation";
 import { 
   Building2, 
@@ -15,10 +16,20 @@ import {
 } from "lucide-react";
 import { useStore } from "@/store/useStore";
 import { supabase } from "@/lib/supabase";
+import { createSupervisorOrganization, fetchSupervisionHealth, supervisionErrorMessage } from "@/services/supervisionService";
+import { logOperationalError } from "@/lib/operationalLog";
 
 export default function OnboardingPage() {
   const router = useRouter();
-  const { user, createSupervisor } = useStore();
+  const {
+    user,
+    fetchProfile
+  } = useStore(
+    useShallow((state) => ({
+      user: state.user,
+      fetchProfile: state.fetchProfile,
+    })),
+  );
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
   
@@ -35,7 +46,7 @@ export default function OnboardingPage() {
     if (!user) {
       router.push("/login");
     }
-  }, [user]);
+  }, [router, user]);
 
   const handleComplete = async () => {
     if (!supabase || !user) return;
@@ -64,10 +75,16 @@ export default function OnboardingPage() {
       } else {
         // 2. Create the organization through the P7.3 secured RPC. This also
         // creates the immutable owner membership and an audit event.
-        const supervisorId = await createSupervisor(data.supervisorName);
-        if (!supervisorId) {
-          throw new Error("تعذر إنشاء الجهة الإشرافية. تأكد من تنفيذ SQL المرحلة P7.3.");
+        const { data: supervisorData, error: supervisorError } =
+          await createSupervisorOrganization(data.supervisorName);
+        if (supervisorError || !supervisorData) {
+          const health = await fetchSupervisionHealth();
+          if (supervisorError) {
+            logOperationalError("onboarding.supervisor.create", supervisorError);
+          }
+          throw new Error(supervisionErrorMessage(supervisorError, health));
         }
+        await fetchProfile();
       }
 
       router.push("/select-center");
@@ -81,8 +98,8 @@ export default function OnboardingPage() {
   if (!user) return null;
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-950 flex items-center justify-center p-6" dir="rtl">
-      <div className="max-w-2xl w-full bg-white dark:bg-gray-900 rounded-3xl border border-gray-100 dark:border-gray-800 shadow-2xl p-10 md:p-16 space-y-12 relative overflow-hidden">
+    <div className="min-h-screen bg-[var(--background)] flex items-center justify-center p-6" dir="rtl">
+      <div className="max-w-2xl w-full bg-[var(--surface)] rounded-3xl border border-[var(--border)] shadow-2xl p-10 md:p-16 space-y-12 relative overflow-hidden">
         {/* Background Decor */}
         <div className="absolute top-0 right-0 w-64 h-64 bg-teal-500/5 rounded-full blur-3xl -mr-32 -mt-32" />
         <div className="absolute bottom-0 left-0 w-64 h-64 bg-teal-500/5 rounded-full blur-3xl -ml-32 -mb-32" />
@@ -100,8 +117,8 @@ export default function OnboardingPage() {
         {step === 1 && (
           <div className="space-y-10 animate-in fade-in slide-in-from-left-4 duration-500 relative z-10 text-center">
             <div className="space-y-4">
-              <h1 className="text-4xl font-black text-gray-900 dark:text-white">أهلاً بك في حلقتي 👋</h1>
-              <p className="text-gray-500 dark:text-gray-400 font-medium text-lg">قبل أن نبدأ، ما هو اسمك الكامل؟</p>
+              <h1 className="text-4xl font-black text-[var(--foreground)]">أهلاً بك في حلقتي 👋</h1>
+              <p className="text-[var(--muted)] font-medium text-lg">قبل أن نبدأ، ما هو اسمك الكامل؟</p>
             </div>
             
             <div className="relative group max-w-md mx-auto">
@@ -129,8 +146,8 @@ export default function OnboardingPage() {
         {step === 2 && (
           <div className="space-y-10 animate-in fade-in slide-in-from-left-4 duration-500 relative z-10">
             <div className="text-center space-y-4">
-              <h1 className="text-4xl font-black text-gray-900 dark:text-white">ما هو دورك؟ 🛠️</h1>
-              <p className="text-gray-500 dark:text-gray-400 font-medium">اختر نوع الحساب الذي ترغب في إدارته.</p>
+              <h1 className="text-4xl font-black text-[var(--foreground)]">ما هو دورك؟ 🛠️</h1>
+              <p className="text-[var(--muted)] font-medium">اختر نوع الحساب الذي ترغب في إدارته.</p>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -177,8 +194,8 @@ export default function OnboardingPage() {
         {step === 3 && (
           <div className="space-y-10 animate-in fade-in slide-in-from-left-4 duration-500 relative z-10">
             <div className="text-center space-y-4">
-              <h1 className="text-4xl font-black text-gray-900 dark:text-white">آخر خطوة! ✨</h1>
-              <p className="text-gray-500 dark:text-gray-400 font-medium">أكمل بيانات {data.role === 'center_admin' ? 'المركز' : 'الجهة'} للبدء.</p>
+              <h1 className="text-4xl font-black text-[var(--foreground)]">آخر خطوة! ✨</h1>
+              <p className="text-[var(--muted)] font-medium">أكمل بيانات {data.role === 'center_admin' ? 'المركز' : 'الجهة'} للبدء.</p>
             </div>
 
             {data.role === 'center_admin' ? (

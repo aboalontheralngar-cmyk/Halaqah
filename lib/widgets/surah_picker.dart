@@ -26,11 +26,42 @@ class SurahPicker extends StatefulWidget {
 class _SurahPickerState extends State<SurahPicker> {
   String _searchQuery = '';
   List<int> _selectedIds = [];
+  final ScrollController _scrollController = ScrollController();
+  static const double _itemExtent = 72;
 
   @override
   void initState() {
     super.initState();
     _selectedIds = widget.selectedSurahIds ?? [];
+    WidgetsBinding.instance.addPostFrameCallback((_) => _centerOnCurrentSurah());
+  }
+
+  @override
+  void didUpdateWidget(covariant SurahPicker oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.selectedSurahId != widget.selectedSurahId ||
+        oldWidget.allowedSurahIds != widget.allowedSurahIds) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _centerOnCurrentSurah());
+    }
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _centerOnCurrentSurah() {
+    if (!mounted || !_scrollController.hasClients || _searchQuery.isNotEmpty) return;
+    final selected = widget.selectedSurahId;
+    if (selected == null) return;
+    final items = _filteredSurahs;
+    final index = items.indexWhere((surah) => surah['id'] == selected);
+    if (index < 0) return;
+    final viewport = _scrollController.position.viewportDimension;
+    final target = (index * _itemExtent - (viewport - _itemExtent) / 2)
+        .clamp(0.0, _scrollController.position.maxScrollExtent);
+    _scrollController.jumpTo(target.toDouble());
   }
 
   List<Map<String, dynamic>> get _filteredSurahs {
@@ -67,11 +98,16 @@ class _SurahPickerState extends State<SurahPicker> {
             ),
             onChanged: (value) {
               setState(() => _searchQuery = value);
+              if (value.isEmpty) {
+                WidgetsBinding.instance.addPostFrameCallback((_) => _centerOnCurrentSurah());
+              }
             },
           ),
         ),
         Expanded(
           child: ListView.builder(
+            controller: _scrollController,
+            itemExtent: _itemExtent,
             itemCount: _filteredSurahs.length,
             itemBuilder: (context, index) {
               final surah = _filteredSurahs[index];
@@ -83,7 +119,7 @@ class _SurahPickerState extends State<SurahPicker> {
                 leading: CircleAvatar(
                   backgroundColor: isSelected
                       ? Theme.of(context).primaryColor
-                      : Theme.of(context).primaryColor.withOpacity(0.1),
+                      : Theme.of(context).primaryColor.withValues(alpha: 0.1),
                   child: Text(
                     '${surah['id']}',
                     style: TextStyle(

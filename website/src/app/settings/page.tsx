@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useShallow } from "zustand/react/shallow";
 import Link from "next/link";
 import { 
   Settings as SettingsIcon, 
@@ -21,12 +22,45 @@ import {
 import { useStore } from "@/store/useStore";
 
 export default function SettingsPage() {
-  const { 
-    darkMode, toggleDarkMode, centerType, setCenterType, 
-    profile, currentSupervisor, joinSupervisor,
-    currencySymbol, updateCurrencySymbol, fetchCenterSettings,
-    pointsConfig, fetchPointsConfig, savePointsConfig
-  } = useStore();
+  const {
+    darkMode,
+    toggleDarkMode,
+    centerType,
+    setCenterType,
+    profile,
+    currentSupervisor,
+    joinSupervisor,
+    currencySymbol,
+    updateCurrencySymbol,
+    fetchCenterSettings,
+    pointsConfig,
+    fetchPointsConfig,
+    savePointsConfig,
+    sessionEndTime,
+    timezoneName,
+    weeklyHolidayDays,
+    updateDailySchedule
+  } = useStore(
+    useShallow((state) => ({
+      darkMode: state.darkMode,
+      toggleDarkMode: state.toggleDarkMode,
+      centerType: state.centerType,
+      setCenterType: state.setCenterType,
+      profile: state.profile,
+      currentSupervisor: state.currentSupervisor,
+      joinSupervisor: state.joinSupervisor,
+      currencySymbol: state.currencySymbol,
+      updateCurrencySymbol: state.updateCurrencySymbol,
+      fetchCenterSettings: state.fetchCenterSettings,
+      pointsConfig: state.pointsConfig,
+      fetchPointsConfig: state.fetchPointsConfig,
+      savePointsConfig: state.savePointsConfig,
+      sessionEndTime: state.sessionEndTime,
+      timezoneName: state.timezoneName,
+      weeklyHolidayDays: state.weeklyHolidayDays,
+      updateDailySchedule: state.updateDailySchedule,
+    })),
+  );
   const [ramadanMode, setRamadanMode] = useState(false);
   const [activeTab, setActiveTab] = useState<"general" | "points" | "rules">("general");
   const [supervisorCode, setSupervisorCode] = useState("");
@@ -36,9 +70,18 @@ export default function SettingsPage() {
   const [newRulePoints, setNewRulePoints] = useState(1);
   const [newRuleType, setNewRuleType] = useState<"positive" | "negative">("positive");
   const [showAddRuleModal, setShowAddRuleModal] = useState(false);
+  const [scheduleEnd, setScheduleEnd] = useState(sessionEndTime);
+  const [scheduleTimezone, setScheduleTimezone] = useState(timezoneName);
+  const [scheduleHolidays, setScheduleHolidays] = useState<number[]>(weeklyHolidayDays);
+  const [savingSchedule, setSavingSchedule] = useState(false);
 
   useEffect(() => {
-    fetchCenterSettings();
+    void fetchCenterSettings().then(() => {
+      const settings = useStore.getState();
+      setScheduleEnd(settings.sessionEndTime);
+      setScheduleTimezone(settings.timezoneName);
+      setScheduleHolidays(settings.weeklyHolidayDays);
+    });
     fetchPointsConfig();
   }, [fetchCenterSettings, fetchPointsConfig]);
 
@@ -49,12 +92,12 @@ export default function SettingsPage() {
         <div className="w-20 h-20 bg-teal-50 dark:bg-teal-900/20 rounded-[2.5rem] flex items-center justify-center mx-auto mb-6">
           <SettingsIcon className="w-10 h-10 text-teal-600 dark:text-teal-400" />
         </div>
-        <h1 className="text-3xl font-black text-gray-900 dark:text-white tracking-tight">إعدادات النظام الذكية ⚙️</h1>
-        <p className="text-gray-500 dark:text-gray-400 font-medium">تحكم في قواعد الحلقة ونظام النقاط الآلي.</p>
+        <h1 className="text-3xl font-black text-[var(--foreground)] tracking-tight">إعدادات النظام الذكية ⚙️</h1>
+        <p className="text-[var(--muted)] font-medium">تحكم في قواعد الحلقة ونظام النقاط الآلي.</p>
       </div>
 
       {/* Tabs */}
-      <div className="flex bg-white dark:bg-gray-900 p-2 rounded-[2rem] border border-gray-100 dark:border-gray-800 w-fit mx-auto shadow-sm">
+      <div className="flex bg-[var(--surface)] p-2 rounded-[2rem] border border-[var(--border)] w-fit mx-auto shadow-sm">
         <button onClick={() => setActiveTab("general")} className={`px-8 py-3 rounded-2xl text-xs font-black transition-all ${activeTab === "general" ? "bg-teal-600 text-white shadow-lg" : "text-gray-400"}`}>الإعدادات العامة</button>
         <button onClick={() => setActiveTab("points")} className={`px-8 py-3 rounded-2xl text-xs font-black transition-all ${activeTab === "points" ? "bg-amber-500 text-white shadow-lg" : "text-gray-400"}`}>توزيع النقاط</button>
         <button onClick={() => setActiveTab("rules")} className={`px-8 py-3 rounded-2xl text-xs font-black transition-all ${activeTab === "rules" ? "bg-rose-600 text-white shadow-lg" : "text-gray-400"}`}>قواعد الضبط</button>
@@ -64,14 +107,14 @@ export default function SettingsPage() {
         {activeTab === "general" && (
           <div className="space-y-6 animate-in fade-in duration-500">
             {/* Center Type Setting */}
-            <div className="bg-white dark:bg-gray-900 rounded-[3rem] border border-gray-100 dark:border-gray-800 p-10 shadow-sm">
-              <h3 className="text-xl font-black text-gray-900 dark:text-white mb-6 flex items-center gap-3">
+            <div className="bg-[var(--surface)] rounded-[3rem] border border-[var(--border)] p-10 shadow-sm">
+              <h3 className="text-xl font-black text-[var(--foreground)] mb-6 flex items-center gap-3">
                 <Users className="w-6 h-6 text-teal-600" /> نوع مركز التحفيظ
               </h3>
               <div className="grid grid-cols-2 gap-6">
                 <button 
                   onClick={() => setCenterType(centerType === 'men' ? 'women' : centerType === 'mixed' ? 'women' : 'mixed')}
-                  className={`p-8 rounded-[2.5rem] border-2 transition-all flex flex-col items-center gap-4 ${centerType === 'men' || centerType === 'mixed' ? "border-teal-600 bg-teal-50 dark:bg-teal-900/20" : "border-gray-100 dark:border-gray-800 hover:border-teal-200"}`}
+                  className={`p-8 rounded-[2.5rem] border-2 transition-all flex flex-col items-center gap-4 ${centerType === 'men' || centerType === 'mixed' ? "border-teal-600 bg-teal-50 dark:bg-teal-900/20" : "border-[var(--border)] hover:border-teal-200"}`}
                 >
                   <div className={`w-14 h-14 rounded-2xl flex items-center justify-center ${centerType === 'men' || centerType === 'mixed' ? "bg-teal-600 text-white" : "bg-gray-100 dark:bg-gray-800 text-gray-400"}`}>
                     <Users className="w-8 h-8" />
@@ -82,7 +125,7 @@ export default function SettingsPage() {
                 </button>
                 <button 
                   onClick={() => setCenterType(centerType === 'women' ? 'men' : centerType === 'mixed' ? 'men' : 'mixed')}
-                  className={`p-8 rounded-[2.5rem] border-2 transition-all flex flex-col items-center gap-4 ${centerType === 'women' || centerType === 'mixed' ? "border-rose-500 bg-rose-50 dark:bg-rose-900/20" : "border-gray-100 dark:border-gray-800 hover:border-rose-200"}`}
+                  className={`p-8 rounded-[2.5rem] border-2 transition-all flex flex-col items-center gap-4 ${centerType === 'women' || centerType === 'mixed' ? "border-rose-500 bg-rose-50 dark:bg-rose-900/20" : "border-[var(--border)] hover:border-rose-200"}`}
                 >
                   <div className={`w-14 h-14 rounded-2xl flex items-center justify-center ${centerType === 'women' || centerType === 'mixed' ? "bg-rose-500 text-white" : "bg-gray-100 dark:bg-gray-800 text-gray-400"}`}>
                     <VenetianMask className="w-8 h-8" />
@@ -95,12 +138,12 @@ export default function SettingsPage() {
             </div>
             {/* Supervision Linking */}
             {profile?.role === 'center_admin' && (
-              <div className="bg-white dark:bg-gray-900 rounded-[3rem] border border-gray-100 dark:border-gray-800 p-10 shadow-sm overflow-hidden relative group">
+              <div className="bg-[var(--surface)] rounded-[3rem] border border-[var(--border)] p-10 shadow-sm overflow-hidden relative group">
                 <div className="absolute top-0 left-0 w-2 h-full bg-teal-600" />
-                <h3 className="text-xl font-black text-gray-900 dark:text-white mb-2 flex items-center gap-3">
+                <h3 className="text-xl font-black text-[var(--foreground)] mb-2 flex items-center gap-3">
                   <ShieldCheck className="w-6 h-6 text-teal-600" /> الربط بجهة إشرافية
                 </h3>
-                <p className="text-gray-500 dark:text-gray-400 text-xs font-medium mb-8">استخدم دعوة مؤقتة صادرة من الجهة. لا تعمل الدعوة بعد انتهاء مدتها أو اكتمال عدد استخداماتها.</p>
+                <p className="text-[var(--muted)] text-xs font-medium mb-8">استخدم دعوة مؤقتة صادرة من الجهة. لا تعمل الدعوة بعد انتهاء مدتها أو اكتمال عدد استخداماتها.</p>
                 
                 <div className="flex gap-4">
                   <div className="relative flex-1 group">
@@ -132,12 +175,12 @@ export default function SettingsPage() {
             )}
 
             {currentSupervisor && (
-              <div className="bg-white dark:bg-gray-900 rounded-[3rem] border border-gray-100 dark:border-gray-800 p-10 shadow-sm overflow-hidden relative">
+              <div className="bg-[var(--surface)] rounded-[3rem] border border-[var(--border)] p-10 shadow-sm overflow-hidden relative">
                 <div className="absolute top-0 left-0 w-2 h-full bg-amber-500" />
-                <h3 className="text-xl font-black text-gray-900 dark:text-white mb-2 flex items-center gap-3">
+                <h3 className="text-xl font-black text-[var(--foreground)] mb-2 flex items-center gap-3">
                   <Star className="w-6 h-6 text-amber-500" /> إدارة الجهة الإشرافية
                 </h3>
-                <p className="text-gray-500 dark:text-gray-400 text-xs font-medium mb-8">أنشئ دعوات مؤقتة للمراكز، وأدر فريق الإشراف، واطبع التقرير التجميعي من لوحة واحدة.</p>
+                <p className="text-[var(--muted)] text-xs font-medium mb-8">أنشئ دعوات مؤقتة للمراكز، وأدر فريق الإشراف، واطبع التقرير التجميعي من لوحة واحدة.</p>
                 
                 <div className="flex items-center justify-between p-6 bg-amber-50 dark:bg-amber-900/20 rounded-[2rem] border border-amber-100 dark:border-amber-800">
                   <div className="flex items-center gap-4">
@@ -146,7 +189,7 @@ export default function SettingsPage() {
                     </div>
                     <div>
                       <p className="text-[10px] font-black text-amber-600 uppercase tracking-widest">الجهة الحالية</p>
-                      <p className="text-lg font-black text-gray-900 dark:text-white">{currentSupervisor.name}</p>
+                      <p className="text-lg font-black text-[var(--foreground)]">{currentSupervisor.name}</p>
                     </div>
                   </div>
                   <Link
@@ -181,7 +224,91 @@ export default function SettingsPage() {
               <Flame className="absolute -bottom-10 -left-10 w-40 h-40 text-white/10 group-hover:rotate-12 transition-transform duration-700" />
             </div>
 
-            <div className="bg-white dark:bg-gray-900 rounded-[2.5rem] border border-gray-100 dark:border-gray-800 divide-y divide-gray-50 dark:divide-gray-800 overflow-hidden shadow-sm">
+            <div className="bg-[var(--surface)] rounded-[2.5rem] border border-[var(--border)] divide-y divide-gray-50 dark:divide-gray-800 overflow-hidden shadow-sm">
+              <div className="p-8 space-y-6">
+                <div className="flex items-start gap-4">
+                  <div className="w-12 h-12 shrink-0 bg-teal-50 dark:bg-teal-900/20 rounded-2xl flex items-center justify-center">
+                    <Clock className="w-6 h-6 text-teal-600" />
+                  </div>
+                  <div>
+                    <p className="font-black text-gray-800 dark:text-white text-sm">دوام الحلقة والإجازة الأسبوعية</p>
+                    <p className="text-[10px] text-gray-400 font-bold mt-1">يمنع إغلاق اليوم قبل وقت الانتهاء، ويستثني أيام الإجازة من الغياب والنقاط.</p>
+                  </div>
+                </div>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <label className="space-y-2 text-xs font-black text-gray-500">
+                    <span>وقت انتهاء الدوام</span>
+                    <input
+                      type="time"
+                      value={scheduleEnd}
+                      onChange={(event) => setScheduleEnd(event.target.value)}
+                      className="w-full rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm font-black text-teal-700 outline-none dark:border-gray-800 dark:bg-gray-800"
+                    />
+                  </label>
+                  <label className="space-y-2 text-xs font-black text-gray-500">
+                    <span>المنطقة الزمنية</span>
+                    <select
+                      value={scheduleTimezone}
+                      onChange={(event) => setScheduleTimezone(event.target.value)}
+                      className="w-full rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm font-black text-teal-700 outline-none dark:border-gray-800 dark:bg-gray-800"
+                    >
+                      <option value="Asia/Aden">اليمن — عدن</option>
+                      <option value="Asia/Riyadh">السعودية — الرياض</option>
+                      <option value="Asia/Kuwait">الكويت</option>
+                      <option value="Asia/Qatar">قطر</option>
+                      <option value="Asia/Dubai">الإمارات — دبي</option>
+                      <option value="Africa/Cairo">مصر — القاهرة</option>
+                    </select>
+                  </label>
+                </div>
+                <div>
+                  <p className="mb-3 text-xs font-black text-gray-500">أيام الإجازة الأسبوعية</p>
+                  <div className="flex flex-wrap gap-2">
+                    {[
+                      [6, "السبت"], [0, "الأحد"], [1, "الاثنين"], [2, "الثلاثاء"],
+                      [3, "الأربعاء"], [4, "الخميس"], [5, "الجمعة"],
+                    ].map(([day, label]) => {
+                      const value = Number(day);
+                      const selected = scheduleHolidays.includes(value);
+                      return (
+                        <button
+                          key={value}
+                          type="button"
+                          onClick={() => setScheduleHolidays((current) =>
+                            selected ? current.filter((item) => item !== value) : [...current, value]
+                          )}
+                          className={`rounded-full px-4 py-2 text-xs font-black transition ${selected ? "bg-teal-600 text-white" : "bg-gray-100 text-gray-500 dark:bg-gray-800"}`}
+                        >
+                          {label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  disabled={savingSchedule || !scheduleEnd}
+                  onClick={async () => {
+                    setSavingSchedule(true);
+                    try {
+                      await updateDailySchedule({
+                        sessionEndTime: scheduleEnd,
+                        timezoneName: scheduleTimezone,
+                        weeklyHolidayDays: scheduleHolidays,
+                      });
+                      alert("تم حفظ دوام الحلقة والإجازات الأسبوعية.");
+                    } catch (error) {
+                      alert(error instanceof Error ? error.message : "تعذر حفظ الإعدادات");
+                    } finally {
+                      setSavingSchedule(false);
+                    }
+                  }}
+                  className="rounded-2xl bg-teal-600 px-6 py-3 text-xs font-black text-white disabled:opacity-50"
+                >
+                  {savingSchedule ? "جارٍ الحفظ..." : "حفظ إعدادات الدوام"}
+                </button>
+              </div>
+
               <div className="p-8 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
                 <div className="flex items-center gap-6">
                   <div className="w-12 h-12 bg-gray-50 dark:bg-gray-800 rounded-2xl flex items-center justify-center">
@@ -211,7 +338,7 @@ export default function SettingsPage() {
                   type="text" 
                   value={currencySymbol} 
                   onChange={(e) => updateCurrencySymbol(e.target.value)}
-                  className="w-24 px-4 py-2 bg-gray-50 dark:bg-gray-850 border border-gray-200 dark:border-gray-800 rounded-xl text-center font-black text-xs text-teal-600 outline-none focus:ring-2 ring-teal-500/20"
+                  className="w-24 px-4 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-800 rounded-xl text-center font-black text-xs text-teal-600 outline-none focus:ring-2 ring-teal-500/20"
                 />
               </div>
 
@@ -266,9 +393,9 @@ export default function SettingsPage() {
 
         {activeTab === "points" && (
           <div className="space-y-6 animate-in fade-in duration-500">
-            <div className="bg-white dark:bg-gray-900 rounded-[3rem] border border-gray-100 dark:border-gray-800 p-10 shadow-sm">
+            <div className="bg-[var(--surface)] rounded-[3rem] border border-[var(--border)] p-10 shadow-sm">
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
-                <h3 className="text-xl font-black text-gray-900 dark:text-white flex items-center gap-3">
+                <h3 className="text-xl font-black text-[var(--foreground)] flex items-center gap-3">
                   <Star className="w-6 h-6 text-amber-500 fill-amber-500" /> تخصيص قواعد توزيع النقاط
                 </h3>
                 <button
@@ -300,7 +427,7 @@ export default function SettingsPage() {
                       return (
                         <div key={item.key} className="flex items-center justify-between p-6 bg-gray-50 dark:bg-gray-800 rounded-3xl group hover:scale-[1.01] transition-all">
                           <div className="flex items-center gap-4">
-                            <div className="w-10 h-10 bg-white dark:bg-gray-900 rounded-xl flex items-center justify-center shadow-sm">
+                            <div className="w-10 h-10 bg-[var(--surface)] rounded-xl flex items-center justify-center shadow-sm">
                               <item.icon className={`w-5 h-5 ${item.color}`} />
                             </div>
                             <span className="text-sm font-bold text-gray-700 dark:text-gray-200">{item.label}</span>
@@ -314,7 +441,7 @@ export default function SettingsPage() {
                                 const updated = { ...pointsConfig, [item.key]: val };
                                 savePointsConfig(updated);
                               }}
-                              className="w-16 bg-white dark:bg-gray-900 border-none rounded-xl px-2 py-2 text-center font-black text-teal-600 outline-none" 
+                              className="w-16 bg-[var(--surface)] border-none rounded-xl px-2 py-2 text-center font-black text-teal-600 outline-none" 
                             />
                             <span className="text-xs font-bold text-gray-400">نقطة</span>
                           </div>
@@ -339,7 +466,7 @@ export default function SettingsPage() {
                         return (
                           <div key={key} className="flex items-center justify-between p-6 bg-gray-50 dark:bg-gray-800 rounded-3xl group hover:scale-[1.01] transition-all border border-teal-500/10">
                             <div className="flex items-center gap-4">
-                              <div className="w-10 h-10 bg-white dark:bg-gray-900 rounded-xl flex items-center justify-center shadow-sm">
+                              <div className="w-10 h-10 bg-[var(--surface)] rounded-xl flex items-center justify-center shadow-sm">
                                 {isPositive ? <Star className="w-5 h-5 text-amber-500 fill-amber-500" /> : <AlertTriangle className="w-5 h-5 text-rose-600" />}
                               </div>
                               <span className="text-sm font-bold text-gray-700 dark:text-gray-200">{label}</span>
@@ -354,7 +481,7 @@ export default function SettingsPage() {
                                     const updated = { ...pointsConfig, [key]: v };
                                     savePointsConfig(updated);
                                   }}
-                                  className="w-16 bg-white dark:bg-gray-900 border-none rounded-xl px-2 py-2 text-center font-black text-teal-600 outline-none" 
+                                  className="w-16 bg-[var(--surface)] border-none rounded-xl px-2 py-2 text-center font-black text-teal-600 outline-none" 
                                 />
                                 <span className="text-xs font-bold text-gray-400">نقطة</span>
                               </div>
@@ -383,8 +510,8 @@ export default function SettingsPage() {
             {/* Add Custom Rule Modal */}
             {showAddRuleModal && (
               <div className="fixed inset-0 bg-gray-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-                <div className="bg-white dark:bg-gray-900 rounded-[3rem] p-10 w-full max-w-md shadow-2xl relative border border-gray-100 dark:border-gray-800">
-                  <h3 className="text-xl font-black text-gray-900 dark:text-white mb-6 text-center">إضافة بند سلوك مخصص</h3>
+                <div className="bg-[var(--surface)] rounded-[3rem] p-10 w-full max-w-md shadow-2xl relative border border-[var(--border)]">
+                  <h3 className="text-xl font-black text-[var(--foreground)] mb-6 text-center">إضافة بند سلوك مخصص</h3>
                   <form 
                     onSubmit={(e) => {
                       e.preventDefault();
@@ -471,8 +598,8 @@ export default function SettingsPage() {
         )}
 
         {activeTab === "rules" && (
-          <div className="bg-white dark:bg-gray-900 rounded-[3rem] border border-gray-100 dark:border-gray-800 p-10 shadow-sm animate-in fade-in duration-500">
-            <h3 className="text-xl font-black text-gray-900 dark:text-white mb-8 flex items-center gap-3">
+          <div className="bg-[var(--surface)] rounded-[3rem] border border-[var(--border)] p-10 shadow-sm animate-in fade-in duration-500">
+            <h3 className="text-xl font-black text-[var(--foreground)] mb-8 flex items-center gap-3">
               <ShieldCheck className="w-6 h-6 text-teal-600" /> قواعد الضبط والتحذير
             </h3>
             <div className="space-y-6">

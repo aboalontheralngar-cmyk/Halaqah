@@ -1,5 +1,6 @@
 "use client";
 
+import { logOperationalError } from "@/lib/operationalLog";
 import { useEffect } from "react";
 import { AlertTriangle, RefreshCw } from "lucide-react";
 
@@ -11,7 +12,7 @@ export default function ErrorPage({
   unstable_retry: () => void;
 }) {
   useEffect(() => {
-    console.error("Unhandled application error", error.digest ?? error.name);
+    logOperationalError("app.unhandled", error);
   }, [error]);
 
   return (

@@ -27,13 +27,20 @@ class _VacationsScreenState extends State<VacationsScreen> {
   Future<void> _loadVacations() async {
     setState(() => _isLoading = true);
     try {
-      final students = await _db.getStudents();
+      final results = await Future.wait<dynamic>([
+        _db.getStudents(),
+        _db.getAllVacations(),
+      ]);
+      final students = results[0] as List<Student>;
+      final allVacations = results[1] as List<Vacation>;
+      final studentsById = {for (final student in students) student.id: student};
       final vacations = <VacationWithStudent>[];
-
-      for (final student in students) {
-        final studentVacations = await _db.getStudentVacations(student.id);
-        for (final vacation in studentVacations) {
-          vacations.add(VacationWithStudent(student: student, vacation: vacation));
+      for (final vacation in allVacations) {
+        final student = studentsById[vacation.studentId];
+        if (student != null) {
+          vacations.add(
+            VacationWithStudent(student: student, vacation: vacation),
+          );
         }
       }
 
@@ -140,16 +147,16 @@ class _VacationsScreenState extends State<VacationsScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.beach_access, size: 60, color: Colors.grey[400]),
+          Icon(Icons.beach_access, size: 60, color: Theme.of(context).colorScheme.onSurfaceVariant),
           const SizedBox(height: 16),
           Text(
             'لا توجد إجازات',
-            style: TextStyle(color: Colors.grey[600], fontSize: 16),
+            style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 16),
           ),
           const SizedBox(height: 8),
           Text(
             _getEmptyMessage(),
-            style: TextStyle(color: Colors.grey[500], fontSize: 12),
+            style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 12),
           ),
         ],
       ),
@@ -215,7 +222,7 @@ class _VacationsScreenState extends State<VacationsScreen> {
             Row(
               children: [
                 CircleAvatar(
-                  backgroundColor: Theme.of(context).primaryColor.withOpacity(0.1),
+                  backgroundColor: Theme.of(context).primaryColor.withValues(alpha: 0.1),
                   child: Text(
                     data.student.name.isNotEmpty ? data.student.name[0] : '؟',
                     style: TextStyle(color: Theme.of(context).primaryColor),
@@ -232,7 +239,7 @@ class _VacationsScreenState extends State<VacationsScreen> {
                       ),
                       Text(
                         _getReasonLabel(data.vacation.reason),
-                        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                        style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant),
                       ),
                     ],
                   ),
@@ -240,7 +247,7 @@ class _VacationsScreenState extends State<VacationsScreen> {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   decoration: BoxDecoration(
-                    color: statusColor.withOpacity(0.1),
+                    color: statusColor.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(16),
                   ),
                   child: Text(
@@ -263,7 +270,7 @@ class _VacationsScreenState extends State<VacationsScreen> {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                   decoration: BoxDecoration(
-                    color: Colors.blue.withOpacity(0.1),
+                    color: Colors.blue.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Text(
@@ -284,17 +291,17 @@ class _VacationsScreenState extends State<VacationsScreen> {
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: Colors.grey.withOpacity(0.1),
+                  color: Colors.grey.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Row(
                   children: [
-                    Icon(Icons.note, size: 16, color: Colors.grey[600]),
+                    Icon(Icons.note, size: 16, color: Theme.of(context).colorScheme.onSurfaceVariant),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
                         data.vacation.notes!,
-                        style: TextStyle(fontSize: 12, color: Colors.grey[700]),
+                        style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurface),
                       ),
                     ),
                   ],
@@ -326,7 +333,7 @@ class _VacationsScreenState extends State<VacationsScreen> {
       children: [
         Text(
           label,
-          style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+          style: TextStyle(fontSize: 10, color: Theme.of(context).colorScheme.onSurfaceVariant),
         ),
         Text(
           Helpers.formatHijriDate(date),

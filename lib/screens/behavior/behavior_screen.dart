@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../app/theme.dart';
 import '../../services/database_service.dart';
 import '../../models/student.dart';
 import 'add_point_screen.dart';
@@ -17,6 +18,7 @@ class _BehaviorScreenState extends State<BehaviorScreen> {
   List<StudentWithPoints> _students = [];
   bool _isLoading = true;
   String _filter = 'all';
+  String _searchQuery = '';
   int _unresolvedViolationsCount = 0;
 
   @override
@@ -28,19 +30,27 @@ class _BehaviorScreenState extends State<BehaviorScreen> {
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
     try {
-      final students = await _db.getStudents(status: 'active');
+      final results = await Future.wait<dynamic>([
+        _db.getStudents(status: 'active'),
+        _db.getBehaviorSummaries(),
+      ]);
+      final students = results[0] as List<Student>;
+      final summaries =
+          results[1] as Map<String, StudentBehaviorSummary>;
       final studentsWithPoints = <StudentWithPoints>[];
-      int unresolvedCount = 0;
+      var unresolvedCount = 0;
 
       for (final student in students) {
-        final points = await _db.getStudentTotalPoints(student.id);
-        final unresolved = await _db.getUnresolvedViolations(student.id);
-        unresolvedCount += unresolved.length;
-
+        final summary = summaries[student.id] ??
+            const StudentBehaviorSummary(
+              totalPoints: 0,
+              unresolvedViolations: 0,
+            );
+        unresolvedCount += summary.unresolvedViolations;
         studentsWithPoints.add(StudentWithPoints(
           student: student,
-          totalPoints: points,
-          hasUnresolvedViolations: unresolved.isNotEmpty,
+          totalPoints: summary.totalPoints,
+          hasUnresolvedViolations: summary.unresolvedViolations > 0,
         ));
       }
 
@@ -57,17 +67,25 @@ class _BehaviorScreenState extends State<BehaviorScreen> {
   }
 
   List<StudentWithPoints> get _filteredStudents {
-    if (_filter == 'all') return _students;
+    Iterable<StudentWithPoints> result = _students;
     if (_filter == 'positive') {
-      return _students.where((s) => s.totalPoints > 0).toList();
+      result = result.where((s) => s.totalPoints > 0);
+    } else if (_filter == 'negative') {
+      result = result.where((s) => s.totalPoints < 0);
+    } else if (_filter == 'violations') {
+      result = result.where((s) => s.hasUnresolvedViolations);
     }
-    if (_filter == 'negative') {
-      return _students.where((s) => s.totalPoints < 0).toList();
+
+    final query = _searchQuery.trim().toLowerCase();
+    if (query.isNotEmpty) {
+      result = result.where((item) {
+        final student = item.student;
+        return student.name.toLowerCase().contains(query) ||
+            student.studentCode.toLowerCase().contains(query) ||
+            student.guardianPhone.toLowerCase().contains(query);
+      });
     }
-    if (_filter == 'violations') {
-      return _students.where((s) => s.hasUnresolvedViolations).toList();
-    }
-    return _students;
+    return result.toList();
   }
 
   @override
@@ -103,6 +121,7 @@ class _BehaviorScreenState extends State<BehaviorScreen> {
               children: [
                 _buildStatsBar(),
                 if (_unresolvedViolationsCount > 0) _buildViolationsAlert(),
+                _buildSearchAndFilter(),
                 Expanded(
                   child: _filteredStudents.isEmpty
                       ? _buildEmptyState()
@@ -123,17 +142,26 @@ class _BehaviorScreenState extends State<BehaviorScreen> {
     final negativeCount = _students.where((s) => s.totalPoints < 0).length;
     final totalPoints = _students.fold<int>(0, (sum, s) => sum + s.totalPoints);
 
-    return Container(
-      padding: const EdgeInsets.all(16),
-      color: Theme.of(context).primaryColor.withOpacity(0.1),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-        children: [
-          _buildStatChip('إجمالي الطلاب', '${_students.length}', Colors.blue),
-          _buildStatChip('إيجابي', '$positiveCount', Colors.green),
-          _buildStatChip('سلبي', '$negativeCount', Colors.red),
-          _buildStatChip('المجموع', '$totalPoints', totalPoints >= 0 ? Colors.green : Colors.red),
-        ],
+    final semantic = AppSemanticColors.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 6),
+      child: Card(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              _buildStatChip('الطلاب', '${_students.length}', Theme.of(context).colorScheme.primary),
+              _buildStatChip('إيجابي', '$positiveCount', semantic.success),
+              _buildStatChip('سلبي', '$negativeCount', Theme.of(context).colorScheme.error),
+              _buildStatChip(
+                'المجموع',
+                '$totalPoints',
+                totalPoints >= 0 ? semantic.success : Theme.of(context).colorScheme.error,
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -142,10 +170,10 @@ class _BehaviorScreenState extends State<BehaviorScreen> {
     return Column(
       children: [
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
           decoration: BoxDecoration(
-            color: color.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(12),
+            color: color.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(999),
           ),
           child: Text(
             value,
@@ -153,7 +181,7 @@ class _BehaviorScreenState extends State<BehaviorScreen> {
           ),
         ),
         const SizedBox(height: 4),
-        Text(label, style: TextStyle(fontSize: 10, color: Colors.grey[600])),
+        Text(label, style: TextStyle(fontSize: 10, color: Theme.of(context).colorScheme.onSurfaceVariant)),
       ],
     );
   }
@@ -165,9 +193,9 @@ class _BehaviorScreenState extends State<BehaviorScreen> {
         margin: const EdgeInsets.all(16),
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: Colors.orange.withOpacity(0.1),
+          color: Colors.orange.withValues(alpha: 0.1),
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.orange.withOpacity(0.3)),
+          border: Border.all(color: Colors.orange.withValues(alpha: 0.3)),
         ),
         child: Row(
           children: [
@@ -183,7 +211,7 @@ class _BehaviorScreenState extends State<BehaviorScreen> {
                   ),
                   Text(
                     'يوجد $_unresolvedViolationsCount مخالفة تحتاج متابعة',
-                    style: TextStyle(fontSize: 12, color: Colors.grey[700]),
+                    style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurface),
                   ),
                 ],
               ),
@@ -195,14 +223,71 @@ class _BehaviorScreenState extends State<BehaviorScreen> {
     );
   }
 
+  Widget _buildSearchAndFilter() {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 4, 14, 6),
+      child: Row(
+        children: [
+          Expanded(
+            child: TextField(
+              onChanged: (value) => setState(() => _searchQuery = value),
+              decoration: const InputDecoration(
+                hintText: 'بحث عن طالب',
+                prefixIcon: Icon(Icons.search, size: 19),
+                isDense: true,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          PopupMenuButton<String>(
+            tooltip: 'تصفية القائمة',
+            onSelected: (value) => setState(() => _filter = value),
+            itemBuilder: (context) => const [
+              PopupMenuItem(value: 'all', child: Text('الكل')),
+              PopupMenuItem(value: 'positive', child: Text('إيجابي')),
+              PopupMenuItem(value: 'negative', child: Text('سلبي')),
+              PopupMenuItem(value: 'violations', child: Text('مخالفات قائمة')),
+            ],
+            child: Container(
+              height: 42,
+              padding: const EdgeInsets.symmetric(horizontal: 11),
+              decoration: BoxDecoration(
+                color: scheme.surfaceContainerLow,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: scheme.outlineVariant),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.tune, size: 18),
+                  const SizedBox(width: 5),
+                  Text(
+                    switch (_filter) {
+                      'positive' => 'إيجابي',
+                      'negative' => 'سلبي',
+                      'violations' => 'مخالفات',
+                      _ => 'الكل',
+                    },
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildEmptyState() {
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.emoji_events, size: 60, color: Colors.grey[400]),
+          Icon(Icons.emoji_events, size: 60, color: Theme.of(context).colorScheme.onSurfaceVariant),
           const SizedBox(height: 16),
-          Text('لا يوجد طلاب', style: TextStyle(color: Colors.grey[600])),
+          Text('لا يوجد طلاب', style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
         ],
       ),
     );
@@ -212,7 +297,7 @@ class _BehaviorScreenState extends State<BehaviorScreen> {
     return RefreshIndicator(
       onRefresh: _loadData,
       child: ListView.builder(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(14, 4, 14, 90),
         itemCount: _filteredStudents.length,
         itemBuilder: (context, index) {
           final studentData = _filteredStudents[index];
@@ -225,95 +310,81 @@ class _BehaviorScreenState extends State<BehaviorScreen> {
   Widget _buildStudentCard(StudentWithPoints studentData, int rank) {
     final student = studentData.student;
     final points = studentData.totalPoints;
-    final isPositive = points >= 0;
+    final scheme = Theme.of(context).colorScheme;
+    final semantic = AppSemanticColors.of(context);
+    final pointColor = points >= 0 ? semantic.success : scheme.error;
 
     return Card(
-      margin: const EdgeInsets.only(bottom: 12),
+      margin: const EdgeInsets.only(bottom: 6),
       child: InkWell(
         onTap: () => _navigateToHistory(student),
         borderRadius: BorderRadius.circular(12),
         child: Padding(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
           child: Row(
             children: [
-              if (rank <= 3)
-                Container(
-                  width: 30,
-                  height: 30,
-                  decoration: BoxDecoration(
-                    color: _getRankColor(rank),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Center(
-                    child: Text(
-                      '$rank',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                )
-              else
-                CircleAvatar(
-                  radius: 15,
-                  backgroundColor: Colors.grey.withOpacity(0.1),
-                  child: Text(
-                    '$rank',
-                    style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                  ),
+              Container(
+                width: 28,
+                height: 28,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: rank <= 3
+                      ? _getRankColor(rank).withValues(alpha: 0.13)
+                      : scheme.surfaceContainer,
+                  borderRadius: BorderRadius.circular(8),
                 ),
-              const SizedBox(width: 12),
-              CircleAvatar(
-                backgroundColor: Theme.of(context).primaryColor.withOpacity(0.1),
                 child: Text(
-                  student.name.isNotEmpty ? student.name[0] : '؟',
-                  style: TextStyle(color: Theme.of(context).primaryColor),
+                  '$rank',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: rank <= 3 ? _getRankColor(rank) : scheme.onSurfaceVariant,
+                  ),
                 ),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 9),
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                child: Row(
                   children: [
-                    Row(
-                      children: [
-                        Text(
-                          student.name,
-                          style: const TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                        if (studentData.hasUnresolvedViolations) ...[
-                          const SizedBox(width: 8),
-                          Icon(Icons.warning, size: 16, color: Colors.orange[700]),
-                        ],
-                      ],
+                    Flexible(
+                      child: Text(
+                        student.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                      ),
                     ),
-                    Text(
-                      'الحفظ: ${student.totalMemorized} آية',
-                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                    ),
+                    if (studentData.hasUnresolvedViolations) ...[
+                      const SizedBox(width: 5),
+                      Icon(Icons.warning_amber_rounded, size: 16, color: semantic.warning),
+                    ],
                   ],
                 ),
               ),
+              const SizedBox(width: 8),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                constraints: const BoxConstraints(minWidth: 52),
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
                 decoration: BoxDecoration(
-                  color: (isPositive ? Colors.green : Colors.red).withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(16),
+                  color: pointColor.withValues(alpha: 0.09),
+                  borderRadius: BorderRadius.circular(999),
                 ),
                 child: Text(
-                  '${isPositive ? '+' : ''}$points',
+                  '${points > 0 ? '+' : ''}$points',
+                  textAlign: TextAlign.center,
                   style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16,
-                    color: isPositive ? Colors.green : Colors.red,
+                    color: pointColor,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 12,
                   ),
                 ),
               ),
+              const SizedBox(width: 3),
               IconButton(
-                icon: const Icon(Icons.add_circle_outline),
+                visualDensity: VisualDensity.compact,
+                icon: const Icon(Icons.add_circle_outline, size: 20),
                 onPressed: () => _navigateToAddPoint(student),
-                tooltip: 'إضافة نقاط',
+                tooltip: 'إسناد نقاط',
               ),
             ],
           ),

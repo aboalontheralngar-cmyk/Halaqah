@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import '../../app/theme.dart';
 import '../../services/database_service.dart';
+import '../../services/memorized_content_service.dart';
 import '../../models/student.dart';
 import '../../models/memorization.dart';
 import '../../utils/quran_data.dart';
@@ -30,26 +32,32 @@ class _StudentMemorizationViewState extends State<StudentMemorizationView> {
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
     try {
-      final progress = await _db.getStudentMemorization(widget.student.id);
+      final values = await Future.wait<dynamic>([
+        _db.getStudentMemorization(widget.student.id),
+        _db.getStudentMemorizedRanges(widget.student.id),
+      ]);
+      final progress = values[0] as List<MemorizationProgress>;
+      final inferredRanges = values[1] as Map<int, MemorizedAyahRange>;
       final surahsProgress = <int, SurahProgress>{};
 
-      for (final p in progress.where((p) => !p.isRevision)) {
+      // The profile view uses the same canonical inferred memorized frontier as
+      // revision and exams. A student no longer needs a manually maintained
+      // "previous memorized" range just to make their true balance visible.
+      for (final entry in inferredRanges.entries) {
         final surahData = QuranData.surahs.firstWhere(
-          (s) => s['id'] == p.surahId,
+          (s) => s['id'] == entry.key,
           orElse: () => {},
         );
         if (surahData.isEmpty) continue;
-
-        if (!surahsProgress.containsKey(p.surahId)) {
-          surahsProgress[p.surahId] = SurahProgress(
-            surahId: p.surahId,
-            surahName: surahData['name'],
-            totalAyahs: surahData['ayahs'],
-            juz: surahData['juz'],
-          );
-        }
-
-        surahsProgress[p.surahId]!.addMemorization(p.fromAyah, p.toAyah);
+        final range = entry.value;
+        final item = SurahProgress(
+          surahId: entry.key,
+          surahName: surahData['name'],
+          totalAyahs: surahData['ayahs'],
+          juz: surahData['juz'],
+        );
+        item.addMemorization(range.fromAyah, range.toAyah);
+        surahsProgress[entry.key] = item;
       }
 
       setState(() {
@@ -100,26 +108,19 @@ class _StudentMemorizationViewState extends State<StudentMemorizationView> {
 
   Widget _buildStatsSection() {
     return Container(
-      margin: const EdgeInsets.all(16),
-      padding: const EdgeInsets.all(16),
+      margin: const EdgeInsets.fromLTRB(14, 12, 14, 8),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            Theme.of(context).primaryColor,
-            Theme.of(context).primaryColor.withOpacity(0.8),
-          ],
-          begin: Alignment.topRight,
-          end: Alignment.bottomLeft,
-        ),
-        borderRadius: BorderRadius.circular(16),
+        color: Theme.of(context).colorScheme.primary,
+        borderRadius: BorderRadius.circular(18),
       ),
       child: Column(
         children: [
           Text(
             widget.student.name,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 20,
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.onPrimary,
+              fontSize: 16,
               fontWeight: FontWeight.bold,
             ),
           ),
@@ -142,16 +143,16 @@ class _StudentMemorizationViewState extends State<StudentMemorizationView> {
       children: [
         Text(
           value,
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 24,
+          style: TextStyle(
+            color: Theme.of(context).colorScheme.onPrimary,
+            fontSize: 18,
             fontWeight: FontWeight.bold,
           ),
         ),
         Text(
           label,
           style: TextStyle(
-            color: Colors.white.withOpacity(0.8),
+            color: Theme.of(context).colorScheme.onPrimary.withValues(alpha: 0.85),
             fontSize: 12,
           ),
         ),
@@ -167,6 +168,7 @@ class _StudentMemorizationViewState extends State<StudentMemorizationView> {
         .where((sp) => sp.completionPercentage > 0 && sp.completionPercentage < 100)
         .length;
 
+    final semantic = AppSemanticColors.of(context);
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Row(
@@ -175,7 +177,7 @@ class _StudentMemorizationViewState extends State<StudentMemorizationView> {
             child: _buildProgressCard(
               'سور مكتملة',
               '$completedSurahs',
-              Colors.green,
+              semantic.success,
               Icons.check_circle,
             ),
           ),
@@ -184,7 +186,7 @@ class _StudentMemorizationViewState extends State<StudentMemorizationView> {
             child: _buildProgressCard(
               'قيد الحفظ',
               '$partialSurahs',
-              Colors.orange,
+              semantic.warning,
               Icons.hourglass_bottom,
             ),
           ),
@@ -220,7 +222,7 @@ class _StudentMemorizationViewState extends State<StudentMemorizationView> {
             ),
             Text(
               label,
-              style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+              style: TextStyle(fontSize: 10, color: Theme.of(context).colorScheme.onSurfaceVariant),
               textAlign: TextAlign.center,
             ),
           ],
@@ -254,15 +256,17 @@ class _StudentMemorizationViewState extends State<StudentMemorizationView> {
     Color bgColor;
     Color textColor;
 
+    final semantic = AppSemanticColors.of(context);
+    final scheme = Theme.of(context).colorScheme;
     if (percentage >= 100) {
-      bgColor = Colors.green;
-      textColor = Colors.white;
+      bgColor = semantic.successContainer;
+      textColor = semantic.success;
     } else if (percentage > 0) {
-      bgColor = Colors.orange.withOpacity(0.3);
-      textColor = Colors.orange[800]!;
+      bgColor = semantic.warningContainer;
+      textColor = semantic.warning;
     } else {
-      bgColor = Colors.grey.withOpacity(0.1);
-      textColor = Colors.grey;
+      bgColor = scheme.surfaceContainerLow;
+      textColor = scheme.onSurfaceVariant;
     }
 
     return InkWell(
@@ -343,11 +347,13 @@ class _StudentMemorizationViewState extends State<StudentMemorizationView> {
       child: ListTile(
         leading: CircleAvatar(
           backgroundColor: progress.isRevision
-              ? Colors.blue.withOpacity(0.1)
-              : Colors.green.withOpacity(0.1),
+              ? AppSemanticColors.of(context).infoContainer
+              : AppSemanticColors.of(context).successContainer,
           child: Icon(
             progress.isRevision ? Icons.replay : Icons.menu_book,
-            color: progress.isRevision ? Colors.blue : Colors.green,
+            color: progress.isRevision
+                ? AppSemanticColors.of(context).info
+                : AppSemanticColors.of(context).success,
             size: 20,
           ),
         ),
@@ -366,7 +372,7 @@ class _StudentMemorizationViewState extends State<StudentMemorizationView> {
             const SizedBox(height: 4),
             Text(
               Helpers.formatHijriDate(progress.date),
-              style: TextStyle(fontSize: 10, color: Colors.grey[500]),
+              style: TextStyle(fontSize: 10, color: Theme.of(context).colorScheme.onSurfaceVariant),
             ),
           ],
         ),
@@ -389,7 +395,7 @@ class _StudentMemorizationViewState extends State<StudentMemorizationView> {
                   backgroundColor: Theme.of(context).primaryColor,
                   child: Text(
                     '${surah['id']}',
-                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                    style: TextStyle(color: Theme.of(context).colorScheme.onPrimary, fontWeight: FontWeight.bold),
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -403,7 +409,7 @@ class _StudentMemorizationViewState extends State<StudentMemorizationView> {
                       ),
                       Text(
                         'الجزء ${surah['juz']} - ${surah['ayahs']} آية',
-                        style: TextStyle(color: Colors.grey[600]),
+                        style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
                       ),
                     ],
                   ),
@@ -413,9 +419,11 @@ class _StudentMemorizationViewState extends State<StudentMemorizationView> {
             const SizedBox(height: 24),
             LinearProgressIndicator(
               value: progress.completionPercentage / 100,
-              backgroundColor: Colors.grey[200],
+              backgroundColor: Theme.of(context).colorScheme.surfaceContainer,
               valueColor: AlwaysStoppedAnimation<Color>(
-                progress.completionPercentage >= 100 ? Colors.green : Colors.orange,
+                progress.completionPercentage >= 100
+                    ? AppSemanticColors.of(context).success
+                    : AppSemanticColors.of(context).warning,
               ),
               minHeight: 8,
             ),
@@ -428,7 +436,9 @@ class _StudentMemorizationViewState extends State<StudentMemorizationView> {
                   '${progress.completionPercentage.round()}%',
                   style: TextStyle(
                     fontWeight: FontWeight.bold,
-                    color: progress.completionPercentage >= 100 ? Colors.green : Colors.orange,
+                    color: progress.completionPercentage >= 100
+                        ? AppSemanticColors.of(context).success
+                        : AppSemanticColors.of(context).warning,
                   ),
                 ),
               ],

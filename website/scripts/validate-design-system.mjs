@@ -31,7 +31,12 @@ assertIncludes(read("lib/screens/reports/reports_screen.dart"), ["AppPageIntro",
 const notifications = read("lib/screens/notifications/notifications_screen.dart");
 assertIncludes(
   notifications,
-  ["Expanded(\n                                  child: Text(\n                                    notification.title", "TextOverflow.ellipsis", "Expanded(\n                                        child: Text(\n                                          'الطالب:"],
+  [
+    "Expanded(\n                                  child: Text(\n                                    notification.title",
+    "TextOverflow.ellipsis",
+    "WrapAlignment.spaceBetween",
+    "'الطالب: \${_getStudentName(notification.studentId)}'",
+  ],
   "Flutter notification responsive rows",
 );
 

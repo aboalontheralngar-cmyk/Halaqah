@@ -18,14 +18,32 @@ npm run dev
 
 ثم افتح `http://localhost:3000`.
 
+### أخطاء React وJSX داخل VS Code على Windows
+
+حزم `node_modules` لا تدخل ضمن حزمة المصدر لأنها قابلة لإعادة البناء وكبيرة
+الحجم. لذلك يجب بعد فك الحزمة تشغيل هذا الأمر من جذر المشروع:
+
+```powershell
+PowerShell -ExecutionPolicy Bypass -File .\tools\setup_web.ps1
+```
+
+والطريقة الأسهل هي النقر مرتين على `SETUP_WEB_WINDOWS.cmd` في جذر المشروع.
+تفحص الأداة وجود React وNext.js وLucide وتعريفات React وخادم TypeScript بعد
+التثبيت، وتدعم فتح مجلد المشروع كاملًا أو فتح `website` وحده في VS Code.
+
+إذا بقيت العلامات الحمراء بعد نجاحه، افتح لوحة أوامر VS Code وشغّل
+`TypeScript: Restart TS Server`. لا تعدّل `DashboardLayout.tsx` لإسكات هذه
+الأخطاء؛ أخطاء `react` و`next/navigation` و`lucide-react` وJSX في هذه الحالة
+تعني أن الاعتمادات لم تُحمّل، وليست أخطاء في المكوّن.
+
 ## فحوص الإصدار
 
 ```bash
 npm run quality:ci
 ```
 
-ينفذ الأمر تدقيق الثغرات الإنتاجية عالية الخطورة، وحد ESLint المتناقص،
-وفحوص العقود الـ25، وفحص TypeScript، وبناء Next.js الإنتاجي.
+ينفذ الأمر تدقيق الثغرات الإنتاجية عالية الخطورة، وحد ESLint بصفر تحذيرات،
+وفحوص العقود الـ61، وبناء Next.js الإنتاجي.
 
 أوامر مفيدة:
 
@@ -43,7 +61,11 @@ npm run build
 - نفّذ migration P6.2 قبل فتح `/audit-log` أو تفعيل النسخ السحابي في Android.
 - نفّذ migration بوابة الطالب ثم انشر `supabase/functions/student-portal` قبل فتح `/portal` للمستخدمين.
 - نفّذ migration P7.2.1 ثم أعد نشر Edge Function قبل تفعيل حساب ولي الأمر متعدد الأبناء.
-- نفّذ migration P7.3 قبل فتح `/supervision` أو إصدار دعوات ربط المراكز والفريق.
+- قاعدة المالك اجتازت Build 75. للترقية الحالية شغّل **فقط** `supabase/P1.27_BUILD76_APPLY.sql` ثم `supabase/P1.27_BUILD76_VERIFY.sql`. Build 76 يضيف drill-down للمركز، حذف طالب ذريًا، وtombstones لخريطة المصحف؛ لا تعاود Build75/P7.3.
+- نفّذ migration P1.7 قبل حفظ جلسة تسميع ويب تعبر أكثر من سورة؛ انسخ محتوى الملف لا اسمه.
+- Build 74 يعيد مصالحة عقد `supervision_visits` المطلوب للزيارات؛ P1.20 يبقى مطلوبًا فقط لبيئة جديدة لم تمر بالمراحل السابقة.
+- نفّذ migration P1.21 ثم أعد نشر `student-portal` قبل تفعيل تقارير ولي الأمر الدورية.
+- انشر `guardian-report-worker` واضبط `GUARDIAN_REPORT_WORKER_SECRET` وجدولة محمية كل 15 دقيقة. إعداد `GUARDIAN_REPORT_WEBHOOK_URL` و`GUARDIAN_REPORT_WEBHOOK_SECRET` مطلوب فقط للإرسال الخارجي.
 - عرّف `PORTAL_RATE_LIMIT_PEPPER` بقيمة عشوائية طويلة داخل أسرار Edge Functions، وقيّد `PORTAL_ALLOWED_ORIGINS` بعنوان الموقع المنشور.
 - عرّف المتغيرات العامة أثناء البناء؛ قيم `NEXT_PUBLIC_` تثبت داخل الحزمة.
 - لا تتجاوز فشل `quality:ci` ولا تستخدم `npm audit fix --force` دون مراجعة.

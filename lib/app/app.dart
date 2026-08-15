@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'theme.dart';
+import 'design_tokens.dart';
 import '../screens/home/home_screen.dart';
 import '../screens/settings/setup_wizard_screen.dart';
 import '../services/database_service.dart';
@@ -32,6 +33,8 @@ class HalaqahApp extends StatelessWidget {
           theme: AppTheme.lightTheme,
           darkTheme: AppTheme.darkTheme,
           themeMode: currentMode,
+          themeAnimationDuration: AppDurations.normal,
+          themeAnimationCurve: Curves.easeOutCubic,
           locale: const Locale('ar'),
           builder: (context, child) {
             final theme = Theme.of(context);
@@ -50,13 +53,16 @@ class HalaqahApp extends StatelessWidget {
               ),
               child: Directionality(
                 textDirection: TextDirection.rtl,
-                child: ColoredBox(
-                  color: theme.scaffoldBackgroundColor,
-                  // حجز المساحة السفلية مركزيًا يحمي جميع الشاشات والحوارات
-                  // من أزرار Android ومنطقة الإيماءة، بما فيها المسارات القديمة.
-                  child: SafeArea(
-                    top: false,
-                    child: child ?? const SizedBox.shrink(),
+                child: ScrollConfiguration(
+                  behavior: const _HalaqahScrollBehavior(),
+                  child: ColoredBox(
+                    color: theme.scaffoldBackgroundColor,
+                    // حجز المساحة السفلية مركزيًا يحمي جميع الشاشات والحوارات
+                    // من أزرار Android ومنطقة الإيماءة، بما فيها المسارات القديمة.
+                    child: SafeArea(
+                      top: false,
+                      child: child ?? const SizedBox.shrink(),
+                    ),
                   ),
                 ),
               ),
@@ -80,6 +86,19 @@ class HalaqahApp extends StatelessWidget {
         );
       },
     );
+  }
+}
+
+class _HalaqahScrollBehavior extends MaterialScrollBehavior {
+  const _HalaqahScrollBehavior();
+
+  @override
+  Widget buildOverscrollIndicator(
+    BuildContext context,
+    Widget child,
+    ScrollableDetails details,
+  ) {
+    return child;
   }
 }
 

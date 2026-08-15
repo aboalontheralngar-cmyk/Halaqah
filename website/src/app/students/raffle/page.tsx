@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
@@ -16,6 +17,7 @@ import {
   Users,
 } from "lucide-react";
 import { useStore } from "@/store/useStore";
+import { localDateKey } from "@/utils/dateUtils";
 
 interface RaffleSession {
   version: 2;
@@ -39,11 +41,7 @@ const emptySession = (): RaffleSession => ({
   drawEndsAt: null,
 });
 
-const localDateKey = () => {
-  const now = new Date();
-  const offset = now.getTimezoneOffset() * 60_000;
-  return new Date(now.getTime() - offset).toISOString().slice(0, 10);
-};
+
 
 const shuffle = (ids: string[]) => {
   const result = [...ids];
@@ -61,8 +59,16 @@ export default function StudentRafflePage() {
     attendance = [],
     currentCenter,
     fetchStudents,
-    fetchAttendance,
-  } = useStore();
+    fetchAttendance
+  } = useStore(
+    useShallow((state) => ({
+      students: state.students,
+      attendance: state.attendance,
+      currentCenter: state.currentCenter,
+      fetchStudents: state.fetchStudents,
+      fetchAttendance: state.fetchAttendance,
+    })),
+  );
   const [session, setSession] = useState<RaffleSession>(emptySession);
   const [animationStudentId, setAnimationStudentId] = useState<string | null>(null);
   const [hydrated, setHydrated] = useState(false);
@@ -134,20 +140,27 @@ export default function StudentRafflePage() {
   }, [fetchAttendance, fetchStudents]);
 
   useEffect(() => {
-    setHydrated(false);
-    try {
-      const raw = localStorage.getItem(storageKey);
-      if (raw) {
-        const saved = JSON.parse(raw) as Partial<RaffleSession>;
-        setSession({ ...emptySession(), ...saved, version: 2 });
-      } else {
+    let active = true;
+    queueMicrotask(() => {
+      if (!active) return;
+      setHydrated(false);
+      try {
+        const raw = localStorage.getItem(storageKey);
+        if (raw) {
+          const saved = JSON.parse(raw) as Partial<RaffleSession>;
+          setSession({ ...emptySession(), ...saved, version: 2 });
+        } else {
+          setSession(emptySession());
+        }
+      } catch {
         setSession(emptySession());
       }
-    } catch {
-      setSession(emptySession());
-    }
-    setLoadedStorageKey(storageKey);
-    setHydrated(true);
+      setLoadedStorageKey(storageKey);
+      setHydrated(true);
+    });
+    return () => {
+      active = false;
+    };
   }, [storageKey]);
 
   useEffect(() => {
@@ -158,18 +171,25 @@ export default function StudentRafflePage() {
   useEffect(() => {
     if (!hydrated || activeStudents.length === 0) return;
     const valid = new Set(activeStudents.map(student => student.id));
-    setSession(current => ({
-      ...current,
-      excludedIds: current.excludedIds.filter(id => valid.has(id)),
-      drawnIds: current.drawnIds.filter(id => valid.has(id)),
-      batchOrder: current.batchOrder.filter(id => valid.has(id)),
-      selectedId: current.selectedId && valid.has(current.selectedId)
-        ? current.selectedId
-        : null,
-      drawTargetId: current.drawTargetId && valid.has(current.drawTargetId)
-        ? current.drawTargetId
-        : null,
-    }));
+    let active = true;
+    queueMicrotask(() => {
+      if (!active) return;
+      setSession(current => ({
+        ...current,
+        excludedIds: current.excludedIds.filter(id => valid.has(id)),
+        drawnIds: current.drawnIds.filter(id => valid.has(id)),
+        batchOrder: current.batchOrder.filter(id => valid.has(id)),
+        selectedId: current.selectedId && valid.has(current.selectedId)
+          ? current.selectedId
+          : null,
+        drawTargetId: current.drawTargetId && valid.has(current.drawTargetId)
+          ? current.drawTargetId
+          : null,
+      }));
+    });
+    return () => {
+      active = false;
+    };
   }, [activeStudents, hydrated]);
 
   useEffect(() => {
@@ -179,8 +199,10 @@ export default function StudentRafflePage() {
     if (!targetId || !session.drawEndsAt) return;
     const remaining = session.drawEndsAt - Date.now();
     if (remaining <= 0) {
-      settleDraw(targetId);
-      return;
+      timeoutRef.current = setTimeout(() => settleDraw(targetId), 0);
+      return () => {
+        if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      };
     }
     const animationPool = eligibleIds.length > 0 ? eligibleIds : [targetId];
     intervalRef.current = setInterval(() => {
@@ -259,9 +281,9 @@ export default function StudentRafflePage() {
 
   return (
     <div className="max-w-5xl mx-auto space-y-7 pb-16 animate-in fade-in duration-500">
-      <header className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-gray-100 dark:border-gray-800 pb-6">
+      <header className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-[var(--border)] pb-6">
         <div>
-          <h1 className="text-3xl font-black text-gray-900 dark:text-white flex items-center gap-3">
+          <h1 className="text-3xl font-black text-[var(--foreground)] flex items-center gap-3">
             <Dices className="w-8 h-8 text-teal-600" />
             قرعة الطلاب المستمرة
           </h1>
@@ -273,7 +295,7 @@ export default function StudentRafflePage() {
           <button onClick={resetRaffle} className="px-4 py-3 rounded-xl bg-rose-50 text-rose-700 text-xs font-black flex items-center gap-2">
             <RotateCcw className="w-4 h-4" /> تصفير الدورة
           </button>
-          <button onClick={() => router.push("/")} className="px-4 py-3 rounded-xl bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 text-xs font-black flex items-center gap-2">
+          <button onClick={() => router.push("/")} className="px-4 py-3 rounded-xl bg-[var(--surface)] border border-gray-200 dark:border-gray-800 text-xs font-black flex items-center gap-2">
             <ArrowLeft className="w-4 h-4" /> الرئيسية
           </button>
         </div>
@@ -291,11 +313,11 @@ export default function StudentRafflePage() {
         </div>
       </div>
 
-      <label className="flex items-center justify-between gap-4 rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-5 cursor-pointer">
+      <label className="flex items-center justify-between gap-4 rounded-2xl border border-gray-200 dark:border-gray-800 bg-[var(--surface)] p-5 cursor-pointer">
         <span className="flex items-center gap-3">
           <ShieldCheck className="w-5 h-5 text-teal-600" />
           <span>
-            <strong className="block text-sm text-gray-900 dark:text-white">استبعاد الغائبين والمستأذنين اليوم</strong>
+            <strong className="block text-sm text-[var(--foreground)]">استبعاد الغائبين والمستأذنين اليوم</strong>
             <small className="text-gray-500">الخيار قابل للإلغاء عند الحاجة إلى إدخالهم في القرعة.</small>
           </span>
         </span>
@@ -307,7 +329,7 @@ export default function StudentRafflePage() {
         />
       </label>
 
-      <section className="min-h-[330px] rounded-[2.5rem] border border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 shadow-xl flex items-center justify-center p-8">
+      <section className="min-h-[330px] rounded-[2.5rem] border border-[var(--border)] bg-[var(--surface)] shadow-xl flex items-center justify-center p-8">
         {selectedStudent ? (
           <div className="text-center space-y-5 animate-in zoom-in-95 duration-200">
             {!isDrawing && (
@@ -318,7 +340,7 @@ export default function StudentRafflePage() {
             <div className={`w-24 h-24 mx-auto rounded-full flex items-center justify-center text-3xl font-black text-white ${isDrawing ? "bg-teal-600" : "bg-amber-500"}`}>
               {selectedStudent.name.charAt(0)}
             </div>
-            <h2 className="text-4xl font-black text-gray-900 dark:text-white">{selectedStudent.name}</h2>
+            <h2 className="text-4xl font-black text-[var(--foreground)]">{selectedStudent.name}</h2>
             <p className="text-sm text-gray-500">{isDrawing ? "جاري خلط الأسماء…" : `الترتيب ${session.drawnIds.length} في هذه الدورة`}</p>
           </div>
         ) : (
@@ -372,8 +394,8 @@ export default function StudentRafflePage() {
       </div>
 
       {session.batchOrder.length > 0 && (
-        <section className="rounded-3xl bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 p-6 space-y-4">
-          <h3 className="font-black text-gray-900 dark:text-white flex items-center gap-2">
+        <section className="rounded-3xl bg-[var(--surface)] border border-[var(--border)] p-6 space-y-4">
+          <h3 className="font-black text-[var(--foreground)] flex items-center gap-2">
             <ListOrdered className="w-5 h-5 text-teal-600" /> ترتيب التسميع الكامل
           </h3>
           <ol className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
@@ -383,7 +405,7 @@ export default function StudentRafflePage() {
               const drawn = session.drawnIds.includes(id);
               return (
                 <li key={id} className={`rounded-xl px-4 py-3 text-sm font-bold flex items-center gap-3 ${drawn ? "bg-teal-50 text-teal-800 dark:bg-teal-950/20 dark:text-teal-300" : "bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-200"}`}>
-                  <span className="w-7 h-7 rounded-full bg-white dark:bg-gray-900 flex items-center justify-center text-xs">{index + 1}</span>
+                  <span className="w-7 h-7 rounded-full bg-[var(--surface)] flex items-center justify-center text-xs">{index + 1}</span>
                   <span className="flex-1">{student.name}</span>
                   {drawn && <CheckCircle2 className="w-4 h-4" />}
                 </li>
@@ -394,8 +416,8 @@ export default function StudentRafflePage() {
       )}
 
       {(session.excludedIds.length > 0 || session.drawnIds.length > 0) && (
-        <section className="rounded-3xl bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 p-6 space-y-4">
-          <h3 className="font-black text-gray-900 dark:text-white">إدارة المستبعدين والمسحوبين</h3>
+        <section className="rounded-3xl bg-[var(--surface)] border border-[var(--border)] p-6 space-y-4">
+          <h3 className="font-black text-[var(--foreground)]">إدارة المستبعدين والمسحوبين</h3>
           <div className="flex flex-wrap gap-2">
             {Array.from(new Set([...session.excludedIds, ...session.drawnIds])).map(id => {
               const student = studentsById.get(id);

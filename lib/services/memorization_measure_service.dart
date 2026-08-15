@@ -31,13 +31,29 @@ class MemorizationMeasureService {
       return targetToAyah;
     }
 
+    if (planType == 'hizbs') {
+      final selectedHizbs = <int>{};
+      var targetToAyah = safeFrom;
+      for (var number = safeFrom; number <= surah.totalAyahs; number++) {
+        final ayah = surah.getAyah(number);
+        if (ayah == null) continue;
+        if (!selectedHizbs.contains(ayah.hizb) &&
+            selectedHizbs.length >= safeAmount) {
+          break;
+        }
+        selectedHizbs.add(ayah.hizb);
+        targetToAyah = number;
+      }
+      return targetToAyah;
+    }
+
     if (planType == 'lines') {
       var lines = 0.0;
       var targetToAyah = safeFrom;
       for (var number = safeFrom; number <= surah.totalAyahs; number++) {
         final ayah = surah.getAyah(number);
         if (ayah == null) continue;
-        lines += ayah.lines;
+        lines += ayah.lines <= 0 ? 0.5 : ayah.lines;
         targetToAyah = number;
         if (lines >= safeAmount) break;
       }
@@ -57,11 +73,15 @@ class MemorizationMeasureService {
     final safeTo = toAyah.clamp(safeFrom, surah.totalAyahs).toInt();
     final ayahs = surah.getAyahRange(safeFrom, safeTo);
 
+    final totalLines = ayahs.fold<double>(0, (sum, ayah) => sum + (ayah.lines <= 0 ? 0.5 : ayah.lines));
     if (planType == 'pages') {
-      return ayahs.map((ayah) => ayah.page).toSet().length.toDouble();
+      return totalLines / 15.0;
+    }
+    if (planType == 'hizbs') {
+      return totalLines / 150.0;
     }
     if (planType == 'lines') {
-      return ayahs.fold<double>(0, (sum, ayah) => sum + ayah.lines);
+      return totalLines;
     }
     return ayahs.length.toDouble();
   }

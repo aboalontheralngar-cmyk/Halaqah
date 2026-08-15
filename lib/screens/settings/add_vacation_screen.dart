@@ -93,7 +93,7 @@ class _AddVacationScreenState extends State<AddVacationScreen> {
             const Text('اختر الطالب', style: TextStyle(fontWeight: FontWeight.bold)),
             const SizedBox(height: 12),
             DropdownButtonFormField<Student>(
-              value: _selectedStudent,
+              initialValue: _selectedStudent,
               decoration: const InputDecoration(
                 border: OutlineInputBorder(),
                 prefixIcon: Icon(Icons.person),
@@ -114,7 +114,7 @@ class _AddVacationScreenState extends State<AddVacationScreen> {
   Widget _buildStudentInfo() {
     final student = _selectedStudent!;
     return Card(
-      color: Theme.of(context).primaryColor.withOpacity(0.1),
+      color: Theme.of(context).primaryColor.withValues(alpha: 0.1),
       child: ListTile(
         leading: CircleAvatar(
           backgroundColor: Theme.of(context).primaryColor,
@@ -186,13 +186,13 @@ class _AddVacationScreenState extends State<AddVacationScreen> {
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          border: Border.all(color: Colors.grey[300]!),
+          border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
           borderRadius: BorderRadius.circular(8),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(label, style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+            Text(label, style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant)),
             const SizedBox(height: 4),
             Row(
               children: [
@@ -216,7 +216,7 @@ class _AddVacationScreenState extends State<AddVacationScreen> {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.blue.withOpacity(0.1),
+        color: Colors.blue.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(12),
       ),
       child: Row(
@@ -271,7 +271,7 @@ class _AddVacationScreenState extends State<AddVacationScreen> {
           Icon(
             icon,
             size: 18,
-            color: isSelected ? Colors.white : Colors.grey[700],
+            color: isSelected ? Colors.white : Theme.of(context).colorScheme.onSurface,
           ),
           const SizedBox(width: 4),
           Text(label),

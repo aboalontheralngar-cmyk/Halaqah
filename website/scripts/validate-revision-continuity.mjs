@@ -9,7 +9,7 @@ const requireText = (source, text, label) => {
 
 const screen = read("lib/screens/memorization/revision_screen.dart");
 const service = read("lib/services/revision_progression_service.dart");
-const database = read("lib/services/database_service.dart");
+const database = read("lib/services/database_service.dart") + read("lib/services/local_database_schema.dart");
 const test = read("test/revision_progression_service_test.dart");
 
 for (const contract of [

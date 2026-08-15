@@ -43,24 +43,23 @@ class AttendanceChip extends StatelessWidget {
 
   Widget _buildChip(AttendanceInfo info) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: info.color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: info.color.withOpacity(0.3)),
+        color: info.color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(999),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(info.icon, size: 16, color: info.color),
+          Icon(info.icon, size: 14, color: info.color),
           if (showLabel) ...[
-            const SizedBox(width: 6),
+            const SizedBox(width: 4),
             Text(
               info.label,
               style: TextStyle(
                 color: info.color,
                 fontWeight: FontWeight.w500,
-                fontSize: 12,
+                fontSize: 11,
               ),
             ),
           ],
@@ -112,9 +111,9 @@ class AttendanceSelector extends StatelessWidget {
           onTap: () => onStatusSelected(status),
           borderRadius: BorderRadius.circular(12),
           child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
             decoration: BoxDecoration(
-              color: isSelected ? info.color : info.color.withOpacity(0.1),
+              color: isSelected ? info.color : info.color.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
                 color: info.color,
@@ -126,7 +125,7 @@ class AttendanceSelector extends StatelessWidget {
                 Icon(
                   info.icon,
                   color: isSelected ? Colors.white : info.color,
-                  size: 24,
+                  size: 20,
                 ),
                 const SizedBox(height: 4),
                 Text(
@@ -134,7 +133,7 @@ class AttendanceSelector extends StatelessWidget {
                   style: TextStyle(
                     color: isSelected ? Colors.white : info.color,
                     fontWeight: FontWeight.w500,
-                    fontSize: 12,
+                    fontSize: 11,
                   ),
                 ),
               ],

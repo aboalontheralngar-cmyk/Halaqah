@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../services/database_service.dart';
@@ -13,17 +15,25 @@ import '../students/students_screen.dart';
 import '../students/student_raffle_screen.dart';
 import '../students/families_screen.dart';
 import '../attendance/attendance_screen.dart';
+import '../attendance/daily_closing_screen.dart';
 import '../reports/reports_screen.dart';
 import '../settings/settings_screen.dart';
 import '../memorization/memorization_screen.dart';
 import '../behavior/behavior_screen.dart';
 import '../exam/exams_screen.dart';
+import '../competition/competitions_screen.dart';
 import '../fund/fund_screen.dart';
 import '../plans/plans_screen.dart';
+import '../courses/quran_courses_screen.dart';
 import '../notifications/notifications_screen.dart';
 import '../honor_board/honor_board_screen.dart';
 import '../honor_board/daily_excellence_screen.dart';
 import '../vacations/vacations_screen.dart';
+import '../settings/usage_guide_screen.dart';
+import '../settings/offline_exchange_screen.dart';
+import '../../services/daily_closing_service.dart';
+import '../../app/design_tokens.dart';
+import '../../widgets/app_design_widgets.dart';
 
 
 class HomeScreen extends StatefulWidget {
@@ -39,12 +49,14 @@ class _HomeScreenState extends State<HomeScreen> {
   final DatabaseService _db = DatabaseService();
   final BackupService _backup = BackupService();
   bool _backupMaintenanceChecked = false;
+  Timer? _dailyClosingTimer;
   
   List<Student> _students = [];
   bool _isLoading = true;
   int _presentToday = 0;
   int _absentToday = 0;
   int _unreadNotifications = 0;
+  int _dailyClosingActionCount = 0;
   double _fundBalance = 0.0;
   String _halaqahName = 'حلقتي';
   String _mosqueName = 'المسجد';
@@ -54,21 +66,55 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    _loadData();
+    // نعرض الإطار الأول قبل تشغيل إغلاق الأيام وقراءات لوحة التحكم الثقيلة.
+    // هذا يقلل التقطّع الملحوظ عند فتح التطبيق على الأجهزة المتوسطة.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _loadData();
+    });
+  }
+
+  @override
+  void dispose() {
+    _dailyClosingTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> _loadData() async {
-    setState(() => _isLoading = true);
+    if (mounted) setState(() => _isLoading = true);
     try {
-      final students = await _db.getStudents(status: 'active');
-      final todayRecords = await _db.getDailyRecordsForDate(DateTime.now());
-      final settings = await _db.getSettings();
-      final unreadCount = await _db.getUnreadNotificationsCount();
-      final balance = await _db.getFundBalance();
+      final closingService = DailyClosingService(database: _db);
+      final closingFuture = Future<dynamic>(() async {
+        try {
+          return await closingService.closeOverdueDays();
+        } catch (_) {
+          return null;
+        }
+      });
+      final results = await Future.wait<dynamic>([
+        _db.getStudents(status: 'active'),
+        _db.getDailyRecordsForDate(DateTime.now()),
+        _db.getSettings(),
+        _db.getUnreadNotificationsCount(),
+        _db.getFundBalance(),
+        Future<dynamic>(() async {
+          try {
+            return await closingService.load();
+          } catch (_) {
+            return null;
+          }
+        }),
+      ]);
+      final students = results[0] as List<Student>;
+      final todayRecords = results[1] as List;
+      final settings = results[2] as HalaqahSettings;
+      final unreadCount = results[3] as int;
+      final balance = results[4] as double;
+      final closingActionCount =
+          (results[5] as dynamic)?.actionRequiredCount as int? ?? 0;
 
-      int present = 0;
-      int absent = 0;
-      final Map<String, String> attMap = {};
+      var present = 0;
+      var absent = 0;
+      final attMap = <String, String>{};
       for (final record in todayRecords) {
         attMap[record.studentId] = record.attendance;
         if (record.attendance == 'present' || record.attendance == 'late') {
@@ -78,27 +124,90 @@ class _HomeScreenState extends State<HomeScreen> {
         }
       }
 
+      if (!mounted) return;
       setState(() {
         _students = students;
         _presentToday = present;
         _absentToday = absent;
         _unreadNotifications = unreadCount;
+        _dailyClosingActionCount = closingActionCount;
         _fundBalance = balance;
         _halaqahName = settings.halaqahName;
-        _mosqueName = settings.mosqueName.isNotEmpty ? settings.mosqueName : 'المسجد الرئيسي';
+        _mosqueName = settings.mosqueName.isNotEmpty
+            ? settings.mosqueName
+            : 'المسجد الرئيسي';
         _todayAttendance = attMap;
         _settings = settings;
         _isLoading = false;
       });
+      _scheduleAutomaticDailyClosing();
+
+      // صيانة النسخ الاحتياطي تبدأ بعد ظهور بيانات الرئيسية، لا قبلها.
       if (!_backupMaintenanceChecked) {
         _backupMaintenanceChecked = true;
         WidgetsBinding.instance.addPostFrameCallback((_) {
           _handleBackupMaintenance();
         });
       }
-    } catch (e) {
-      setState(() => _isLoading = false);
+
+      // الإغلاق التلقائي قد يكتب سجلات كثيرة؛ ننتظر نتيجته بعد عرض الواجهة.
+      final automaticClosing = await closingFuture;
+      final automaticallyClosedDays =
+          (automaticClosing as dynamic)?.closedCount as int? ?? 0;
+      if (!mounted || automaticallyClosedDays <= 0) return;
+      final refreshed = await Future.wait<dynamic>([
+        _db.getDailyRecordsForDate(DateTime.now()),
+        Future<dynamic>(() async {
+          try {
+            return await closingService.load();
+          } catch (_) {
+            return null;
+          }
+        }),
+      ]);
+      final refreshedRecords = refreshed[0] as List;
+      var refreshedPresent = 0;
+      var refreshedAbsent = 0;
+      final refreshedMap = <String, String>{};
+      for (final record in refreshedRecords) {
+        refreshedMap[record.studentId] = record.attendance;
+        if (record.attendance == 'present' || record.attendance == 'late') {
+          refreshedPresent++;
+        } else if (record.attendance == 'absent') {
+          refreshedAbsent++;
+        }
+      }
+      if (!mounted) return;
+      setState(() {
+        _presentToday = refreshedPresent;
+        _absentToday = refreshedAbsent;
+        _todayAttendance = refreshedMap;
+        _dailyClosingActionCount =
+            (refreshed[1] as dynamic)?.actionRequiredCount as int? ??
+                _dailyClosingActionCount;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'أُغلق تلقائيًا ${automaticallyClosedDays == 1 ? 'اليوم السابق' : '$automaticallyClosedDays أيام سابقة'} بعد انتهاء اليوم.',
+          ),
+          backgroundColor: Colors.teal,
+        ),
+      );
+    } catch (_) {
+      if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  void _scheduleAutomaticDailyClosing() {
+    _dailyClosingTimer?.cancel();
+    final now = DateTime.now();
+    final nextDay = DateTime(now.year, now.month, now.day)
+        .add(const Duration(days: 1, seconds: 2));
+    _dailyClosingTimer = Timer(nextDay.difference(now), () async {
+      if (!mounted) return;
+      await _loadData();
+    });
   }
 
   Future<void> _handleBackupMaintenance() async {
@@ -151,27 +260,54 @@ class _HomeScreenState extends State<HomeScreen> {
     }
     await _backup.markReminderShown();
     if (!mounted) return;
-    final createNow = await showDialog<bool>(
+    final action = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('حماية بيانات الحلقة'),
+        title: const Text('اعمل دون إنترنت واحم بياناتك'),
         content: const Text(
-          'لسلامة بيانات الطلاب، يرجى الاحتفاظ بنسخة احتياطية حديثة ومشاركة نسخة منها إلى مكان آمن خارج الجهاز.',
+          'يمكنك استخدام حلقتي دائمًا دون إنترنت. وعند توفر الاتصال، '
+          'انضم إلى الخدمة السحابية مجانًا لحفظ نسخة مشفرة ومتابعة '
+          'البيانات من أجهزتك الأخرى.',
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context, false),
+            onPressed: () => Navigator.pop(context, 'later'),
             child: const Text('لاحقًا'),
           ),
-          FilledButton.icon(
-            onPressed: () => Navigator.pop(context, true),
+          OutlinedButton.icon(
+            onPressed: () => Navigator.pop(context, 'local'),
             icon: const Icon(Icons.backup_outlined),
-            label: const Text('نسخ الآن'),
+            label: const Text('نسخة محلية'),
+          ),
+          FilledButton.icon(
+            onPressed: () => Navigator.pop(context, 'cloud'),
+            icon: const Icon(Icons.cloud_outlined),
+            label: Text(
+              SupabaseService.instance.isAuthenticated
+                  ? 'فتح السحابة'
+                  : 'انضم مجانًا',
+            ),
           ),
         ],
       ),
     );
-    if (createNow != true) return;
+    if (action == 'cloud') {
+      await _syncWithCloud();
+      return;
+    }
+    if (action != 'local') return;
+    if (!await _backup.passphrases.isConfigured) {
+      if (!mounted) return;
+      setState(() => _currentIndex = 4);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'أعد عبارة حماية من الإعدادات أولًا، ثم أنشئ النسخة المحلية.',
+          ),
+        ),
+      );
+      return;
+    }
     try {
       await _backup.exportBackup();
       if (!mounted) return;
@@ -285,7 +421,9 @@ class _HomeScreenState extends State<HomeScreen> {
               onPressed: () => Navigator.pop(context, 'close'),
               child: Text(
                 'إلغاء',
-                style: TextStyle(color: Colors.grey),
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
               ),
             ),
           ],
@@ -690,7 +828,12 @@ class _HomeScreenState extends State<HomeScreen> {
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(context, null),
-                  child: Text('إلغاء', style: TextStyle(color: Colors.grey)),
+                  child: Text(
+                    'إلغاء',
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
                 ),
               ],
             );
@@ -763,27 +906,27 @@ class _HomeScreenState extends State<HomeScreen> {
           destinations: [
             const NavigationDestination(
               icon: Icon(Icons.dashboard_outlined),
-              selectedIcon: Icon(Icons.dashboard),
+              selectedIcon: Icon(Icons.dashboard_outlined),
               label: 'الرئيسية',
             ),
             NavigationDestination(
               icon: const Icon(Icons.people_outlined),
-              selectedIcon: const Icon(Icons.people),
+              selectedIcon: const Icon(Icons.people_outlined),
               label: GenderHelper.students(_settings.gender),
             ),
             const NavigationDestination(
               icon: Icon(Icons.qr_code_scanner),
-              selectedIcon: Icon(Icons.qr_code_scanner_outlined),
+              selectedIcon: Icon(Icons.qr_code_scanner),
               label: 'القارئ',
             ),
             const NavigationDestination(
               icon: Icon(Icons.assessment_outlined),
-              selectedIcon: Icon(Icons.assessment),
+              selectedIcon: Icon(Icons.assessment_outlined),
               label: 'التقارير',
             ),
             const NavigationDestination(
               icon: Icon(Icons.settings_outlined),
-              selectedIcon: Icon(Icons.settings),
+              selectedIcon: Icon(Icons.settings_outlined),
               label: 'الإعدادات',
             ),
           ],
@@ -820,14 +963,7 @@ class _HomeScreenState extends State<HomeScreen> {
               width: double.infinity,
               padding: const EdgeInsets.fromLTRB(20, 18, 20, 16),
               decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    colorScheme.primaryContainer,
-                    colorScheme.surface,
-                  ],
-                  begin: Alignment.topRight,
-                  end: Alignment.bottomLeft,
-                ),
+                color: colorScheme.primary,
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -836,8 +972,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     width: 52,
                     height: 52,
                     decoration: BoxDecoration(
-                      color: colorScheme.primary,
-                      borderRadius: BorderRadius.circular(18),
+                      color: colorScheme.onPrimary.withValues(alpha: 0.10),
+                      borderRadius: BorderRadius.circular(14),
                     ),
                     child: Icon(
                       Icons.menu_book_rounded,
@@ -849,13 +985,16 @@ class _HomeScreenState extends State<HomeScreen> {
                   Text(
                     _halaqahName,
                     style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
+                      color: colorScheme.onPrimary,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800,
                     ),
                   ),
                   Text(
                     _mosqueName,
-                    style: TextStyle(color: colorScheme.onSurfaceVariant),
+                    style: TextStyle(
+                      color: colorScheme.onPrimary.withValues(alpha: 0.72),
+                    ),
                   ),
                 ],
               ),
@@ -883,6 +1022,12 @@ class _HomeScreenState extends State<HomeScreen> {
                     selectedIcon: Icons.how_to_reg,
                     label: 'الحضور والتسميع',
                   ),
+                  _drawerPageItem(
+                    icon: Icons.fact_check_outlined,
+                    label: 'مراجعة وإغلاق اليوم',
+                    page: const DailyClosingScreen(),
+                    badge: _dailyClosingActionCount,
+                  ),
                   _drawerRootItem(
                     index: 3,
                     icon: Icons.assessment_outlined,
@@ -906,9 +1051,19 @@ class _HomeScreenState extends State<HomeScreen> {
                     page: const PlansScreen(),
                   ),
                   _drawerPageItem(
+                    icon: Icons.event_repeat_outlined,
+                    label: 'دورات الحفظ والمراجعة',
+                    page: const QuranCoursesScreen(),
+                  ),
+                  _drawerPageItem(
                     icon: Icons.quiz_outlined,
                     label: 'الاختبارات',
                     page: const ExamsScreen(),
+                  ),
+                  _drawerPageItem(
+                    icon: Icons.emoji_events_outlined,
+                    label: 'المسابقات والتحكيم',
+                    page: const CompetitionsScreen(),
                   ),
                   _drawerPageItem(
                     icon: Icons.thumb_up_alt_outlined,
@@ -953,6 +1108,16 @@ class _HomeScreenState extends State<HomeScreen> {
                     icon: Icons.settings_outlined,
                     selectedIcon: Icons.settings,
                     label: 'الإعدادات',
+                  ),
+                  _drawerPageItem(
+                    icon: Icons.help_outline,
+                    label: 'دليل الاستخدام',
+                    page: const UsageGuideScreen(),
+                  ),
+                  _drawerPageItem(
+                    icon: Icons.wifi_tethering_outlined,
+                    label: 'التبادل دون إنترنت',
+                    page: const OfflineExchangeScreen(),
                   ),
                 ],
               ),
@@ -1038,90 +1203,117 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildHomeTab() {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    
     return RefreshIndicator(
       onRefresh: _loadData,
       child: CustomScrollView(
+        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
         slivers: [
           SliverAppBar(
-            expandedHeight: 150,
+            toolbarHeight: 52,
             pinned: true,
             leading: IconButton(
               onPressed: () => _scaffoldKey.currentState?.openDrawer(),
-              icon: const Icon(Icons.menu),
+              icon: const Icon(Icons.menu_rounded),
               tooltip: 'القائمة الرئيسية',
+            ),
+            title: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(_halaqahName),
+                Text(
+                  _mosqueName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onPrimary
+                            .withValues(alpha: 0.72),
+                      ),
+                ),
+              ],
             ),
             actions: [
               IconButton(
+                icon: Badge(
+                  isLabelVisible: _unreadNotifications > 0,
+                  label: Text(
+                    _unreadNotifications > 99
+                        ? '99+'
+                        : '$_unreadNotifications',
+                  ),
+                  child: const Icon(Icons.notifications_outlined),
+                ),
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const NotificationsScreen(),
+                  ),
+                ).then((_) => _loadData()),
+                tooltip: 'التنبيهات',
+              ),
+              IconButton(
                 icon: Icon(
                   SupabaseService.instance.isAuthenticated
-                      ? Icons.cloud_done
-                      : Icons.cloud_queue,
-                  color: SupabaseService.instance.isAuthenticated ? Colors.green : null,
+                      ? Icons.cloud_done_outlined
+                      : Icons.cloud_sync_outlined,
+                  color: SupabaseService.instance.isAuthenticated
+                      ? context.semanticColors.success
+                      : null,
                 ),
                 onPressed: _syncWithCloud,
                 tooltip: 'المزامنة السحابية',
               ),
             ],
-            flexibleSpace: FlexibleSpaceBar(
-              titlePadding: const EdgeInsets.only(right: 20, bottom: 16),
-              title: Text(
-                _halaqahName,
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 22,
-                  color: isDark ? Colors.white : const Color(0xFF0F172A),
-                ),
-              ),
-              background: Container(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: isDark
-                        ? [const Color(0xFF0F172A), const Color(0xFF1E293B)]
-                        : [const Color(0xFFCCFBF1), const Color(0xFFF8FAFC)],
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                  ),
-                ),
-                padding: const EdgeInsets.only(right: 20, top: 48),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.mosque_outlined,
-                          size: 16,
-                          color: isDark ? Colors.teal[300] : const Color(0xFF0D9488),
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          _mosqueName,
-                          style: TextStyle(
-                            color: isDark ? Colors.grey[400] : const Color(0xFF475569),
-                            fontSize: 13,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ),
           ),
           SliverPadding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            padding: AppSpacing.pageFor(context),
             sliver: SliverList(
               delegate: SliverChildListDelegate([
-                _buildDateCard(),
-                const SizedBox(height: 16),
+                AppFocusPanel(
+                  eyebrow: Helpers.getFullHijriDate(DateTime.now()),
+                  title: _dailyClosingActionCount > 0
+                      ? 'أكمل متابعة اليوم قبل الإغلاق'
+                      : 'مساحة العمل اليومية جاهزة',
+                  description: _dailyClosingActionCount > 0
+                      ? 'تبقّى $_dailyClosingActionCount إجراء يحتاج مراجعتك.'
+                      : 'ابدأ بالحضور ثم انتقل إلى الحفظ والمراجعة.',
+                  icon: _dailyClosingActionCount > 0
+                      ? Icons.pending_actions_outlined
+                      : Icons.auto_stories_outlined,
+                  footer: SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      onPressed: _dailyClosingActionCount > 0
+                          ? () => Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) =>
+                                      const DailyClosingScreen(),
+                                ),
+                              ).then((_) => _loadData())
+                          : () => setState(() => _currentIndex = 2),
+                      icon: Icon(
+                        _dailyClosingActionCount > 0
+                            ? Icons.fact_check_outlined
+                            : Icons.qr_code_scanner_rounded,
+                      ),
+                      label: Text(
+                        _dailyClosingActionCount > 0
+                            ? 'مراجعة العمليات'
+                            : 'تسجيل الحضور',
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.sm),
                 _buildStatsRow(),
-                const SizedBox(height: 20),
+                const SizedBox(height: AppSpacing.lg),
                 _buildQuickActions(),
-                const SizedBox(height: 24),
+                const SizedBox(height: AppSpacing.xl),
                 _buildRecentActivity(),
-                const SizedBox(height: 40),
+                const SizedBox(height: AppSpacing.xxl),
               ]),
             ),
           ),
@@ -1130,122 +1322,91 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildDateCard() {
-    final now = DateTime.now();
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    
+  Widget _buildStatsRow() {
+    final textScale = MediaQuery.textScalerOf(context).scale(1);
+    final veryLargeText = textScale > 1.35;
     return Card(
+      margin: EdgeInsets.zero,
       child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: const Color(0xFF0D9488).withOpacity(0.1),
-                shape: BoxShape.circle,
+        padding: EdgeInsets.symmetric(
+          horizontal: AppSpacing.xs,
+          vertical: veryLargeText ? 11 : 8,
+        ),
+        child: IntrinsicHeight(
+          child: Row(
+            children: [
+              Expanded(
+                child: _buildCompactStat(
+                  GenderHelper.students(_settings.gender),
+                  '${_students.length}',
+                  Icons.people_outline,
+                  context.semanticColors.info,
+                ),
               ),
-              child: const Icon(
-                Icons.calendar_today,
-                color: Color(0xFF0D9488),
-                size: 20,
+              const VerticalDivider(width: 8),
+              Expanded(
+                child: _buildCompactStat(
+                  GenderHelper.present(_settings.gender),
+                  '$_presentToday',
+                  Icons.check_circle_outline,
+                  context.semanticColors.success,
+                ),
               ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    Helpers.getDayName(now),
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    Helpers.getFullHijriDate(now),
-                    style: TextStyle(
-                      color: isDark ? Colors.grey[400] : Colors.grey[600],
-                      fontSize: 13,
-                    ),
-                  ),
-                ],
+              const VerticalDivider(width: 8),
+              Expanded(
+                child: _buildCompactStat(
+                  GenderHelper.absent(_settings.gender),
+                  '$_absentToday',
+                  Icons.highlight_off,
+                  Theme.of(context).colorScheme.error,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildStatsRow() {
-    return Row(
-      children: [
-        Expanded(
-          child: _buildStatCard(
-            GenderHelper.students(_settings.gender),
-            '${_students.length}',
-            Icons.people_outline,
-            const Color(0xFF3B82F6),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: _buildStatCard(
-            '${GenderHelper.present(_settings.gender)} اليوم',
-            '$_presentToday',
-            Icons.check_circle_outline,
-            const Color(0xFF10B981),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: _buildStatCard(
-            '${GenderHelper.absent(_settings.gender)} اليوم',
-            '$_absentToday',
-            Icons.highlight_off,
-            const Color(0xFFEF4444),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildStatCard(String label, String value, IconData icon, Color color) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
-        child: Column(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: color.withOpacity(0.1),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(icon, color: color, size: 22),
+  Widget _buildCompactStat(
+    String label,
+    String value,
+    IconData icon,
+    Color color,
+  ) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      child: Row(
+        children: [
+          Icon(icon, color: color, size: 19),
+          const SizedBox(width: 5),
+          Expanded(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  value,
+                  style: const TextStyle(
+                    fontSize: 16.5,
+                    height: 1.05,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    fontSize: 9.5,
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 12),
-            Text(
-              value,
-              style: TextStyle(
-                fontSize: 26,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              label,
-              style: TextStyle(
-                color: isDark ? Colors.grey[400] : Colors.grey[600],
-                fontSize: 11,
-              ),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -1255,36 +1416,101 @@ class _HomeScreenState extends State<HomeScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'إدارة وتطوير الحلقة',
-          style: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-          ),
+          'المهام اليومية',
+          style: Theme.of(context).textTheme.titleLarge,
         ),
-        const SizedBox(height: 12),
-        GridView.count(
-          crossAxisCount: 3,
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          mainAxisSpacing: 12,
-          crossAxisSpacing: 12,
-          childAspectRatio: 0.9,
+        const SizedBox(height: AppSpacing.xxs),
+        Text(
+          'العمليات الأكثر استخدامًا مرتبة حسب سير يوم الحلقة.',
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        AppCompactActionGrid(
           children: [
-            _buildActionItem(
+            _buildCompactActionItem(
               'تسجيل الحضور',
               Icons.qr_code_scanner,
-              const Color(0xFF0D9488),
+              Theme.of(context).colorScheme.primary,
               () => setState(() => _currentIndex = 2),
             ),
-            _buildActionItem(
+            _buildCompactActionItem(
+              'مراجعة وإغلاق اليوم',
+              Icons.fact_check_outlined,
+              context.semanticColors.warning,
+              badgeCount: _dailyClosingActionCount,
+              () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const DailyClosingScreen(),
+                ),
+              ).then((_) => _loadData()),
+            ),
+            _buildCompactActionItem(
               'الحفظ والتسميع',
-              Icons.menu_book,
-              const Color(0xFF3B82F6),
+              Icons.menu_book_outlined,
+              context.semanticColors.info,
               () => Navigator.push(
                 context,
                 MaterialPageRoute(builder: (context) => const MemorizationScreen()),
               ).then((_) => _loadData()),
             ),
+            _buildCompactActionItem(
+              GenderHelper.students(_settings.gender),
+              Icons.people_outline,
+              const Color(0xFF6366F1),
+              () => setState(() => _currentIndex = 1),
+            ),
+            _buildCompactActionItem(
+              'التقارير',
+              Icons.assessment_outlined,
+              const Color(0xFFF97316),
+              () => setState(() => _currentIndex = 3),
+            ),
+            _buildCompactActionItem(
+              'الخطط الذكية',
+              Icons.track_changes,
+              const Color(0xFFEC4899),
+              () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const PlansScreen()),
+              ).then((_) => _loadData()),
+            ),
+            _buildCompactActionItem(
+              'الدورات القرآنية',
+              Icons.event_repeat_outlined,
+              Theme.of(context).colorScheme.secondary,
+              () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const QuranCoursesScreen()),
+              ).then((_) => _loadData()),
+            ),
+            _buildCompactActionItem(
+              'سجل التنبيهات',
+              Icons.notifications_none_rounded,
+              const Color(0xFFEF4444),
+              badgeCount: _unreadNotifications,
+              () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const NotificationsScreen()),
+              ).then((_) => _loadData()),
+            ),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        Card(
+          margin: EdgeInsets.zero,
+          child: ExpansionTile(
+            leading: const Icon(Icons.tune_rounded),
+            title: const Text(
+              'الأدوات والإدارة المتقدمة',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            subtitle: const Text('النقاط والاختبارات والصندوق والإدارة'),
+            childrenPadding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
+            children: [
+              _actionGrid([
             _buildActionItem(
               'النقاط والسلوك',
               Icons.thumb_up_alt_outlined,
@@ -1296,7 +1522,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             _buildActionItem(
               'لوحة الشرف',
-              Icons.emoji_events,
+              Icons.emoji_events_outlined,
               const Color(0xFFF59E0B),
               () => Navigator.push(
                 context,
@@ -1305,7 +1531,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             _buildActionItem(
               'متميزو اليوم',
-              Icons.auto_awesome,
+              Icons.auto_awesome_outlined,
               const Color(0xFF14B8A6),
               () => Navigator.push(
                 context,
@@ -1316,7 +1542,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             _buildActionItem(
               'إجازات ${GenderHelper.students(_settings.gender)}',
-              Icons.beach_access,
+              Icons.beach_access_outlined,
               const Color(0xFF06B6D4),
               () => Navigator.push(
                 context,
@@ -1325,7 +1551,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             _buildActionItem(
               'الامتحانات والاختبار',
-              Icons.quiz,
+              Icons.quiz_outlined,
               const Color(0xFFA855F7),
               () => Navigator.push(
                 context,
@@ -1333,8 +1559,19 @@ class _HomeScreenState extends State<HomeScreen> {
               ).then((_) => _loadData()),
             ),
             _buildActionItem(
+              'المسابقات والتحكيم',
+              Icons.emoji_events_outlined,
+              const Color(0xFFD97706),
+              () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const CompetitionsScreen(),
+                ),
+              ).then((_) => _loadData()),
+            ),
+            _buildActionItem(
               'صندوق الحلقة',
-              Icons.account_balance_wallet,
+              Icons.account_balance_wallet_outlined,
               const Color(0xFF10B981),
               badgeText: _fundBalance > 0 ? '${_fundBalance.toInt()}' : null,
               () => Navigator.push(
@@ -1343,17 +1580,8 @@ class _HomeScreenState extends State<HomeScreen> {
               ).then((_) => _loadData()),
             ),
             _buildActionItem(
-              'الخطط الذكية',
-              Icons.track_changes,
-              const Color(0xFFEC4899),
-              () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => const PlansScreen()),
-              ).then((_) => _loadData()),
-            ),
-            _buildActionItem(
               'القرعة العشوائية',
-              Icons.casino,
+              Icons.casino_outlined,
               const Color(0xFF0F766E),
               () => Navigator.push(
                 context,
@@ -1361,132 +1589,97 @@ class _HomeScreenState extends State<HomeScreen> {
               ).then((_) => _loadData()),
             ),
             _buildActionItem(
-              'سجل التنبيهات',
-              Icons.notifications,
-              const Color(0xFFEF4444),
-              badgeCount: _unreadNotifications,
-              () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => const NotificationsScreen()),
-              ).then((_) => _loadData()),
-            ),
-            _buildActionItem(
-              'التقارير والإحصاءات',
-              Icons.assessment,
-              const Color(0xFFF97316),
-              () => setState(() => _currentIndex = 3),
-            ),
-            _buildActionItem(
               'الإعدادات',
-              Icons.settings,
+              Icons.settings_outlined,
               const Color(0xFF64748B),
               () => setState(() => _currentIndex = 4),
             ),
-          ],
+              ]),
+            ],
+          ),
         ),
       ],
     );
   }
 
-  Widget _buildActionItem(String label, IconData icon, Color color, VoidCallback onTap, {int badgeCount = 0, String? badgeText}) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return InkWell(
+  Widget _actionGrid(List<Widget> children) => LayoutBuilder(
+        builder: (context, constraints) {
+          final textScale = MediaQuery.textScalerOf(context).scale(1);
+          return AppAdaptiveGrid(
+            minItemWidth: textScale > 1.2 ? 250 : 215,
+            children: children,
+          );
+        },
+      );
+
+  Widget _buildActionItem(
+    String label,
+    IconData icon,
+    Color color,
+    VoidCallback onTap, {
+    int badgeCount = 0,
+    String? badgeText,
+  }) {
+    final badge = badgeCount > 0
+        ? AppStatusPill(
+            label: badgeCount > 99 ? '99+' : '$badgeCount',
+            color: Theme.of(context).colorScheme.error,
+          )
+        : badgeText == null
+            ? null
+            : AppStatusPill(
+                label: badgeText,
+                color: context.semanticColors.success,
+              );
+    return AppActionTile(
+      label: label,
+      description: _actionDescription(label),
+      icon: icon,
+      color: color,
       onTap: onTap,
-      borderRadius: BorderRadius.circular(24),
-      child: Card(
-        margin: EdgeInsets.zero,
-        elevation: 0,
-        color: isDark ? const Color(0xFF1E293B) : Colors.white,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(24),
-          side: BorderSide(
-            color: isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0),
-            width: 1,
-          ),
-        ),
-        child: Stack(
-          clipBehavior: Clip.none,
-          children: [
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: color.withOpacity(0.1),
-                      shape: BoxShape.circle,
-                    ),
-                    child: Icon(
-                      icon,
-                      color: color,
-                      size: 24,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    label,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            if (badgeCount > 0)
-              Positioned(
-                top: 8,
-                right: 8,
-                child: Container(
-                  padding: const EdgeInsets.all(4),
-                  decoration: const BoxDecoration(
-                    color: Colors.red,
-                    shape: BoxShape.circle,
-                  ),
-                  constraints: const BoxConstraints(
-                    minWidth: 18,
-                    minHeight: 18,
-                  ),
-                  child: Text(
-                    '$badgeCount',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 9,
-                      fontWeight: FontWeight.bold,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                ),
-              )
-            else if (badgeText != null)
-              Positioned(
-                top: 6,
-                right: 6,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF059669), // Emerald 600
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    badgeText,
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 8,
-                      fontWeight: FontWeight.bold,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                ),
-              ),
-          ],
-        ),
-      ),
+      badge: badge,
     );
+  }
+
+  Widget _buildCompactActionItem(
+    String label,
+    IconData icon,
+    Color color,
+    VoidCallback onTap, {
+    int badgeCount = 0,
+    String? badgeText,
+  }) {
+    final badge = badgeCount > 0
+        ? AppStatusPill(
+            label: badgeCount > 99 ? '99+' : '$badgeCount',
+            color: Theme.of(context).colorScheme.error,
+          )
+        : badgeText == null
+            ? null
+            : AppStatusPill(
+                label: badgeText,
+                color: context.semanticColors.success,
+              );
+    return AppCompactActionTile(
+      label: label,
+      icon: icon,
+      color: color,
+      onTap: onTap,
+      badge: badge,
+    );
+  }
+
+  String _actionDescription(String label) {
+    if (label.contains('الحضور')) return 'رصد حضور اليوم بسرعة';
+    if (label.contains('إغلاق')) return 'اعتماد السجلات الناقصة';
+    if (label.contains('الحفظ')) return 'تسجيل الحفظ والمراجعة';
+    if (label.contains('الخطط')) return 'المقرر والتقدم اليومي';
+    if (label.contains('التقارير')) return 'متابعة الأداء والتصدير';
+    if (label.contains('التنبيهات')) {
+      return 'المستجدات التي تحتاج انتباهًا';
+    }
+    if (label.contains('الإعدادات')) return 'تهيئة الحلقة والبيانات';
+    return 'فتح $label';
   }
 
   Widget _buildRecentActivity() {
@@ -1500,11 +1693,11 @@ class _HomeScreenState extends State<HomeScreen> {
           padding: const EdgeInsets.all(32),
           child: Column(
             children: [
-              Icon(Icons.info_outline, size: 48, color: Colors.grey[400]),
+              Icon(Icons.info_outline, size: 48, color: Theme.of(context).colorScheme.onSurfaceVariant),
               const SizedBox(height: 16),
               Text(
                 'ابدأ بإضافة طلاب للحلقة',
-                style: TextStyle(color: Colors.grey[600]),
+                style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
               ),
             ],
           ),
@@ -1520,10 +1713,7 @@ class _HomeScreenState extends State<HomeScreen> {
           children: [
             Text(
               'قائمة ${GenderHelper.students(_settings.gender)}',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
+              style: Theme.of(context).textTheme.titleMedium,
             ),
             TextButton(
               onPressed: () => setState(() => _currentIndex = 1),
@@ -1563,22 +1753,22 @@ class _HomeScreenState extends State<HomeScreen> {
         statusColor = Colors.grey;
         statusText = 'لم يسجل';
     }
-
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
     return Card(
-      margin: const EdgeInsets.only(bottom: 12),
+      margin: const EdgeInsets.only(bottom: AppSpacing.xs),
       child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.sm,
+          vertical: AppSpacing.xxs,
+        ),
         leading: CircleAvatar(
-          radius: 24,
-          backgroundColor: Theme.of(context).primaryColor.withOpacity(0.1),
+          radius: 19,
+          backgroundColor: Theme.of(context).primaryColor.withValues(alpha: 0.1),
           child: Text(
             student.name.isNotEmpty ? student.name[0] : '؟',
             style: TextStyle(
               color: Theme.of(context).primaryColor,
               fontWeight: FontWeight.bold,
-              fontSize: 18,
+              fontSize: 14,
             ),
           ),
         ),
@@ -1590,32 +1780,25 @@ class _HomeScreenState extends State<HomeScreen> {
           padding: const EdgeInsets.only(top: 4),
           child: Row(
             children: [
-              const Icon(Icons.menu_book, size: 14, color: Colors.grey),
+              Icon(
+                Icons.menu_book,
+                size: 14,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
               const SizedBox(width: 4),
               Text(
                 '${student.totalMemorized} آية محفوظ',
                 style: TextStyle(
                   fontSize: 12,
-                  color: isDark ? Colors.grey[400] : Colors.grey[600],
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
               ),
             ],
           ),
         ),
-        trailing: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          decoration: BoxDecoration(
-            color: statusColor.withOpacity(0.15),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Text(
-            statusText,
-            style: TextStyle(
-              color: statusColor,
-              fontSize: 11,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
+        trailing: AppStatusPill(
+          label: statusText,
+          color: statusColor,
         ),
         onTap: () {
           setState(() => _currentIndex = 1);

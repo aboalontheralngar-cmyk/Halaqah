@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../utils/color_contrast.dart';
 
 class QualityRating extends StatelessWidget {
   final int rating;
@@ -49,7 +50,7 @@ class QualityRating extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(horizontal: 2),
                 child: Icon(
                   isSelected ? Icons.star : Icons.star_border,
-                  color: isSelected ? ratingColors[rating] : Colors.grey[300],
+                  color: isSelected ? ratingColors[rating] : Theme.of(context).colorScheme.outlineVariant,
                   size: size,
                 ),
               ),
@@ -61,7 +62,7 @@ class QualityRating extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
             decoration: BoxDecoration(
-              color: ratingColors[rating]?.withOpacity(0.1),
+              color: ratingColors[rating]?.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(8),
             ),
             child: Text(
@@ -111,7 +112,7 @@ class QualityRatingSelector extends StatelessWidget {
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                 decoration: BoxDecoration(
-                  color: isSelected ? color : color.withOpacity(0.1),
+                  color: isSelected ? color : color.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
                     color: isSelected ? color : Colors.transparent,
@@ -124,13 +125,13 @@ class QualityRatingSelector extends StatelessWidget {
                     Icon(
                       Icons.star,
                       size: 16,
-                      color: isSelected ? Colors.white : color,
+                      color: isSelected ? ColorContrast.on(color) : color,
                     ),
                     const SizedBox(width: 4),
                     Text(
                       QualityRating.ratingLabels[rating]!,
                       style: TextStyle(
-                        color: isSelected ? Colors.white : color,
+                        color: isSelected ? ColorContrast.on(color) : color,
                         fontWeight: FontWeight.w500,
                       ),
                     ),
@@ -158,7 +159,7 @@ class QualityBadge extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Row(

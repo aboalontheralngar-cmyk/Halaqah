@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { useRouter } from "next/navigation";
 import { 
   Building2, 
@@ -44,8 +45,17 @@ export default function SelectCenterPage() {
     currentSupervisor,
     setCurrentCenter,
     setUser,
-    acceptSupervisorMemberInvitation,
-  } = useStore();
+    acceptSupervisorMemberInvitation
+  } = useStore(
+    useShallow((state) => ({
+      user: state.user,
+      profile: state.profile,
+      currentSupervisor: state.currentSupervisor,
+      setCurrentCenter: state.setCurrentCenter,
+      setUser: state.setUser,
+      acceptSupervisorMemberInvitation: state.acceptSupervisorMemberInvitation,
+    })),
+  );
   const [step, setStep] = useState<"center" | "halaqa">("center");
   const [selectedCenter, setSelectedCenter] = useState<CenterOption | null>(null);
   const [centers, setCenters] = useState<CenterOption[]>([]);
@@ -59,7 +69,7 @@ export default function SelectCenterPage() {
   const [newCenterData, setNewCenterData] = useState({ name: "", address: "", type: "men" as "men" | "women" | "mixed" });
   const [newHalaqaData, setNewHalaqaData] = useState({ name: "", teacher_name: "" });
   
-  async function fetchCenters() {
+  const fetchCenters = useCallback(async () => {
     if (!supabase || !user) return;
     setLoading(true);
 
@@ -102,19 +112,16 @@ export default function SelectCenterPage() {
       setCenters(data);
     }
     setLoading(false);
-  }
+  }, [user]);
 
   useEffect(() => {
     const init = async () => {
       // 1. Check Session/User
       if (!user) {
         if (!supabase) {
-          // Mock for demo if no supabase
-          setCenters([
-            { id: "c1", name: "ملتقى الفرقان للبنين", type: "men" },
-            { id: "c2", name: "ملتقى النور للبنات", type: "women" }
-          ]);
+          setCenters([]);
           setLoading(false);
+          router.push("/login?configuration=missing");
           return;
         }
 
@@ -143,16 +150,13 @@ export default function SelectCenterPage() {
       fetchCenters();
     };
     init();
-  }, [user, profile]);
+  }, [fetchCenters, profile, router, setUser, user]);
 
   const fetchHalaqat = async (centerId: string) => {
     if (!supabase) {
-      // Mock halaqat for demo
-      setHalaqat([
-        { id: "h1", name: "حلقة الإمام عاصم", teacher_name: "أ. محمد علي" },
-        { id: "h2", name: "حلقة الإمام نافع", teacher_name: "أ. أحمد خالد" }
-      ]);
+      setHalaqat([]);
       setLoading(false);
+      router.push("/login?configuration=missing");
       return;
     }
     setLoading(true);
@@ -248,24 +252,24 @@ export default function SelectCenterPage() {
 
   if (loading && step === "center" && centers.length === 0) {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-950 flex items-center justify-center">
+      <div className="min-h-screen bg-[var(--background)] flex items-center justify-center">
         <Loader2 className="w-12 h-12 text-teal-600 animate-spin" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-950 p-8 flex flex-col items-center justify-center transition-all duration-500" dir="rtl">
+    <div className="min-h-screen bg-[var(--background)] p-8 flex flex-col items-center justify-center transition-all duration-500" dir="rtl">
       <div className="max-w-4xl w-full space-y-12">
         {/* Header */}
         <div className="text-center space-y-4 animate-in fade-in slide-in-from-top-4 duration-700">
           <div className="w-20 h-20 bg-teal-600 rounded-3xl flex items-center justify-center mx-auto shadow-2xl shadow-teal-200 dark:shadow-none mb-6">
             {step === "center" ? <Building2 className="w-10 h-10 text-white" /> : <LayoutGrid className="w-10 h-10 text-white" />}
           </div>
-          <h1 className="text-4xl font-black text-gray-900 dark:text-white">
+          <h1 className="text-4xl font-black text-[var(--foreground)]">
             {step === "center" ? "اختر المركز 🏛️" : `حلقات ${selectedCenter?.name} 📖`}
           </h1>
-          <p className="text-gray-500 dark:text-gray-400 font-medium text-lg">
+          <p className="text-[var(--muted)] font-medium text-lg">
             {step === "center" ? "يرجى تحديد المنظمة أو المسجد المراد إدارته" : "اختر الحلقة لمتابعة المدرس والطلاب"}
           </p>
           {step === "center" && currentSupervisor && (
@@ -284,7 +288,7 @@ export default function SelectCenterPage() {
           {step === "center" ? (
             <>
               {centers.length === 0 ? (
-                <div className="md:col-span-2 text-center py-20 bg-white dark:bg-gray-900 rounded-3xl border-2 border-dashed border-gray-200 dark:border-gray-800">
+                <div className="md:col-span-2 text-center py-20 bg-[var(--surface)] rounded-3xl border-2 border-dashed border-gray-200 dark:border-gray-800">
                   <p className="text-gray-400 font-black mb-6">
                     {profile?.role === 'supervisor'
                       ? "لا توجد مراكز مرتبطة بالجهة حتى الآن"
@@ -301,7 +305,7 @@ export default function SelectCenterPage() {
                   {centers.map((center) => (
                     <div
                       key={center.id}
-                      className="group relative bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 p-8 rounded-[2rem] text-right transition-all hover:shadow-2xl hover:scale-[1.01] overflow-hidden flex items-center justify-between gap-4"
+                      className="group relative bg-[var(--surface)] border border-[var(--border)] p-8 rounded-[2rem] text-right transition-all hover:shadow-2xl hover:scale-[1.01] overflow-hidden flex items-center justify-between gap-4"
                     >
                       <div className={`absolute top-0 right-0 w-2 h-full ${center.type === 'men' ? "bg-teal-600" : center.type === 'women' ? "bg-rose-500" : "bg-amber-500"}`} />
                       
@@ -313,7 +317,7 @@ export default function SelectCenterPage() {
                           {center.type === 'men' ? <Users className="w-8 h-8" /> : center.type === 'women' ? <VenetianMask className="w-8 h-8" /> : <Building2 className="w-8 h-8" />}
                         </div>
                         <div className="flex-1">
-                          <h3 className="text-xl font-black text-gray-900 dark:text-white group-hover:text-teal-600 transition-colors">{center.name}</h3>
+                          <h3 className="text-xl font-black text-[var(--foreground)] group-hover:text-teal-600 transition-colors">{center.name}</h3>
                           <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mt-1">
                             {currentSupervisor?.role === "analyst" && profile?.role === "supervisor"
                               ? "متاح في التقرير التجميعي فقط"
@@ -358,7 +362,7 @@ export default function SelectCenterPage() {
           ) : (
             <>
               {halaqat.length === 0 ? (
-                <div className="md:col-span-2 text-center py-20 bg-white dark:bg-gray-900 rounded-3xl border-2 border-dashed border-gray-200 dark:border-gray-800">
+                <div className="md:col-span-2 text-center py-20 bg-[var(--surface)] rounded-3xl border-2 border-dashed border-gray-200 dark:border-gray-800">
                   <p className="text-gray-400 font-black mb-6">لا توجد حلقات مسجلة في هذا المركز</p>
                   <button onClick={() => setShowCreateHalaqa(true)} className="px-8 py-4 bg-teal-600 text-white rounded-2xl font-black text-sm">إضافة حلقة</button>
                 </div>
@@ -368,9 +372,9 @@ export default function SelectCenterPage() {
                     <button
                       key={halaqa.id}
                       onClick={() => handleHalaqaSelect(halaqa)}
-                      className="group bg-white dark:bg-gray-900 border border-teal-100 dark:border-teal-900/30 p-8 rounded-3xl text-right transition-all hover:shadow-xl hover:border-teal-500"
+                      className="group bg-[var(--surface)] border border-teal-100 dark:border-teal-900/30 p-8 rounded-3xl text-right transition-all hover:shadow-xl hover:border-teal-500"
                     >
-                      <h3 className="text-lg font-black text-gray-900 dark:text-white mb-2">{halaqa.name}</h3>
+                      <h3 className="text-lg font-black text-[var(--foreground)] mb-2">{halaqa.name}</h3>
                       <div className="flex items-center gap-2 text-teal-600 dark:text-teal-400 text-xs font-bold">
                         <Sparkles className="w-4 h-4" />
                         المعلم: {halaqa.teacher_name || "غير محدد"}
@@ -423,8 +427,8 @@ export default function SelectCenterPage() {
       {showJoinSupervisor && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/60 p-4 backdrop-blur-sm">
           <div className="w-full max-w-md rounded-[2.5rem] bg-white p-9 shadow-2xl dark:bg-gray-900">
-            <h3 className="text-2xl font-black text-gray-900 dark:text-white">الانضمام لفريق إشرافي</h3>
-            <p className="mt-3 text-sm leading-7 text-gray-500 dark:text-gray-400">
+            <h3 className="text-2xl font-black text-[var(--foreground)]">الانضمام لفريق إشرافي</h3>
+            <p className="mt-3 text-sm leading-7 text-[var(--muted)]">
               الدعوة مرتبطة ببريد حسابك، وتعمل مرة واحدة فقط خلال المدة المحددة.
             </p>
             <form onSubmit={handleJoinSupervisorTeam} className="mt-7 space-y-5">
@@ -459,8 +463,8 @@ export default function SelectCenterPage() {
       {/* Create Center Modal */}
       {showCreateCenter && (
         <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-gray-900 rounded-[3rem] p-10 w-full max-w-md shadow-2xl animate-in zoom-in-95 duration-300">
-            <h3 className="text-2xl font-black text-gray-900 dark:text-white mb-8">إنشاء مركز جديد 🏛️</h3>
+          <div className="bg-[var(--surface)] rounded-[3rem] p-10 w-full max-w-md shadow-2xl animate-in zoom-in-95 duration-300">
+            <h3 className="text-2xl font-black text-[var(--foreground)] mb-8">إنشاء مركز جديد 🏛️</h3>
             <form onSubmit={handleCreateCenter} className="space-y-6">
               <div>
                 <label className="block text-xs font-black text-gray-400 mb-3 uppercase tracking-widest">اسم المركز</label>
@@ -501,8 +505,8 @@ export default function SelectCenterPage() {
       {/* Create Halaqa Modal */}
       {showCreateHalaqa && (
         <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-gray-900 rounded-[3rem] p-10 w-full max-w-md shadow-2xl animate-in zoom-in-95 duration-300">
-            <h3 className="text-2xl font-black text-gray-900 dark:text-white mb-8">إضافة حلقة جديدة 📖</h3>
+          <div className="bg-[var(--surface)] rounded-[3rem] p-10 w-full max-w-md shadow-2xl animate-in zoom-in-95 duration-300">
+            <h3 className="text-2xl font-black text-[var(--foreground)] mb-8">إضافة حلقة جديدة 📖</h3>
             <form onSubmit={handleCreateHalaqa} className="space-y-6">
               <div>
                 <label className="block text-xs font-black text-gray-400 mb-3 uppercase tracking-widest">اسم الحلقة</label>

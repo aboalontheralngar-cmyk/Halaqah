@@ -1,0 +1,21 @@
+P1.27 Build 75 Hotfix 3 changed files vs Hotfix 2
+
+Added: 2
+Modified: 9
+Deleted: 0
+
+[ADDED]
+docs/P1.27_BUILD75_HOTFIX3.md
+website/scripts/validate-build75-hotfix3.mjs
+
+[MODIFIED]
+BUILD75_VALIDATION_REPORT.md
+CHANGELOG.md
+P1.27_INSTALL_NOTE.md
+docs/P1.27_BUILD75_HOTFIX2.md
+docs/P1.27_VALIDATION.md
+docs/release_notes.md
+pubspec.yaml
+website/package.json
+website/scripts/run-all-validations.mjs
+

@@ -150,36 +150,27 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
     final countryCities = PrayerTimeHelper.countriesData[_country] ?? {};
     final citiesList = countryCities.keys.toList();
     return Scaffold(
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              theme.primaryColor.withOpacity(0.08),
-              Colors.white,
-            ],
-          ),
-        ),
+      body: ColoredBox(
+        color: theme.scaffoldBackgroundColor,
         child: SafeArea(
           child: Form(
             key: _formKey,
             child: ListView(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 24),
               children: [
                 // Icon and Welcome Header
                 Center(
                   child: Column(
                     children: [
                       Container(
-                        padding: const EdgeInsets.all(16),
+                        padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
-                          color: theme.primaryColor.withOpacity(0.1),
-                          shape: BoxShape.circle,
+                          color: theme.colorScheme.primaryContainer,
+                          borderRadius: BorderRadius.circular(16),
                         ),
                         child: Icon(
                           Icons.menu_book_rounded,
-                          size: 64,
+                          size: 40,
                           color: theme.primaryColor,
                         ),
                       ),
@@ -188,7 +179,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                         'مرحباً بك في تطبيق حلقتي',
                         textAlign: TextAlign.center,
                         style: TextStyle(
-                          fontSize: 24,
+                          fontSize: 20,
                           fontWeight: FontWeight.bold,
                           color: theme.primaryColor,
                         ),
@@ -199,7 +190,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                         textAlign: TextAlign.center,
                         style: TextStyle(
                           fontSize: 14,
-                          color: Colors.grey[600],
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
                         ),
                       ),
                     ],
@@ -209,12 +200,8 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
 
                 // Card wrapping the form fields
                 Card(
-                  elevation: 2,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(24),
-                  ),
                   child: Padding(
-                    padding: const EdgeInsets.all(24),
+                    padding: const EdgeInsets.all(18),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -304,12 +291,12 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
 
                 // Card wrapping Timing, Gender, and Format settings
                 Card(
-                  elevation: 2,
+                  elevation: 0,
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(24),
+                    borderRadius: BorderRadius.circular(18),
                   ),
                   child: Padding(
-                    padding: const EdgeInsets.all(24),
+                    padding: const EdgeInsets.all(18),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -329,13 +316,13 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                           style: TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.bold,
-                            color: Colors.grey[700],
+                            color: Theme.of(context).colorScheme.onSurface,
                           ),
                         ),
                         const SizedBox(height: 8),
                         SegmentedButton<String>(
                           style: SegmentedButton.styleFrom(
-                            selectedBackgroundColor: theme.primaryColor.withOpacity(0.15),
+                            selectedBackgroundColor: theme.primaryColor.withValues(alpha: 0.15),
                             selectedForegroundColor: theme.primaryColor,
                           ),
                           segments: [
@@ -363,7 +350,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                           style: TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.bold,
-                            color: Colors.grey[700],
+                            color: Theme.of(context).colorScheme.onSurface,
                           ),
                         ),
                         const SizedBox(height: 8),
@@ -371,7 +358,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                           width: double.infinity,
                           child: SegmentedButton<String>(
                             style: SegmentedButton.styleFrom(
-                              selectedBackgroundColor: theme.primaryColor.withOpacity(0.15),
+                              selectedBackgroundColor: theme.primaryColor.withValues(alpha: 0.15),
                               selectedForegroundColor: theme.primaryColor,
                             ),
                             segments: [
@@ -443,7 +430,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                         ] else ...[
                           // Relative/Dynamic timing selector
                           DropdownButtonFormField<String>(
-                            value: _country,
+                            initialValue: _country,
                             decoration: InputDecoration(
                               labelText: 'الدولة *',
                               labelStyle: TextStyle(),
@@ -469,7 +456,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                           const SizedBox(height: 16),
 
                           DropdownButtonFormField<String>(
-                            value: citiesList.contains(_city) ? _city : (citiesList.isNotEmpty ? citiesList.first : 'custom'),
+                            initialValue: citiesList.contains(_city) ? _city : (citiesList.isNotEmpty ? citiesList.first : 'custom'),
                             decoration: InputDecoration(
                               labelText: 'المدينة *',
                               labelStyle: TextStyle(),
@@ -491,7 +478,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                           const SizedBox(height: 16),
 
                           DropdownButtonFormField<String>(
-                            value: _relativeStartPrayer,
+                            initialValue: _relativeStartPrayer,
                             decoration: InputDecoration(
                               labelText: 'البداية نسبة إلى صلاة *',
                               labelStyle: TextStyle(),
@@ -516,7 +503,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                             'إزاحة وقت البدء: ' +
                                 (_relativeStartOffset >= 0 ? '+' : '') +
                                 '$_relativeStartOffset دقيقة (${_relativeStartOffset >= 0 ? 'بعد الصلاة' : 'قبل الصلاة'})',
-                            style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.grey[700]),
+                            style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.onSurface),
                           ),
                           Slider(
                             value: _relativeStartOffset.toDouble(),
@@ -533,7 +520,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
 
                         // Time Format Selection
                         DropdownButtonFormField<String>(
-                          value: _timeFormat,
+                          initialValue: _timeFormat,
                           decoration: InputDecoration(
                             labelText: 'تنسيق الوقت الافتراضي',
                             labelStyle: TextStyle(),
@@ -578,7 +565,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(16),
                     ),
-                    elevation: 1,
+                    elevation: 0,
                   ),
                   child: _isSaving
                       ? const SizedBox(

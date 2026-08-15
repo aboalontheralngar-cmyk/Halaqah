@@ -46,8 +46,7 @@ jobs:
       - name: Run tests
         run: flutter test
 
-      - name: Validate production secrets
-        if: ${{ inputs.release_channel == 'production' }}
+      - name: Validate cloud and production secrets
         shell: bash
         env:
           ANDROID_APPLICATION_ID: ${{ secrets.ANDROID_APPLICATION_ID }}
@@ -58,15 +57,23 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
         run: |
-          for value in ANDROID_APPLICATION_ID ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD SUPABASE_URL SUPABASE_PUBLISHABLE_KEY; do
+          for value in SUPABASE_URL SUPABASE_PUBLISHABLE_KEY; do
             if [ -z "${!value}" ]; then
-              echo "Missing required production secret: $value" >&2
+              echo "Missing required cloud configuration: $value" >&2
               exit 1
             fi
           done
-          case "$ANDROID_APPLICATION_ID" in
-            com.example.*) echo "ANDROID_APPLICATION_ID must not use com.example" >&2; exit 1 ;;
-          esac
+          if [ "${{ inputs.release_channel }}" = "production" ]; then
+            for value in ANDROID_APPLICATION_ID ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
+              if [ -z "${!value}" ]; then
+                echo "Missing required production secret: $value" >&2
+                exit 1
+              fi
+            done
+            case "$ANDROID_APPLICATION_ID" in
+              com.example.*) echo "ANDROID_APPLICATION_ID must not use com.example" >&2; exit 1 ;;
+            esac
+          fi
           case "$SUPABASE_URL" in
             https://*.supabase.co) ;;
             *) echo "SUPABASE_URL must be an HTTPS Supabase project URL" >&2; exit 1 ;;
@@ -96,9 +103,10 @@ jobs:
           SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
         run: |
           build_args=(--release)
+          build_args+=("--dart-define=HALAQAH_ENV=$RELEASE_CHANNEL")
+          build_args+=("--dart-define=SUPABASE_URL=$SUPABASE_URL")
+          build_args+=("--dart-define=SUPABASE_PUBLISHABLE_KEY=$SUPABASE_PUBLISHABLE_KEY")
           if [ "$RELEASE_CHANNEL" = "production" ]; then
-            build_args+=("--dart-define=SUPABASE_URL=$SUPABASE_URL")
-            build_args+=("--dart-define=SUPABASE_PUBLISHABLE_KEY=$SUPABASE_PUBLISHABLE_KEY")
             build_args+=(--obfuscate --split-debug-info=build/symbols)
           fi
           flutter build apk "${build_args[@]}"

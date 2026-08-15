@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import { useShallow } from "zustand/react/shallow";
 import {
   AlertTriangle,
   TrendingDown,
@@ -14,6 +15,8 @@ import {
   Smartphone,
 } from "lucide-react";
 import { useStore } from "@/store/useStore";
+import { buildWhatsAppLink } from "@/lib/monthlyReport";
+import { localDateKey } from "@/utils/dateUtils";
 
 interface DisciplineAlert {
   id: string;
@@ -26,14 +29,24 @@ interface DisciplineAlert {
 }
 
 export default function DisciplinePage() {
-  const { students, attendance, points } = useStore();
+  const {
+    students,
+    attendance,
+    points
+  } = useStore(
+    useShallow((state) => ({
+      students: state.students,
+      attendance: state.attendance,
+      points: state.points,
+    })),
+  );
 
   // حساب تنبيهات الانضباط
   const disciplineAlerts = useMemo(() => {
     const alerts: DisciplineAlert[] = [];
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    const thirtyDaysAgoStr = thirtyDaysAgo.toISOString().split("T")[0];
+    const thirtyDaysAgoStr = localDateKey(thirtyDaysAgo);
 
     students.forEach((student) => {
       // عد الغيابات في آخر 30 يوم
@@ -54,7 +67,7 @@ export default function DisciplinePage() {
           lastDate: attendance
             .filter((a) => a.studentId === student.id && a.status === "absent")
             .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0]?.date ||
-            new Date().toISOString().split("T")[0],
+            localDateKey(),
           notes: `${recentAbsences} غيابات في آخر 30 يوم`,
         });
       }
@@ -77,7 +90,7 @@ export default function DisciplinePage() {
           lastDate: attendance
             .filter((a) => a.studentId === student.id && a.status === "late")
             .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0]?.date ||
-            new Date().toISOString().split("T")[0],
+            localDateKey(),
           notes: `${lateDays} مرات تأخير في آخر 30 يوم`,
         });
       }
@@ -104,7 +117,7 @@ export default function DisciplinePage() {
             type: "low_attendance",
             severity: "high",
             count: Math.round(attendanceRate),
-            lastDate: new Date().toISOString().split("T")[0],
+            lastDate: localDateKey(),
             notes: `معدل حضور: ${Math.round(attendanceRate)}% فقط`,
           });
         }
@@ -128,7 +141,7 @@ export default function DisciplinePage() {
           lastDate: points
             .filter((p) => p.studentId === student.id && p.type === "negative")
             .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0]?.date ||
-            new Date().toISOString().split("T")[0],
+            localDateKey(),
           notes: `${negativePoints} نقاط سلوك سلبية`,
         });
       }
@@ -143,6 +156,7 @@ export default function DisciplinePage() {
   const [filterType, setFilterType] = useState<"all" | DisciplineAlert["type"]>("all");
   const [selectedAlert, setSelectedAlert] = useState<DisciplineAlert | null>(null);
   const [followupMessage, setFollowupMessage] = useState("");
+  const [followupError, setFollowupError] = useState("");
   const [showFollowupForm, setShowFollowupForm] = useState(false);
 
   const filteredAlerts = useMemo(() => {
@@ -214,11 +228,11 @@ export default function DisciplinePage() {
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div>
-          <h1 className="text-3xl font-black text-gray-900 dark:text-white tracking-tight flex items-center gap-4">
+          <h1 className="text-3xl font-black text-[var(--foreground)] tracking-tight flex items-center gap-4">
             <AlertTriangle className="w-8 h-8" />
             متابعة الانضباط والتنبيهات
           </h1>
-          <p className="text-gray-500 dark:text-gray-400 mt-2 font-medium">
+          <p className="text-[var(--muted)] mt-2 font-medium">
             تتبع الغيابات المتكررة والتأخير والسلوك السلبي مع إمكانية التواصل مع أولياء الأمور
           </p>
         </div>
@@ -226,7 +240,7 @@ export default function DisciplinePage() {
 
       {/* Stats Cards */}
       <div className="grid md:grid-cols-4 gap-4">
-        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl p-6">
+        <div className="bg-[var(--surface)] border border-gray-200 dark:border-gray-800 rounded-2xl p-6">
           <p className="text-xs font-bold text-gray-500 uppercase mb-3">إجمالي التنبيهات</p>
           <p className="text-3xl font-black text-teal-600">{stats.totalAlerts}</p>
         </div>
@@ -326,6 +340,12 @@ export default function DisciplinePage() {
                   <button
                     onClick={() => {
                       setSelectedAlert(alert);
+                      setFollowupError("");
+                      setFollowupMessage(
+                        `السلام عليكم ورحمة الله وبركاته،\n\n` +
+                        `نحيطكم علمًا بمتابعة انضباط ابنكم ${student.name}: ${alert.notes}.\n\n` +
+                        `نأمل تعاونكم معنا، ونسعد بملاحظاتكم. جزاكم الله خيرًا.`,
+                      );
                       setShowFollowupForm(true);
                     }}
                     className="flex-1 px-4 py-2 bg-white/60 hover:bg-white rounded-lg font-bold text-sm transition-all flex items-center justify-center gap-2"
@@ -334,7 +354,20 @@ export default function DisciplinePage() {
                     تواصل مع ولي الأمر
                   </button>
                   {alert.severity === "high" && (
-                    <button className="px-4 py-2 bg-white/60 hover:bg-red-100 rounded-lg font-bold text-sm text-red-600 transition-all">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedAlert(alert);
+                        setFollowupError("");
+                        setFollowupMessage(
+                          `السلام عليكم ورحمة الله وبركاته،\n\n` +
+                          `نحتاج إلى متابعتكم العاجلة لانضباط ابنكم ${student.name}: ${alert.notes}.\n\n` +
+                          `نرجو التواصل مع إدارة الحلقة، ونسعد بملاحظاتكم. جزاكم الله خيرًا.`,
+                        );
+                        setShowFollowupForm(true);
+                      }}
+                      className="px-4 py-2 bg-white/60 hover:bg-red-100 rounded-lg font-bold text-sm text-red-600 transition-all"
+                    >
                       إجراء فوري
                     </button>
                   )}
@@ -348,7 +381,7 @@ export default function DisciplinePage() {
       {/* Follow-up Modal */}
       {showFollowupForm && selectedAlert && (
         <div className="fixed inset-0 bg-black/50 flex items-end md:items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-gray-900 rounded-3xl p-8 w-full max-w-md shadow-2xl max-h-[90vh] overflow-y-auto">
+          <div className="bg-[var(--surface)] rounded-3xl p-8 w-full max-w-md shadow-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-2xl font-black">تواصل مع ولي الأمر</h2>
               <button
@@ -384,9 +417,15 @@ export default function DisciplinePage() {
                   <form
                     onSubmit={(e) => {
                       e.preventDefault();
-                      // TODO: Send WhatsApp or SMS message
+                      if (!student?.parentPhone?.trim()) {
+                        setFollowupError("لا يوجد رقم ولي أمر محفوظ لهذا الطالب.");
+                        return;
+                      }
+                      const link = buildWhatsAppLink(student.parentPhone, followupMessage.trim());
+                      window.open(link, "_blank", "noopener,noreferrer");
                       setShowFollowupForm(false);
                       setFollowupMessage("");
+                      setFollowupError("");
                     }}
                     className="space-y-6"
                   >
@@ -402,6 +441,11 @@ export default function DisciplinePage() {
                         placeholder={`السلام عليكم ورحمة الله وبركاته،\n\nبخصوص ${student?.name} في الحلقة...\n\nنتمنى التعاون معكم لتحسين الحضور والالتزام.`}
                         required
                       />
+                      {followupError && (
+                        <p role="alert" className="mt-2 text-sm font-bold text-red-600 dark:text-red-400">
+                          {followupError}
+                        </p>
+                      )}
                     </div>
 
                     <div className="flex gap-3">

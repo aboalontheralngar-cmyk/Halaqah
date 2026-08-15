@@ -7,7 +7,7 @@ const requireText = (source, text, label) => {
   if (!source.includes(text)) throw new Error(`Missing ${label}: ${text}`);
 };
 
-const database = read('lib/services/database_service.dart');
+const database = read('lib/services/database_service.dart') + read('lib/services/local_database_schema.dart');
 const student = read('lib/models/student.dart');
 const family = read('lib/models/family.dart');
 const guardian = read('lib/models/family_guardian.dart');
@@ -20,7 +20,7 @@ const webStore = read('website/src/store/useStore.ts');
 const migration = read('website/supabase/migrations/20260712000400_p5_families_guardians.sql');
 
 for (const contract of [
-  'version: 18',
+  'version: 24',
   'CREATE TABLE IF NOT EXISTS families',
   'CREATE TABLE IF NOT EXISTS family_guardians',
   'ALTER TABLE students ADD COLUMN family_id TEXT',
@@ -49,13 +49,13 @@ for (const contract of [
   '_syncFamilies',
   "table: 'family_guardians'",
   "'family_id': student.familyId",
-  'Family sync skipped until P5.4 migration is applied.',
+  "AppLogger.warning('family_schema_missing'",
 ]) requireText(sync, contract, `sync contract ${contract}`);
 
 for (const contract of [
   '.from("families")',
   '.from("family_guardians")',
-  'assign_students_to_family',
+  'set_family_students_atomic',
   'اختيار طالب مرتبط بعائلة أخرى سينقله',
 ]) requireText(webPage, contract, `web family contract ${contract}`);
 if (webPage.includes('محاكاة بيانات أولياء الأمور')) {

@@ -19,7 +19,9 @@ class _StudentRaffleScreenState extends State<StudentRaffleScreen> with SingleTi
   List<Student> _students = [];
   List<Student> _excludedStudents = [];
   Set<String> _absentStudentIds = {};
+  Set<String> _excusedStudentIds = {};
   bool _excludeAbsent = true;
+  bool _excludeExcused = true;
   bool _isLoading = true;
 
   Student? _selectedStudent;
@@ -61,6 +63,7 @@ class _StudentRaffleScreenState extends State<StudentRaffleScreen> with SingleTi
       final excludedIds = prefs.getStringList('raffle_excluded_ids') ?? [];
       final selectedId = prefs.getString('raffle_selected_id');
       final excludeAbsent = prefs.getBool('raffle_exclude_absent') ?? true;
+      final excludeExcused = prefs.getBool('raffle_exclude_excused') ?? true;
       final pendingWinnerId = prefs.getString('raffle_pending_winner_id');
       final pendingFinishText = prefs.getString('raffle_pending_finish_at');
       final pendingFinish = pendingFinishText == null
@@ -74,7 +77,12 @@ class _StudentRaffleScreenState extends State<StudentRaffleScreen> with SingleTi
             .where((record) => record.attendance == 'absent')
             .map((record) => record.studentId)
             .toSet();
+        _excusedStudentIds = todayRecords
+            .where((record) => record.attendance == 'excused')
+            .map((record) => record.studentId)
+            .toSet();
         _excludeAbsent = excludeAbsent;
+        _excludeExcused = excludeExcused;
         if (selectedId != null && selectedId.isNotEmpty) {
           _selectedStudent = list.cast<Student?>().firstWhere(
             (s) => s?.id == selectedId,
@@ -104,6 +112,7 @@ class _StudentRaffleScreenState extends State<StudentRaffleScreen> with SingleTi
       await prefs.setStringList('raffle_excluded_ids', _excludedStudents.map((s) => s.id).toList());
       await prefs.setString('raffle_selected_id', _selectedStudent?.id ?? '');
       await prefs.setBool('raffle_exclude_absent', _excludeAbsent);
+      await prefs.setBool('raffle_exclude_excused', _excludeExcused);
     } catch (e) {
       debugPrint('Error saving raffle state: $e');
     }
@@ -114,7 +123,9 @@ class _StudentRaffleScreenState extends State<StudentRaffleScreen> with SingleTi
             _excludedStudents.any((excluded) => excluded.id == student.id);
         final absentExcluded =
             _excludeAbsent && _absentStudentIds.contains(student.id);
-        return !manuallyExcluded && !absentExcluded;
+        final excusedExcluded =
+            _excludeExcused && _excusedStudentIds.contains(student.id);
+        return !manuallyExcluded && !absentExcluded && !excusedExcluded;
       }).toList();
 
   Future<void> _restorePendingDraw(
@@ -319,24 +330,18 @@ class _StudentRaffleScreenState extends State<StudentRaffleScreen> with SingleTi
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: isDark
-                      ? [const Color(0xFF0F172A), const Color(0xFF1E293B)]
-                      : [const Color(0xFFE2E8F0), const Color(0xFFF8FAFC)],
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                ),
-              ),
+          : ColoredBox(
+              color: Theme.of(context).scaffoldBackgroundColor,
               child: SafeArea(
                 child: Column(
                   children: [
                     // Top Info Row
                     Padding(
                       padding: const EdgeInsets.all(16.0),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      child: Wrap(
+                        alignment: WrapAlignment.spaceBetween,
+                        spacing: 8,
+                        runSpacing: 8,
                         children: [
                           _buildHeaderBadge(
                             'المتاحون للقرعة: $availableCount / ${_students.length}',
@@ -358,6 +363,19 @@ class _StudentRaffleScreenState extends State<StudentRaffleScreen> with SingleTi
                       selected: _excludeAbsent,
                       onSelected: (value) {
                         setState(() => _excludeAbsent = value);
+                        _saveRaffleState();
+                      },
+                    ),
+                    const SizedBox(height: 6),
+                    FilterChip(
+                      avatar: const Icon(Icons.event_busy_outlined, size: 18),
+                      label: Text(
+                        'استبعاد المستأذنين اليوم (${_excusedStudentIds.length})',
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      selected: _excludeExcused,
+                      onSelected: (value) {
+                        setState(() => _excludeExcused = value);
                         _saveRaffleState();
                       },
                     ),
@@ -478,7 +496,7 @@ class _StudentRaffleScreenState extends State<StudentRaffleScreen> with SingleTi
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(16),
                               side: BorderSide(
-                                color: _isDrawing ? Colors.transparent : Colors.teal.withOpacity(0.5),
+                                color: _isDrawing ? Colors.transparent : Colors.teal.withValues(alpha: 0.5),
                                 width: 1.5,
                               ),
                             ),
@@ -522,9 +540,9 @@ class _StudentRaffleScreenState extends State<StudentRaffleScreen> with SingleTi
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.12),
+        color: color.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: color.withOpacity(0.3), width: 1),
+        border: Border.all(color: color.withValues(alpha: 0.3), width: 1),
       ),
       child: Text(
         label,
@@ -544,18 +562,11 @@ class _StudentRaffleScreenState extends State<StudentRaffleScreen> with SingleTi
         width: double.infinity,
         decoration: BoxDecoration(
           color: isDark ? const Color(0xFF1E293B) : Colors.white,
-          borderRadius: BorderRadius.circular(24),
+          borderRadius: BorderRadius.circular(18),
           border: Border.all(
             color: isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0),
             width: 2,
           ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(isDark ? 0.3 : 0.05),
-              blurRadius: 15,
-              offset: const Offset(0, 8),
-            ),
-          ],
         ),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -563,7 +574,7 @@ class _StudentRaffleScreenState extends State<StudentRaffleScreen> with SingleTi
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: Colors.teal.withOpacity(0.1),
+                color: Colors.teal.withValues(alpha: 0.1),
                 shape: BoxShape.circle,
               ),
               child: const Icon(
@@ -586,7 +597,7 @@ class _StudentRaffleScreenState extends State<StudentRaffleScreen> with SingleTi
               'اضغط على زر السحب لبدء القرعة العشوائية',
               style: TextStyle(
                 fontSize: 12,
-                color: Colors.grey,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
               ),
             ),
           ],
@@ -600,22 +611,12 @@ class _StudentRaffleScreenState extends State<StudentRaffleScreen> with SingleTi
       decoration: BoxDecoration(
         color: _isDrawing
             ? (isDark ? const Color(0xFF1E293B) : Colors.white)
-            : (isDark ? const Color(0xFF1E293B) : Colors.teal[55]),
-        borderRadius: BorderRadius.circular(24),
+            : Theme.of(context).colorScheme.primaryContainer,
+        borderRadius: BorderRadius.circular(18),
         border: Border.all(
-          color: _isDrawing ? Colors.teal.withOpacity(0.5) : Colors.amber,
+          color: _isDrawing ? Colors.teal.withValues(alpha: 0.5) : Colors.amber,
           width: 3,
         ),
-        boxShadow: [
-          BoxShadow(
-            color: _isDrawing
-                ? Colors.teal.withOpacity(0.1)
-                : Colors.amber.withOpacity(isDark ? 0.25 : 0.15),
-            blurRadius: _isDrawing ? 10 : 25,
-            spreadRadius: _isDrawing ? 0 : 5,
-            offset: const Offset(0, 8),
-          ),
-        ],
       ),
       child: Stack(
         alignment: Alignment.center,
@@ -650,7 +651,7 @@ class _StudentRaffleScreenState extends State<StudentRaffleScreen> with SingleTi
             children: [
               CircleAvatar(
                 radius: 32,
-                backgroundColor: _isDrawing ? Colors.teal.withOpacity(0.1) : Colors.amber.withOpacity(0.15),
+                backgroundColor: _isDrawing ? Colors.teal.withValues(alpha: 0.1) : Colors.amber.withValues(alpha: 0.15),
                 child: Text(
                   _selectedStudent!.name.isNotEmpty ? _selectedStudent!.name[0] : '؟',
                   style: TextStyle(
@@ -687,7 +688,7 @@ class _StudentRaffleScreenState extends State<StudentRaffleScreen> with SingleTi
       width: double.infinity,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF1E293B).withOpacity(0.5) : Colors.white.withOpacity(0.8),
+        color: isDark ? const Color(0xFF1E293B).withValues(alpha: 0.5) : Colors.white.withValues(alpha: 0.8),
         borderRadius: const BorderRadius.only(
           topLeft: Radius.circular(24),
           topRight: Radius.circular(24),
@@ -704,7 +705,7 @@ class _StudentRaffleScreenState extends State<StudentRaffleScreen> with SingleTi
                 style: TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.bold,
-                  color: isDark ? Colors.grey[300] : Colors.grey[700],
+                  color: isDark ? Theme.of(context).colorScheme.outlineVariant : Theme.of(context).colorScheme.onSurface,
                 ),
               ),
               GestureDetector(

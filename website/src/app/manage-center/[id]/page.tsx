@@ -1,6 +1,8 @@
 "use client";
 
+import { logOperationalError } from "@/lib/operationalLog";
 import { useState, useEffect } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { useParams, useRouter } from "next/navigation";
 import { 
   Building2, 
@@ -32,11 +34,29 @@ export default function ManageCenterPage() {
   const params = useParams();
   const centerId = params.id as string;
   const router = useRouter();
-  const { 
-    user, fetchProfile,
-    teachers, fetchTeachers, addTeacher, removeTeacher, assignTeacherToHalaqa,
-    halaqat, fetchAllHalaqat,
-  } = useStore();
+  const {
+    user,
+    fetchProfile,
+    teachers,
+    fetchTeachers,
+    addTeacher,
+    removeTeacher,
+    assignTeacherToHalaqa,
+    halaqat,
+    fetchAllHalaqat
+  } = useStore(
+    useShallow((state) => ({
+      user: state.user,
+      fetchProfile: state.fetchProfile,
+      teachers: state.teachers,
+      fetchTeachers: state.fetchTeachers,
+      addTeacher: state.addTeacher,
+      removeTeacher: state.removeTeacher,
+      assignTeacherToHalaqa: state.assignTeacherToHalaqa,
+      halaqat: state.halaqat,
+      fetchAllHalaqat: state.fetchAllHalaqat,
+    })),
+  );
 
   const [loading, setLoading] = useState(true);
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -60,7 +80,7 @@ export default function ManageCenterPage() {
           .maybeSingle();
         
         if (centerError || !centerData) {
-          console.error("Fetch center error:", centerError);
+          logOperationalError("manage_center.fetch", centerError);
           alert(centerError?.message || "خطأ: لم يتم العثور على المركز أو ليس لديك صلاحية كافية لإدارته.");
           router.push("/select-center");
           return;
@@ -82,7 +102,7 @@ export default function ManageCenterPage() {
       setLoading(false);
     };
     init();
-  }, [centerId]);
+  }, [centerId, fetchAllHalaqat, fetchProfile, fetchTeachers, router, user]);
 
   const handleCopyCode = (code: string, teacherId: string) => {
     if (!code) return;
@@ -101,14 +121,14 @@ export default function ManageCenterPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-950 flex items-center justify-center">
+      <div className="min-h-screen bg-[var(--background)] flex items-center justify-center">
         <Loader2 className="w-12 h-12 text-teal-600 animate-spin" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-950 p-6 md:p-12 transition-all duration-500" dir="rtl">
+    <div className="min-h-screen bg-[var(--background)] p-6 md:p-12 transition-all duration-500" dir="rtl">
       <div className="max-w-7xl mx-auto space-y-12">
         {/* Top Navigation */}
         <div className="flex items-center justify-between">
@@ -125,7 +145,7 @@ export default function ManageCenterPage() {
         </div>
 
         {/* Header Section */}
-        <div className="flex flex-col md:flex-row md:items-end justify-between gap-8 bg-white dark:bg-gray-900 p-10 md:p-16 rounded-[4rem] border border-gray-100 dark:border-gray-800 shadow-2xl relative overflow-hidden">
+        <div className="flex flex-col md:flex-row md:items-end justify-between gap-8 bg-[var(--surface)] p-10 md:p-16 rounded-[4rem] border border-[var(--border)] shadow-2xl relative overflow-hidden">
           <div className="absolute top-0 right-0 w-64 h-64 bg-teal-500/5 rounded-full blur-3xl -mr-32 -mt-32" />
           <div className="relative z-10 space-y-4">
             <div className="flex items-center gap-4">
@@ -133,8 +153,8 @@ export default function ManageCenterPage() {
                 <Building2 className="w-8 h-8 text-white" />
               </div>
               <div>
-                <h1 className="text-4xl font-black text-gray-900 dark:text-white tracking-tight">{centerInfo?.name}</h1>
-                <p className="text-gray-500 dark:text-gray-400 font-medium">{centerInfo?.address || "إدارة المركز والتحكم في الحلقات والمعلمين"}</p>
+                <h1 className="text-4xl font-black text-[var(--foreground)] tracking-tight">{centerInfo?.name}</h1>
+                <p className="text-[var(--muted)] font-medium">{centerInfo?.address || "إدارة المركز والتحكم في الحلقات والمعلمين"}</p>
               </div>
             </div>
           </div>
@@ -153,7 +173,7 @@ export default function ManageCenterPage() {
           {/* Teachers Section */}
           <div className="lg:col-span-2 space-y-8">
             <div className="flex items-center justify-between px-4">
-              <h2 className="text-2xl font-black text-gray-900 dark:text-white flex items-center gap-3">
+              <h2 className="text-2xl font-black text-[var(--foreground)] flex items-center gap-3">
                 <Users className="w-7 h-7 text-teal-600" /> قائمة المعلمين
               </h2>
               <span className="bg-gray-100 dark:bg-gray-800 px-4 py-1 rounded-full text-xs font-black text-gray-500">{teachers.length} معلم</span>
@@ -161,13 +181,13 @@ export default function ManageCenterPage() {
 
             <div className="grid gap-6">
               {teachers.map((teacher) => (
-                <div key={teacher.id} className="bg-white dark:bg-gray-900 p-8 rounded-[2.5rem] border border-gray-100 dark:border-gray-800 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-8 group hover:shadow-xl transition-all">
+                <div key={teacher.id} className="bg-[var(--surface)] p-8 rounded-[2.5rem] border border-[var(--border)] shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-8 group hover:shadow-xl transition-all">
                   <div className="flex items-center gap-6">
                     <div className="w-16 h-16 bg-gray-50 dark:bg-gray-800 rounded-2xl flex items-center justify-center text-gray-400">
                       <Mail className="w-7 h-7" />
                     </div>
                     <div className="space-y-1">
-                      <p className="text-sm font-black text-gray-900 dark:text-white">{teacher.email}</p>
+                      <p className="text-sm font-black text-[var(--foreground)]">{teacher.email}</p>
                       <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-2">
                         <BookOpen className="w-3 h-3" /> {teacher.halaqahName || "لم يتم الإسناد بعد"}
                       </p>
@@ -208,7 +228,7 @@ export default function ManageCenterPage() {
               ))}
 
               {teachers.length === 0 && (
-                <div className="py-20 text-center bg-white dark:bg-gray-900 rounded-[3rem] border-2 border-dashed border-gray-100 dark:border-gray-800">
+                <div className="py-20 text-center bg-[var(--surface)] rounded-[3rem] border-2 border-dashed border-[var(--border)]">
                   <p className="text-gray-400 font-black">لا يوجد معلمون في هذا المركز حالياً</p>
                 </div>
               )}
@@ -217,14 +237,14 @@ export default function ManageCenterPage() {
 
           {/* Halaqat Quick Access */}
           <div className="space-y-8">
-            <h2 className="text-2xl font-black text-gray-900 dark:text-white flex items-center gap-3">
+            <h2 className="text-2xl font-black text-[var(--foreground)] flex items-center gap-3">
               <LayoutGrid className="w-7 h-7 text-teal-600" /> الحلقات الحالية
             </h2>
             <div className="grid gap-4">
               {halaqat.map((halaqa) => (
-                <div key={halaqa.id} className="bg-white dark:bg-gray-900 p-6 rounded-3xl border border-gray-100 dark:border-gray-800 flex items-center justify-between group hover:border-teal-500 transition-all">
+                <div key={halaqa.id} className="bg-[var(--surface)] p-6 rounded-3xl border border-[var(--border)] flex items-center justify-between group hover:border-teal-500 transition-all">
                   <div className="space-y-1">
-                    <h3 className="font-black text-gray-900 dark:text-white">{halaqa.name}</h3>
+                    <h3 className="font-black text-[var(--foreground)]">{halaqa.name}</h3>
                     <p className="text-[10px] text-gray-400 font-bold">المعلم: {teachers.find(t=>t.halaqahId === halaqa.id)?.email || halaqa.teacher_name || "شاغر"}</p>
                   </div>
                   <div className="flex items-center gap-2">
@@ -262,9 +282,9 @@ export default function ManageCenterPage() {
       {/* Add Teacher Modal */}
       {showAddTeacherModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-6 animate-in fade-in duration-300">
-          <div className="bg-white dark:bg-gray-950 w-full max-w-lg rounded-[3.5rem] p-10 shadow-2xl relative animate-in zoom-in-95 duration-300">
+          <div className="bg-[var(--surface)] w-full max-w-lg rounded-[3.5rem] p-10 shadow-2xl relative animate-in zoom-in-95 duration-300">
             <div className="flex justify-between items-center mb-10">
-              <h2 className="text-2xl font-black text-gray-900 dark:text-white">إضافة معلم جديد</h2>
+              <h2 className="text-2xl font-black text-[var(--foreground)]">إضافة معلم جديد</h2>
               <button onClick={() => setShowAddTeacherModal(false)} className="p-3 bg-gray-100 dark:bg-gray-800 rounded-2xl hover:bg-gray-200 transition-colors">
                 <X className="w-5 h-5 text-gray-500" />
               </button>

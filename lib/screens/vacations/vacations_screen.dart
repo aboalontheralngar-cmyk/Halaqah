@@ -16,6 +16,36 @@ class _VacationsScreenState extends State<VacationsScreen> {
   List<Vacation> _vacations = [];
   List<Student> _students = [];
   bool _isLoading = true;
+  String _filter = 'current';
+
+  List<Vacation> get _visibleVacations {
+    final today = DateTime.now();
+    final day = DateTime(today.year, today.month, today.day);
+    final weekStart = day.subtract(Duration(days: day.weekday - 1));
+    final weekEnd = weekStart.add(const Duration(days: 6));
+    final result = _vacations.where((vacation) {
+      switch (_filter) {
+        case 'active':
+          return vacation.isActive;
+        case 'week':
+          return !vacation.endDate.isBefore(weekStart) &&
+              !vacation.startDate.isAfter(weekEnd);
+        case 'month':
+          return vacation.startDate.year == day.year &&
+                  vacation.startDate.month == day.month ||
+              vacation.endDate.year == day.year &&
+                  vacation.endDate.month == day.month;
+        case 'past':
+          return vacation.isPast;
+        case 'current':
+          return !vacation.isPast;
+        default:
+          return true;
+      }
+    }).toList()
+      ..sort((a, b) => b.startDate.compareTo(a.startDate));
+    return result;
+  }
 
   @override
   void initState() {
@@ -109,7 +139,7 @@ class _VacationsScreenState extends State<VacationsScreen> {
                         labelText: 'الطالب',
                         prefixIcon: Icon(Icons.person),
                       ),
-                      value: selectedStudentId,
+                      initialValue: selectedStudentId,
                       items: _students.map((student) {
                         return DropdownMenuItem(
                           value: student.id,
@@ -153,7 +183,7 @@ class _VacationsScreenState extends State<VacationsScreen> {
                       labelText: 'سبب الإجازة',
                       prefixIcon: Icon(Icons.help_outline),
                     ),
-                    value: selectedReason,
+                    initialValue: selectedReason,
                     items: VacationReason.getAll().map((r) {
                       return DropdownMenuItem(
                         value: r['value'],
@@ -189,7 +219,7 @@ class _VacationsScreenState extends State<VacationsScreen> {
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                       decoration: BoxDecoration(
-                        border: Border.all(color: Colors.grey[300]!),
+                        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
                         borderRadius: BorderRadius.circular(16),
                       ),
                       child: Row(
@@ -393,6 +423,24 @@ class _VacationsScreenState extends State<VacationsScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('إدارة إجازات الطلاب'),
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(52),
+          child: SizedBox(
+            height: 52,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              children: [
+                _filterChip('الحالية والقادمة', 'current'),
+                _filterChip('السارية', 'active'),
+                _filterChip('هذا الأسبوع', 'week'),
+                _filterChip('هذا الشهر', 'month'),
+                _filterChip('المنتهية', 'past'),
+                _filterChip('الكل', 'all'),
+              ],
+            ),
+          ),
+        ),
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _showVacationDialog(),
@@ -403,7 +451,7 @@ class _VacationsScreenState extends State<VacationsScreen> {
           ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(
               onRefresh: _loadData,
-              child: _vacations.isEmpty
+              child: _visibleVacations.isEmpty
                   ? Center(
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
@@ -411,13 +459,13 @@ class _VacationsScreenState extends State<VacationsScreen> {
                           Icon(
                             Icons.beach_access,
                             size: 64,
-                            color: Colors.grey[400],
+                            color: Theme.of(context).colorScheme.onSurfaceVariant,
                           ),
                           const SizedBox(height: 16),
                           Text(
                             'لا توجد طلبات إجازة مسجلة',
                             style: TextStyle(
-                              color: Colors.grey[600],
+                              color: Theme.of(context).colorScheme.onSurfaceVariant,
                               fontSize: 15,
                             ),
                           ),
@@ -426,9 +474,9 @@ class _VacationsScreenState extends State<VacationsScreen> {
                     )
                   : ListView.builder(
                       padding: const EdgeInsets.all(16),
-                      itemCount: _vacations.length,
+                      itemCount: _visibleVacations.length,
                       itemBuilder: (context, index) {
-                        final vac = _vacations[index];
+                        final vac = _visibleVacations[index];
                         final studentName = _getStudentName(vac.studentId);
                         
                         return Card(
@@ -471,9 +519,12 @@ class _VacationsScreenState extends State<VacationsScreen> {
                                       child: Column(
                                         crossAxisAlignment: CrossAxisAlignment.start,
                                         children: [
-                                          const Text(
+                                          Text(
                                             'المدة الزمنية',
-                                            style: TextStyle(fontSize: 11, color: Colors.grey),
+                                            style: TextStyle(
+                                              fontSize: 11,
+                                              color: Theme.of(context).colorScheme.onSurfaceVariant,
+                                            ),
                                           ),
                                           const SizedBox(height: 4),
                                           Text(
@@ -487,9 +538,12 @@ class _VacationsScreenState extends State<VacationsScreen> {
                                       child: Column(
                                         crossAxisAlignment: CrossAxisAlignment.start,
                                         children: [
-                                          const Text(
+                                          Text(
                                             'السبب والمدة',
-                                            style: TextStyle(fontSize: 11, color: Colors.grey),
+                                            style: TextStyle(
+                                              fontSize: 11,
+                                              color: Theme.of(context).colorScheme.onSurfaceVariant,
+                                            ),
                                           ),
                                           const SizedBox(height: 4),
                                           Text(
@@ -507,7 +561,7 @@ class _VacationsScreenState extends State<VacationsScreen> {
                                     'ملاحظات: ${vac.notes}',
                                     style: TextStyle(
                                       fontSize: 12,
-                                      color: Theme.of(context).textTheme.bodyMedium?.color?.withOpacity(0.7),
+                                      color: Theme.of(context).textTheme.bodyMedium?.color?.withValues(alpha: 0.7),
                                       fontStyle: FontStyle.italic,
                                     ),
                                   ),
@@ -551,7 +605,7 @@ class _VacationsScreenState extends State<VacationsScreen> {
                                         Switch(
                                           value: vac.approved,
                                           onChanged: (val) => _toggleApproval(vac, val),
-                                          activeColor: Colors.teal,
+                                          activeThumbColor: Colors.teal,
                                         ),
                                       ],
                                     ),
@@ -566,4 +620,13 @@ class _VacationsScreenState extends State<VacationsScreen> {
             ),
     );
   }
+
+  Widget _filterChip(String label, String value) => Padding(
+        padding: const EdgeInsetsDirectional.only(end: 8),
+        child: ChoiceChip(
+          label: Text(label),
+          selected: _filter == value,
+          onSelected: (_) => setState(() => _filter = value),
+        ),
+      );
 }

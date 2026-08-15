@@ -1,5 +1,6 @@
 "use client";
 
+import { logOperationalError } from "@/lib/operationalLog";
 import { useEffect } from "react";
 import { AlertTriangle, RefreshCw } from "lucide-react";
 import "./globals.css";
@@ -12,7 +13,7 @@ export default function GlobalError({
   unstable_retry: () => void;
 }) {
   useEffect(() => {
-    console.error("Unhandled root error", error.digest ?? error.name);
+    logOperationalError("app.root_unhandled", error);
   }, [error]);
 
   return (

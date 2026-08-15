@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:halaqah_teacher/services/cloud_connection_diagnostics.dart';
 import 'package:halaqah_teacher/services/diagnostic_center_service.dart';
+import 'package:halaqah_teacher/services/local_data_integrity_service.dart';
 
 void main() {
   test('support report contains health metrics but excludes raw details', () {
@@ -16,6 +17,9 @@ void main() {
       lastCloudDownloadAt: null,
       lastSyncDirection: 'upload',
       hasAutomaticBackupError: false,
+      lastBackgroundBackupWorkerAt: DateTime.utc(2026, 7, 18, 2),
+      backgroundBackupWorkerStatus: 'success',
+      hasBackgroundBackupSchedulerError: false,
       cloudAuthenticated: true,
       cloudConnection: const CloudConnectionDiagnostic(
         status: CloudConnectionStatus.healthy,
@@ -23,6 +27,10 @@ void main() {
         elapsed: Duration(milliseconds: 90),
         httpStatus: 200,
         technicalDetails: '/Users/private/device/path',
+      ),
+      dataIntegrity: LocalDataIntegrityEvaluator.evaluate(
+        const LocalDataIntegrityMetrics(),
+        checkedAt: DateTime.utc(2026, 7, 18, 12),
       ),
       incidents: <OperationalIncidentSummary>[
         OperationalIncidentSummary(
@@ -38,6 +46,9 @@ void main() {
     expect(report, contains('إصدار SQLite: 18'));
     expect(report, contains('الطلاب: 25'));
     expect(report, contains('0123456789abcdef'));
+    expect(report, contains('حالة التشغيل الخلفي: success'));
+    expect(report, contains('سلامة البيانات المحلية'));
+    expect(report, contains('قواعد الفحص المكتملة: 7'));
     expect(report, isNot(contains('/Users/private')));
     expect(report, isNot(contains('technicalDetails')));
   });

@@ -52,6 +52,7 @@ void main() {
       error: StateError('private message'),
       stackTrace: StackTrace.fromString('#0 saveThing (private.dart:1:2)'),
       source: 'flutter framework',
+      operation: 'render profile card',
       now: now,
     );
 
@@ -62,7 +63,9 @@ void main() {
       'error_type',
       'fingerprint',
       'fatal',
+      'operation',
     ]));
+    expect(details['operation'], 'render_profile_card');
     expect(details.toString(), isNot(contains('private message')));
     expect(details.toString(), isNot(contains('saveThing')));
   });

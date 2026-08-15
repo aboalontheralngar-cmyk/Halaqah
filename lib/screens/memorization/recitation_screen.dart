@@ -5,22 +5,28 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
+import '../../app/theme.dart';
 import '../../services/quran_service.dart';
 import '../../services/database_service.dart';
 import '../../services/mushaf_service.dart';
-import '../../services/memorization_measure_service.dart';
 import '../../services/memorization_progression_service.dart';
-import '../../services/recitation_boundary_service.dart';
+import '../../services/quran_cross_surah_range_service.dart';
+import '../../services/student_learning_policy.dart';
+import '../../services/recitation_flow_coordinator.dart';
+import '../../services/recitation_attendance_guard.dart';
+import '../../services/backdated_entry_policy.dart';
+import '../../services/share_file_name_service.dart';
 import '../../models/student.dart';
 import '../../models/memorization.dart';
 import '../../models/daily_record.dart';
 import '../../models/ayah.dart';
 import '../../models/homework_grade.dart';
-import '../../models/behavior_point.dart';
-import '../../models/settings.dart';
 import '../../widgets/surah_picker.dart';
 import '../../widgets/ayah_range_picker.dart';
+import '../../widgets/quran_endpoint_picker.dart';
+import '../../widgets/app_design_widgets.dart';
 import '../../utils/helpers.dart';
+import '../../utils/color_contrast.dart';
 
 class RecitationScreen extends StatefulWidget {
   final Student student;
@@ -41,9 +47,13 @@ class _RecitationScreenState extends State<RecitationScreen> {
   int _currentAyahIndex = 0;
   bool _showFullText = false;
   bool _isSaving = false;
+  bool _ownsRecitationFlow = false;
   List<Ayah> _ayahs = [];
   Map<int, int> _ayahRatings = {};
   bool _openEnded = true;
+  QuranCrossSurahRange? _suggestedPlanRange;
+  QuranCrossSurahRange? _configuredRange;
+  QuranCrossSurahRange? _activeRange;
 
   // New Grading State Fields
   bool _isRevision = false;
@@ -55,26 +65,92 @@ class _RecitationScreenState extends State<RecitationScreen> {
   Duration _recitationDuration = Duration.zero;
   Timer? _timer;
   bool _isTimerRunning = false;
+  DateTime _recordDate = BackdatedEntryPolicy.dateOnly(DateTime.now());
 
   Surah? get _selectedSurah => _selectedSurahId != null 
       ? _quran.getSurah(_selectedSurahId!) 
       : null;
 
+  bool get _ascendingSurahs => widget.student.memorizationDirection != 'desc';
+
   @override
   void initState() {
     super.initState();
+    _ownsRecitationFlow = RecitationFlowCoordinator.acquire(
+      widget.student.id,
+      this,
+    );
+    if (!_ownsRecitationFlow) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'توجد شاشة حفظ أخرى مفتوحة لهذا الطالب. أغلقها أولًا ثم أعد المحاولة.',
+            ),
+          ),
+        );
+        Navigator.maybePop(context);
+      });
+      return;
+    }
     _loadInitialStartingPoint();
   }
 
   Future<void> _loadInitialStartingPoint() async {
+    await _quran.initialize();
     final startPoint = await _getNextMemorizationStartingPoint(widget.student);
-    if (startPoint != null) {
-      setState(() {
-        _selectedSurahId = startPoint['surahId'];
-        _fromAyah = startPoint['fromAyah']!;
-        _toAyah = startPoint['toAyah']!;
-      });
+    if (!mounted || startPoint == null) return;
+    final surahId = startPoint['surahId']!;
+    final fromAyah = startPoint['fromAyah']!;
+    final suggested = _buildPlanRange(surahId, fromAyah);
+    setState(() {
+      _selectedSurahId = surahId;
+      _fromAyah = fromAyah;
+      _toAyah = suggested?.segments.first.toAyah ?? startPoint['toAyah']!;
+      _suggestedPlanRange = suggested;
+      _configuredRange = null;
+    });
+  }
+
+  QuranCrossSurahRange? _buildPlanRange(int surahId, int fromAyah) {
+    return QuranCrossSurahRangeService.toAmount(
+      surahs: _quran.surahs,
+      startSurahId: surahId,
+      startAyah: fromAyah,
+      unit: QuranCrossSurahRangeService.unitFromPlanType(
+        widget.student.planType,
+      ),
+      amount: widget.student.planAmount,
+      ascendingSurahs: _ascendingSurahs,
+    );
+  }
+
+  QuranCrossSurahRange? _singleSurahConfiguredRange() {
+    if (_selectedSurahId == null) return null;
+    return QuranCrossSurahRangeService.fromAyahs(
+      _quran.getAyahRange(_selectedSurahId!, _fromAyah, _toAyah),
+    );
+  }
+
+  String _rangeLabel(QuranCrossSurahRange? range) {
+    if (range == null || range.ayahs.isEmpty) return 'نطاق غير محدد';
+    final first = range.ayahs.first;
+    final last = range.ayahs.last;
+    final firstName = _quran.getSurahName(first.surahNumber);
+    final lastName = _quran.getSurahName(last.surahNumber);
+    if (first.surahNumber == last.surahNumber) {
+      return 'سورة $firstName من آية ${first.number} إلى آية ${last.number}';
     }
+    return 'من سورة $firstName آية ${first.number} إلى سورة $lastName آية ${last.number}';
+  }
+
+  String _surahRangeLabel(QuranCrossSurahRange range) {
+    final firstName = _quran.getSurahName(range.fromSurahId);
+    final lastName = _quran.getSurahName(range.toSurahId);
+    return range.fromSurahId == range.toSurahId
+        ? firstName
+        : '$firstName إلى $lastName';
   }
 
   Future<Map<String, int>?> _getNextMemorizationStartingPoint(Student student) async {
@@ -90,6 +166,9 @@ class _RecitationScreenState extends State<RecitationScreen> {
   void dispose() {
     _timer?.cancel();
     _remarkController.dispose();
+    if (_ownsRecitationFlow) {
+      RecitationFlowCoordinator.release(widget.student.id, this);
+    }
     super.dispose();
   }
 
@@ -115,23 +194,24 @@ class _RecitationScreenState extends State<RecitationScreen> {
 
   void _loadAyahs() {
     if (_selectedSurahId == null) return;
-    final effectiveTo = _openEnded
-        ? (_selectedSurah?.totalAyahs ?? _toAyah)
-        : _toAyah;
-    final ayahs = _quran.getAyahRange(
-      _selectedSurahId!,
-      _fromAyah,
-      effectiveTo,
-    );
-    if (ayahs.isEmpty) {
+    final range = _openEnded
+        ? QuranCrossSurahRangeService.toEnd(
+            surahs: _quran.surahs,
+            startSurahId: _selectedSurahId!,
+            startAyah: _fromAyah,
+            ascendingSurahs: _ascendingSurahs,
+          )
+        : (_configuredRange ?? _singleSurahConfiguredRange());
+    if (range == null || range.ayahs.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('تعذر بدء التسميع من النطاق المحدد')),
       );
       return;
     }
     setState(() {
-      _toAyah = effectiveTo;
-      _ayahs = ayahs;
+      _toAyah = range.toAyah;
+      _activeRange = range;
+      _ayahs = range.ayahs;
       _currentAyahIndex = 0;
       _ayahRatings = {};
       _mistakesCount = 0;
@@ -155,6 +235,15 @@ class _RecitationScreenState extends State<RecitationScreen> {
       appBar: AppBar(
         title: Text('تسميع ${widget.student.name}'),
         actions: [
+          IconButton(
+            onPressed: _pickRecordDate,
+            tooltip: 'تاريخ التسجيل: ${Helpers.formatPlanDate(_recordDate)}',
+            icon: Badge(
+              isLabelVisible: BackdatedEntryPolicy.daysAgo(_recordDate) > 0,
+              label: Text('${BackdatedEntryPolicy.daysAgo(_recordDate)}'),
+              child: const Icon(Icons.calendar_month_outlined),
+            ),
+          ),
           if (_ayahs.isNotEmpty)
             IconButton(
               icon: Icon(_showFullText ? Icons.visibility_off : Icons.visibility),
@@ -168,6 +257,21 @@ class _RecitationScreenState extends State<RecitationScreen> {
       ),
       bottomNavigationBar: _ayahs.isNotEmpty ? _buildBottomBar() : null,
     );
+  }
+
+
+  Future<void> _pickRecordDate() async {
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _recordDate,
+      firstDate: BackdatedEntryPolicy.earliestAllowed(now),
+      lastDate: BackdatedEntryPolicy.dateOnly(now),
+      helpText: 'تاريخ التسميع (حتى 3 أيام سابقة)',
+      confirmText: 'اعتماد',
+    );
+    if (picked == null || !mounted) return;
+    setState(() => _recordDate = BackdatedEntryPolicy.dateOnly(picked));
   }
 
   Widget _buildSetupView() {
@@ -194,13 +298,13 @@ class _RecitationScreenState extends State<RecitationScreen> {
 
   Widget _buildStudentCard() {
     return Card(
-      color: Theme.of(context).primaryColor.withOpacity(0.1),
+      color: Theme.of(context).primaryColor.withValues(alpha: 0.1),
       child: ListTile(
         leading: CircleAvatar(
           backgroundColor: Theme.of(context).primaryColor,
           child: Text(
             widget.student.name[0],
-            style: const TextStyle(color: Colors.white),
+            style: TextStyle(color: Theme.of(context).colorScheme.onPrimary),
           ),
         ),
         title: Text(widget.student.name, style: const TextStyle(fontWeight: FontWeight.bold)),
@@ -227,10 +331,15 @@ class _RecitationScreenState extends State<RecitationScreen> {
                 );
                 if (surahId != null) {
                   final surah = _quran.getSurah(surahId);
+                  final suggested = _buildPlanRange(surahId, 1);
                   setState(() {
                     _selectedSurahId = surahId;
                     _fromAyah = 1;
-                    _toAyah = surah?.totalAyahs ?? 1;
+                    _toAyah = suggested?.segments.first.toAyah ??
+                        surah?.totalAyahs ??
+                        1;
+                    _suggestedPlanRange = suggested;
+                    _configuredRange = null;
                   });
                 }
               },
@@ -239,12 +348,12 @@ class _RecitationScreenState extends State<RecitationScreen> {
                 width: double.infinity,
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  border: Border.all(color: Colors.grey[300]!),
+                  border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Row(
                   children: [
-                    const Icon(Icons.menu_book, color: Colors.blue),
+                    Icon(Icons.menu_book, color: Theme.of(context).colorScheme.primary),
                     const SizedBox(width: 12),
                     Expanded(
                       child: _selectedSurah != null
@@ -257,11 +366,11 @@ class _RecitationScreenState extends State<RecitationScreen> {
                                 ),
                                 Text(
                                   '${_selectedSurah!.totalAyahs} آية',
-                                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                                  style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant),
                                 ),
                               ],
                             )
-                          : Text('اضغط لاختيار السورة', style: TextStyle(color: Colors.grey[600])),
+                          : Text('اضغط لاختيار السورة', style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
                     ),
                     const Icon(Icons.arrow_drop_down),
                   ],
@@ -294,10 +403,53 @@ class _RecitationScreenState extends State<RecitationScreen> {
               onChanged: (value) {
                 setState(() {
                   _openEnded = value;
-                  if (value) _toAyah = _fromAyah;
+                  if (value) {
+                    _toAyah = _fromAyah;
+                    _configuredRange = null;
+                  } else if (_suggestedPlanRange != null) {
+                    _configuredRange = _suggestedPlanRange;
+                    _toAyah = _suggestedPlanRange!.segments.first.toAyah;
+                  }
                 });
               },
             ),
+            if (_suggestedPlanRange != null) ...[
+              Container(
+                width: double.infinity,
+                margin: const EdgeInsets.only(bottom: 12),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.primaryContainer,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.45),
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'مقرر الطالب: ${widget.student.planAmount} ${_planUnitLabel(widget.student.planType)}',
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      _rangeLabel(_suggestedPlanRange),
+                      style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurface),
+                    ),
+                    const SizedBox(height: 8),
+                    Align(
+                      alignment: AlignmentDirectional.centerEnd,
+                      child: TextButton.icon(
+                        onPressed: _applySuggestedPlan,
+                        icon: const Icon(Icons.auto_awesome, size: 18),
+                        label: const Text('تحديد الجلسة بالمقرر'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             const Divider(),
             AyahRangePicker(
               key: ValueKey(
@@ -308,13 +460,27 @@ class _RecitationScreenState extends State<RecitationScreen> {
               initialTo: _openEnded ? _fromAyah : _toAyah,
               singleValue: _openEnded,
               onRangeChanged: (from, to) {
+                final suggested = _buildPlanRange(_selectedSurahId!, from);
                 setState(() {
                   _fromAyah = from;
                   _toAyah = _openEnded ? from : to;
+                  _suggestedPlanRange = suggested;
+                  _configuredRange = null;
                 });
               },
             ),
             const SizedBox(height: 12),
+            if (!_openEnded) ...[
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: _selectExplicitEnd,
+                  icon: const Icon(Icons.route_outlined),
+                  label: const Text('تحديد «إلى» في سورة أخرى'),
+                ),
+              ),
+              const SizedBox(height: 8),
+            ],
             Row(
               children: [
                 Expanded(
@@ -340,50 +506,111 @@ class _RecitationScreenState extends State<RecitationScreen> {
     );
   }
 
-  void _setEndOfCurrentPage() {
-    final surah = _selectedSurah;
-    if (surah == null) return;
-    final end = RecitationBoundaryService.endOfPage(surah, _fromAyah);
+  void _applySuggestedPlan() {
+    final range = _suggestedPlanRange;
+    if (range == null) return;
     setState(() {
       _openEnded = false;
-      _toAyah = end;
+      _configuredRange = range;
+      _toAyah = range.segments.first.toAyah;
+    });
+  }
+
+  Future<void> _selectExplicitEnd() async {
+    final startSurahId = _selectedSurahId;
+    if (startSurahId == null) return;
+    final endpoint = await showQuranEndpointPicker(
+      context,
+      initialSurahId: startSurahId,
+      initialAyah: _toAyah,
+      title: 'نهاية التسميع',
+    );
+    if (endpoint == null || !mounted) return;
+    final range = QuranCrossSurahRangeService.between(
+      surahs: _quran.surahs,
+      startSurahId: startSurahId,
+      startAyah: _fromAyah,
+      endSurahId: endpoint.surahId,
+      endAyah: endpoint.ayah,
+      ascendingSurahs: widget.student.memorizationDirection != 'desc',
+    );
+    if (range == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('نهاية التسميع لا تقع بعد نقطة البداية')),
+      );
+      return;
+    }
+    setState(() {
+      _openEnded = false;
+      _configuredRange = range;
+      _toAyah = range.segments.first.toAyah;
+    });
+  }
+
+  void _setEndOfCurrentPage() {
+    if (_selectedSurahId == null) return;
+    final range = QuranCrossSurahRangeService.toBoundary(
+      surahs: _quran.surahs,
+      startSurahId: _selectedSurahId!,
+      startAyah: _fromAyah,
+      boundary: QuranRangeBoundary.page,
+      ascendingSurahs: _ascendingSurahs,
+    );
+    if (range == null) return;
+    setState(() {
+      _openEnded = false;
+      _configuredRange = range;
+      _toAyah = range.segments.first.toAyah;
     });
   }
 
   void _setEndOfCurrentHizb() {
-    final surah = _selectedSurah;
-    if (surah == null) return;
-    final end = RecitationBoundaryService.endOfHizb(surah, _fromAyah);
+    if (_selectedSurahId == null) return;
+    final range = QuranCrossSurahRangeService.toBoundary(
+      surahs: _quran.surahs,
+      startSurahId: _selectedSurahId!,
+      startAyah: _fromAyah,
+      boundary: QuranRangeBoundary.hizb,
+      ascendingSurahs: _ascendingSurahs,
+    );
+    if (range == null) return;
     setState(() {
       _openEnded = false;
-      _toAyah = end;
+      _configuredRange = range;
+      _toAyah = range.segments.first.toAyah;
     });
   }
 
   Widget _buildSummaryCard() {
     if (_openEnded) {
       return Card(
-        color: Colors.teal.shade50,
+        color: Theme.of(context).colorScheme.primaryContainer,
         child: ListTile(
-          leading: const Icon(Icons.play_circle_outline, color: Colors.teal),
+          leading: Icon(Icons.play_circle_outline, color: Theme.of(context).colorScheme.onPrimaryContainer),
           title: Text('يبدأ التسميع من الآية $_fromAyah'),
-          subtitle: const Text(
-            'لا توجد نهاية مسبقة؛ يعتمد المعلم آخر آية عند التوقف.',
+          subtitle: Text(
+            'يستمر عبر السور باتجاه خطة الطالب، ويعتمد المعلم آخر آية عند التوقف.'
+            '${_suggestedPlanRange == null ? '' : '\nنهاية المقرر المقترحة: ${_rangeLabel(_suggestedPlanRange)}'}',
           ),
         ),
       );
     }
-    final lines = _quran.calculateLines(_selectedSurahId!, _fromAyah, _toAyah);
+    final range = _configuredRange ?? _singleSurahConfiguredRange();
+    final ayahs = range?.ayahs ?? const <Ayah>[];
+    final lines = ayahs.fold<double>(0, (sum, ayah) => sum + ayah.lines);
+    final pages = ayahs.map((ayah) => ayah.page).toSet().length;
     return Card(
-      color: Colors.blue.shade50,
+      color: Theme.of(context).colorScheme.surfaceContainerLow,
       child: Padding(
         padding: const EdgeInsets.all(16),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceAround,
+        child: Wrap(
+          alignment: WrapAlignment.spaceAround,
+          spacing: 16,
+          runSpacing: 12,
           children: [
-            _buildSummaryItem('الآيات', '${_toAyah - _fromAyah + 1}'),
+            _buildSummaryItem('الآيات', '${ayahs.length}'),
             _buildSummaryItem('الأسطر', lines.toStringAsFixed(1)),
-            _buildSummaryItem('الصفحات', (lines / 15).toStringAsFixed(1)),
+            _buildSummaryItem('الصفحات', '$pages'),
           ],
         ),
       ),
@@ -393,10 +620,23 @@ class _RecitationScreenState extends State<RecitationScreen> {
   Widget _buildSummaryItem(String label, String value) {
     return Column(
       children: [
-        Text(value, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.blue)),
-        Text(label, style: TextStyle(color: Colors.grey[600])),
+        Text(value, style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.primary)),
+        Text(label, style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
       ],
     );
+  }
+
+  String _planUnitLabel(String planType) {
+    switch (planType) {
+      case 'lines':
+        return 'سطر';
+      case 'pages':
+        return 'صفحة';
+      case 'hizbs':
+        return 'حزب';
+      default:
+        return 'آية';
+    }
   }
 
   Widget _buildStartButton() {
@@ -434,13 +674,10 @@ class _RecitationScreenState extends State<RecitationScreen> {
   }
 
   Widget _buildTimerRow() {
-    final measuredTo = _openEnded && _ayahs.isNotEmpty
-        ? _ayahs[_currentAyahIndex].number
-        : _toAyah;
-    final lines = _quran.calculateLines(
-      _selectedSurahId!,
-      _fromAyah,
-      measuredTo,
+    final measuredAyahs = _ayahs.take(_currentAyahIndex + 1);
+    final lines = measuredAyahs.fold<double>(
+      0,
+      (sum, ayah) => sum + ayah.lines,
     );
     final pages = lines / 15.0;
     final min = (pages * 1.5).round().clamp(1, 999);
@@ -450,12 +687,15 @@ class _RecitationScreenState extends State<RecitationScreen> {
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
-        color: Colors.blue.shade50,
+        color: Theme.of(context).colorScheme.surfaceContainerLow,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.blue.shade100),
+        border: Border.all(color: AppSemanticColors.of(context).info.withValues(alpha: 0.45)),
       ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      child: Wrap(
+        alignment: WrapAlignment.spaceBetween,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: 16,
+        runSpacing: 10,
         children: [
           Row(
             children: [
@@ -464,7 +704,7 @@ class _RecitationScreenState extends State<RecitationScreen> {
                 constraints: const BoxConstraints(),
                 icon: Icon(
                   _isTimerRunning ? Icons.pause_circle_filled : Icons.play_circle_filled,
-                  color: Colors.blue.shade700,
+                  color: AppSemanticColors.of(context).info,
                   size: 36,
                 ),
                 onPressed: _toggleTimer,
@@ -476,7 +716,7 @@ class _RecitationScreenState extends State<RecitationScreen> {
                   fontSize: 22,
                   fontWeight: FontWeight.bold,
                   fontFeatures: const [ui.FontFeature.tabularFigures()],
-                  color: Colors.blue.shade900,
+                  color: Theme.of(context).colorScheme.onSurface,
                 ),
               ),
             ],
@@ -486,12 +726,12 @@ class _RecitationScreenState extends State<RecitationScreen> {
             children: [
               Text(
                 'الوقت المقترح للتسميع',
-                style: TextStyle(fontSize: 11, color: Colors.blue.shade700),
+                style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.onSurfaceVariant),
               ),
               const SizedBox(height: 2),
               Text(
                 '$min - $max دقائق (${pages.toStringAsFixed(1)} صفحة)',
-                style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.blue.shade900),
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.onSurface),
               ),
             ],
           ),
@@ -501,46 +741,72 @@ class _RecitationScreenState extends State<RecitationScreen> {
   }
 
   Widget _buildProgressBar() {
+    final currentAyah = _ayahs[_currentAyahIndex];
+    final currentSurahName = _quran.getSurahName(currentAyah.surahNumber);
+    final label = Text(
+      _openEnded
+          ? 'سورة $currentSurahName · آية ${currentAyah.number}'
+          : 'الآية ${_currentAyahIndex + 1} من ${_ayahs.length}',
+      style: const TextStyle(fontWeight: FontWeight.bold),
+    );
+    final progress = LinearProgressIndicator(
+      value: _openEnded ? null : (_currentAyahIndex + 1) / _ayahs.length,
+      backgroundColor: Theme.of(context).colorScheme.outlineVariant,
+    );
+    final percentage = !_openEnded
+        ? Text(
+            '${((_currentAyahIndex + 1) / _ayahs.length * 100).round()}%',
+            style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
+          )
+        : null;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      color: Theme.of(context).primaryColor.withOpacity(0.1),
-      child: Row(
-        children: [
-          Text(
-            _openEnded
-                ? 'تسميع مفتوح · الآية ${_ayahs[_currentAyahIndex].number}'
-                : 'الآية ${_currentAyahIndex + 1} من ${_ayahs.length}',
-            style: const TextStyle(fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: LinearProgressIndicator(
-              value: _openEnded
-                  ? null
-                  : (_currentAyahIndex + 1) / _ayahs.length,
-              backgroundColor: Colors.grey[300],
-            ),
-          ),
-          const SizedBox(width: 12),
-          if (!_openEnded)
-            Text(
-              '${((_currentAyahIndex + 1) / _ayahs.length * 100).round()}%',
-              style: TextStyle(color: Colors.grey[600]),
-            ),
-        ],
+      color: Theme.of(context).primaryColor.withValues(alpha: 0.1),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final textScale = MediaQuery.textScalerOf(context).scale(1);
+          if (constraints.maxWidth < 360 || textScale > 1.2) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Wrap(
+                  spacing: 8,
+                  alignment: WrapAlignment.spaceBetween,
+                  children: [label, if (percentage != null) percentage],
+                ),
+                const SizedBox(height: 8),
+                progress,
+              ],
+            );
+          }
+          return Row(
+            children: [
+              label,
+              const SizedBox(width: 12),
+              Expanded(child: progress),
+              if (percentage != null) ...[
+                const SizedBox(width: 12),
+                percentage,
+              ],
+            ],
+          );
+        },
       ),
     );
   }
 
   Widget _buildAyahCard(Ayah ayah) {
     return Card(
-      elevation: 4,
+      elevation: 0,
       child: Padding(
         padding: const EdgeInsets.all(20),
         child: Column(
           children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            Wrap(
+              alignment: WrapAlignment.spaceBetween,
+              spacing: 12,
+              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -549,13 +815,13 @@ class _RecitationScreenState extends State<RecitationScreen> {
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Text(
-                    'آية ${ayah.number}',
-                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                    'سورة ${_quran.getSurahName(ayah.surahNumber)} · آية ${ayah.number}',
+                    style: TextStyle(color: Theme.of(context).colorScheme.onPrimary, fontWeight: FontWeight.bold),
                   ),
                 ),
                 Text(
                   'صفحة ${ayah.page}',
-                  style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                  style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 12),
                 ),
               ],
             ),
@@ -565,16 +831,19 @@ class _RecitationScreenState extends State<RecitationScreen> {
                 width: double.infinity,
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: Colors.amber.shade50,
+                  color: AppSemanticColors.of(context).warningContainer,
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.amber.shade200),
+                  border: Border.all(
+                    color: AppSemanticColors.of(context).warning.withValues(alpha: 0.55),
+                  ),
                 ),
                 child: Text(
                   ayah.text,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 24,
-                    fontFamily: 'Amiri',
+                    fontFamily: 'Tajawal',
                     height: 2,
+                    color: Theme.of(context).colorScheme.onSurface,
                   ),
                   textAlign: TextAlign.center,
                   textDirection: TextDirection.rtl,
@@ -585,31 +854,37 @@ class _RecitationScreenState extends State<RecitationScreen> {
                 width: double.infinity,
                 padding: const EdgeInsets.all(24),
                 decoration: BoxDecoration(
-                  color: Colors.grey.shade100,
+                  color: Theme.of(context).colorScheme.surfaceContainerLow,
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Column(
                   children: [
-                    const Icon(Icons.visibility_off, size: 48, color: Colors.grey),
+                    Icon(
+                      Icons.visibility_off,
+                      size: 48,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
                     const SizedBox(height: 8),
                     Text(
                       'النص مخفي',
-                      style: TextStyle(color: Colors.grey[600]),
+                      style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
                     ),
                     const SizedBox(height: 4),
                     Text(
                       'اضغط على أيقونة العين لعرضه',
-                      style: TextStyle(color: Colors.grey[500], fontSize: 12),
+                      style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 12),
                     ),
                   ],
                 ),
               ),
             const SizedBox(height: 16),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
+            Wrap(
+              alignment: WrapAlignment.center,
+              spacing: 8,
+              runSpacing: 8,
               children: [
                 _buildInfoChip('الجزء ${ayah.juz}', Icons.book),
-                const SizedBox(width: 8),
+                _buildInfoChip('الحزب ${ayah.hizb}', Icons.bookmark_outline),
                 _buildInfoChip('${ayah.lines.toStringAsFixed(1)} سطر', Icons.straighten),
               ],
             ),
@@ -623,15 +898,15 @@ class _RecitationScreenState extends State<RecitationScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
-        color: Colors.grey.shade100,
+        color: Theme.of(context).colorScheme.surfaceContainerLow,
         borderRadius: BorderRadius.circular(20),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 16, color: Colors.grey[600]),
+          Icon(icon, size: 16, color: Theme.of(context).colorScheme.onSurfaceVariant),
           const SizedBox(width: 4),
-          Text(text, style: TextStyle(color: Colors.grey[700], fontSize: 12)),
+          Text(text, style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontSize: 12)),
         ],
       ),
     );
@@ -646,8 +921,10 @@ class _RecitationScreenState extends State<RecitationScreen> {
           children: [
             const Text('تقييم هذه الآية', style: TextStyle(fontWeight: FontWeight.bold)),
             const SizedBox(height: 12),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            Wrap(
+              alignment: WrapAlignment.spaceEvenly,
+              spacing: 12,
+              runSpacing: 12,
               children: [
                 _buildRatingButton(5, 'ممتاز', Colors.green),
                 _buildRatingButton(4, 'جيد جداً', Colors.lightGreen),
@@ -669,17 +946,6 @@ class _RecitationScreenState extends State<RecitationScreen> {
         setState(() {
           _ayahRatings[_currentAyahIndex] = rating;
         });
-        
-        final isLast = _currentAyahIndex == _ayahs.length - 1;
-        if (!isLast) {
-          Future.delayed(const Duration(milliseconds: 300), () {
-            if (mounted && _currentAyahIndex < _ayahs.length - 1) {
-              setState(() {
-                _currentAyahIndex++;
-              });
-            }
-          });
-        }
       },
       child: Column(
         children: [
@@ -687,14 +953,16 @@ class _RecitationScreenState extends State<RecitationScreen> {
             width: 40,
             height: 40,
             decoration: BoxDecoration(
-              color: isSelected ? color : Colors.grey.shade200,
+              color: isSelected
+                  ? color
+                  : Theme.of(context).colorScheme.surfaceContainerHigh,
               shape: BoxShape.circle,
             ),
             child: Center(
               child: Text(
                 '$rating',
                 style: TextStyle(
-                  color: isSelected ? Colors.white : Colors.grey[600],
+                  color: isSelected ? ColorContrast.on(color) : Theme.of(context).colorScheme.onSurfaceVariant,
                   fontWeight: FontWeight.bold,
                 ),
               ),
@@ -705,7 +973,7 @@ class _RecitationScreenState extends State<RecitationScreen> {
             label,
             style: TextStyle(
               fontSize: 10,
-              color: isSelected ? color : Colors.grey[600],
+              color: isSelected ? color : Theme.of(context).colorScheme.onSurfaceVariant,
             ),
           ),
         ],
@@ -717,31 +985,29 @@ class _RecitationScreenState extends State<RecitationScreen> {
     final isFirst = _currentAyahIndex == 0;
     final isLast = _currentAyahIndex == _ayahs.length - 1;
 
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.shade300,
-            blurRadius: 8,
-            offset: const Offset(0, -2),
+    return SafeArea(
+      top: false,
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surface,
+          border: Border(
+            top: BorderSide(color: Theme.of(context).colorScheme.outlineVariant),
           ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: OutlinedButton.icon(
-              onPressed: isFirst ? null : () => setState(() => _currentAyahIndex--),
-              icon: const Icon(Icons.arrow_back),
-              label: const Text('السابق'),
+        ),
+        child: AppResponsiveButtonRow(
+          children: [
+            OutlinedButton(
+              onPressed:
+                  isFirst ? null : () => setState(() => _currentAyahIndex--),
+              child: const Text('السابق'),
             ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            flex: 2,
-            child: ElevatedButton(
+            if (_openEnded)
+              OutlinedButton(
+                onPressed: _isSaving || isLast ? null : _goToNext,
+                child: const Text('التالي'),
+              ),
+            ElevatedButton(
               onPressed: _isSaving
                   ? null
                   : _openEnded
@@ -753,18 +1019,20 @@ class _RecitationScreenState extends State<RecitationScreen> {
                   ? const SizedBox(
                       width: 20,
                       height: 20,
-                      child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                      ),
                     )
                   : Text(
                       _openEnded
-                          ? (isLast ? 'إنهاء السورة هنا' : 'التوقف هنا')
+                          ? 'التوقف هنا'
                           : isLast
                               ? 'إنهاء التسميع'
                               : 'التالي',
                     ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -786,10 +1054,14 @@ class _RecitationScreenState extends State<RecitationScreen> {
       );
       return;
     }
-    final lastAyah = _ayahs[_currentAyahIndex].number;
+    final stoppedRange = QuranCrossSurahRangeService.fromAyahs(
+      _ayahs.take(_currentAyahIndex + 1),
+    );
+    if (stoppedRange == null) return;
     setState(() {
-      _toAyah = lastAyah;
-      _ayahs = _ayahs.take(_currentAyahIndex + 1).toList();
+      _toAyah = stoppedRange.toAyah;
+      _activeRange = stoppedRange;
+      _ayahs = stoppedRange.ayahs;
       _ayahRatings.removeWhere((index, _) => index > _currentAyahIndex);
       _currentAyahIndex = _ayahs.length - 1;
     });
@@ -867,7 +1139,7 @@ class _RecitationScreenState extends State<RecitationScreen> {
                       width: 50,
                       height: 4,
                       decoration: BoxDecoration(
-                        color: Colors.grey[300],
+                        color: Theme.of(context).colorScheme.outlineVariant,
                         borderRadius: BorderRadius.circular(2),
                       ),
                     ),
@@ -880,8 +1152,8 @@ class _RecitationScreenState extends State<RecitationScreen> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'الطالب: ${widget.student.name} | سورة ${_selectedSurah?.name} ($_fromAyah - $_toAyah)',
-                    style: TextStyle(color: Colors.grey[600], fontSize: 13),
+                    'الطالب: ${widget.student.name} | ${_rangeLabel(_activeRange)}',
+                    style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 13),
                     textAlign: TextAlign.center,
                   ),
                   const Divider(height: 24),
@@ -894,8 +1166,19 @@ class _RecitationScreenState extends State<RecitationScreen> {
                       Row(
                         children: [
                           ChoiceChip(
-                            label: const Text('حفظ جديد'),
+                            label: Text(
+                              'حفظ جديد',
+                              style: TextStyle(
+                                color: !_isRevision
+                                    ? Theme.of(context).colorScheme.onPrimaryContainer
+                                    : Theme.of(context).colorScheme.onSurface,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
                             selected: !_isRevision,
+                            selectedColor: Theme.of(context).colorScheme.primaryContainer,
+                            backgroundColor: Theme.of(context).colorScheme.surfaceContainerLow,
+                            side: BorderSide(color: Theme.of(context).colorScheme.outline),
                             onSelected: (val) {
                               setModalState(() => _isRevision = !val);
                               setState(() => _isRevision = !val);
@@ -903,8 +1186,19 @@ class _RecitationScreenState extends State<RecitationScreen> {
                           ),
                           const SizedBox(width: 8),
                           ChoiceChip(
-                            label: const Text('مراجعة'),
+                            label: Text(
+                              'مراجعة',
+                              style: TextStyle(
+                                color: _isRevision
+                                    ? Theme.of(context).colorScheme.onPrimaryContainer
+                                    : Theme.of(context).colorScheme.onSurface,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
                             selected: _isRevision,
+                            selectedColor: Theme.of(context).colorScheme.primaryContainer,
+                            backgroundColor: Theme.of(context).colorScheme.surfaceContainerLow,
+                            side: BorderSide(color: Theme.of(context).colorScheme.outline),
                             onSelected: (val) {
                               setModalState(() => _isRevision = val);
                               setState(() => _isRevision = val);
@@ -930,13 +1224,13 @@ class _RecitationScreenState extends State<RecitationScreen> {
                         label: Text(
                           getGradeArabic(grade),
                           style: TextStyle(
-                            color: isSelected ? Colors.white : color,
+                            color: isSelected ? ColorContrast.on(color) : color,
                             fontWeight: FontWeight.bold,
                           ),
                         ),
                         selected: isSelected,
                         selectedColor: color,
-                        backgroundColor: color.withOpacity(0.1),
+                        backgroundColor: color.withValues(alpha: 0.1),
                         shape: RoundedRectangleBorder(
                           side: BorderSide(color: color),
                           borderRadius: BorderRadius.circular(8),
@@ -971,7 +1265,7 @@ class _RecitationScreenState extends State<RecitationScreen> {
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                             decoration: BoxDecoration(
-                              border: Border.all(color: Colors.grey[300]!),
+                              border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: Text(
@@ -1007,35 +1301,30 @@ class _RecitationScreenState extends State<RecitationScreen> {
                   const SizedBox(height: 24),
 
                   // Save Buttons
-                  Row(
+                  AppResponsiveButtonRow(
                     children: [
-                      Expanded(
-                        child: OutlinedButton(
-                          onPressed: _isSaving ? null : () => Navigator.pop(context),
-                          child: const Text('إلغاء'),
-                        ),
+                      OutlinedButton(
+                        onPressed:
+                            _isSaving ? null : () => Navigator.pop(context),
+                        child: const Text('إلغاء'),
                       ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        flex: 2,
-                        child: ElevatedButton.icon(
-                          onPressed: _isSaving
-                              ? null
-                              : () async {
-                                  Navigator.pop(context); // Close sheet
-                                  await _saveRecitation(sendToParent: false);
-                                },
-                          icon: const Icon(Icons.save),
-                          label: const Text('حفظ التقييم'),
-                        ),
+                      ElevatedButton.icon(
+                        onPressed: _isSaving
+                            ? null
+                            : () async {
+                                Navigator.pop(context);
+                                await _saveRecitation(sendToParent: false);
+                              },
+                        icon: const Icon(Icons.save),
+                        label: const Text('حفظ التقييم'),
                       ),
                     ],
                   ),
                   const SizedBox(height: 8),
                   ElevatedButton.icon(
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.green,
-                      foregroundColor: Colors.white,
+                      backgroundColor: AppSemanticColors.of(context).success,
+                      foregroundColor: AppSemanticColors.of(context).onSuccess,
                     ),
                     onPressed: _isSaving
                         ? null
@@ -1049,8 +1338,8 @@ class _RecitationScreenState extends State<RecitationScreen> {
                   const SizedBox(height: 8),
                   ElevatedButton.icon(
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.amber[800],
-                      foregroundColor: Colors.white,
+                      backgroundColor: AppSemanticColors.of(context).warning,
+                      foregroundColor: AppSemanticColors.of(context).onWarning,
                     ),
                     onPressed: _isSaving
                         ? null
@@ -1071,7 +1360,8 @@ class _RecitationScreenState extends State<RecitationScreen> {
   }
 
   Future<void> _saveRecitation({bool sendToParent = false, bool sendAsImage = false}) async {
-    if (!_isRevision && widget.student.totalMemorized >= 6236) {
+    if (!_isRevision &&
+        StudentLearningPolicy.hasCompletedQuran(widget.student)) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('هذا الطالب أتم حفظ القرآن؛ اختر المراجعة بدل الحفظ الجديد'),
@@ -1079,177 +1369,234 @@ class _RecitationScreenState extends State<RecitationScreen> {
       );
       return;
     }
+    if (_selectedGrade != 'absent') {
+      final canRecord = await RecitationAttendanceGuard.confirmPresentIfAbsent(
+        context,
+        database: _db,
+        student: widget.student,
+        date: _recordDate,
+      );
+      if (!canRecord || !mounted) return;
+    }
     _timer?.cancel();
     setState(() => _isSaving = true);
 
     try {
-      final avgRating = _ayahRatings.values.reduce((a, b) => a + b) ~/ _ayahRatings.length;
+      final sessionRange = _activeRange ??
+          QuranCrossSurahRangeService.fromAyahs(_ayahs);
+      if (sessionRange == null) {
+        throw StateError('لا يوجد نطاق تسميع صالح للحفظ');
+      }
+      // Some valid flows (most notably recording an absence, or legacy
+      // sessions without per-ayah ratings) reach save with an empty rating
+      // map. `reduce()` on an empty iterable was one source of the generic
+      // ErrorWidget seen by teachers. Fall back to the selected grade instead.
+      const gradeRating = <String, int>{
+        'excellent': 5,
+        'very_good': 4,
+        'good': 3,
+        'needs_work': 2,
+        'absent': 1,
+      };
+      final avgRating = _ayahRatings.isEmpty
+          ? (gradeRating[_selectedGrade] ?? 3)
+          : (_ayahRatings.values.fold<int>(0, (sum, value) => sum + value) /
+                  _ayahRatings.length)
+              .round()
+              .clamp(1, 5)
+              .toInt();
       final currentStudent =
           await _db.getStudent(widget.student.id) ?? widget.student;
-      final newlyMemorizedAyahs = !_isRevision && _selectedGrade != 'absent'
-          ? await _db.countNewMemorizedAyahs(
-              student: currentStudent,
-              surahId: _selectedSurahId!,
-              fromAyah: _fromAyah,
-              toAyah: _toAyah,
-            )
-          : 0;
-
-      // 1. Save MemorizationProgress (for backward compatibility)
-      final progress = MemorizationProgress(
-        studentId: widget.student.id,
-        surahId: _selectedSurahId!,
-        fromAyah: _fromAyah,
-        toAyah: _toAyah,
-        date: DateTime.now(),
-        qualityRating: avgRating,
-        isRevision: _isRevision,
-        notes: _remarkController.text.isNotEmpty ? _remarkController.text : null,
-      );
-      await _db.insertMemorization(progress);
-
-      // 2. Save HomeworkGrade
-      final homeworkGrade = HomeworkGrade(
-        studentId: widget.student.id,
-        surahId: _selectedSurahId!,
-        fromAyah: _fromAyah,
-        toAyah: _toAyah,
-        date: DateTime.now(),
-        gradeMark: _selectedGrade,
-        mistakesCount: _mistakesCount,
-        isRevision: _isRevision,
-        remark: _remarkController.text.isNotEmpty ? _remarkController.text : null,
-      );
-      await _db.insertHomeworkGrade(homeworkGrade);
-
-      // 3. Update MushafProgress using MushafService
-      try {
-        final mushafService = MushafService();
-        await mushafService.updateProgressAfterGrading(homeworkGrade);
-      } catch (mushafError) {
-        debugPrint('Error updating mushaf progress: $mushafError');
+      final sessionCompleted = _selectedGrade != 'absent';
+      var newlyMemorizedAyahs = 0;
+      if (!_isRevision && sessionCompleted) {
+        for (final segment in sessionRange.segments) {
+          newlyMemorizedAyahs += await _db.countNewMemorizedAyahs(
+            student: currentStudent,
+            surahId: segment.surahId,
+            fromAyah: segment.fromAyah,
+            toAyah: segment.toAyah,
+          );
+        }
       }
 
-      // 4. Save/Update DailyRecord
-      final existingRecord = await _db.getDailyRecord(widget.student.id, DateTime.now());
+      final actualNow = DateTime.now();
+      final recordDate = _recordDate;
+      final remark = _remarkController.text.trim();
+      final progressRows = <MemorizationProgress>[];
+      final grades = <HomeworkGrade>[];
+      for (var index = 0; index < sessionRange.segments.length; index++) {
+        final segment = sessionRange.segments[index];
+        if (sessionCompleted) {
+          progressRows.add(
+            MemorizationProgress(
+              studentId: widget.student.id,
+              surahId: segment.surahId,
+              fromAyah: segment.fromAyah,
+              toAyah: segment.toAyah,
+              date: recordDate,
+              qualityRating: avgRating,
+              isRevision: _isRevision,
+              notes: index == 0 && remark.isNotEmpty ? remark : null,
+              createdAt: actualNow,
+            ),
+          );
+        }
+        grades.add(
+          HomeworkGrade(
+            studentId: widget.student.id,
+            surahId: segment.surahId,
+            fromAyah: segment.fromAyah,
+            toAyah: segment.toAyah,
+            date: recordDate,
+            gradeMark: _selectedGrade,
+            // The teacher enters one total for the connected session. Keeping
+            // it on the first segment prevents reports from multiplying it.
+            mistakesCount: index == 0 ? _mistakesCount : 0,
+            isRevision: _isRevision,
+            remark: index == 0 && remark.isNotEmpty ? remark : null,
+            createdAt: actualNow,
+          ),
+        );
+      }
+
+      final existingRecord = await _db.getDailyRecord(widget.student.id, recordDate);
       final record = (existingRecord ?? DailyRecord(
         studentId: widget.student.id,
-        date: DateTime.now(),
+        date: recordDate,
       )).copyWith(
         attendance: 'present',
-        arrivalTime: existingRecord?.arrivalTime ?? DateTime.now(),
-        memorizationDone: !_isRevision ? true : (existingRecord?.memorizationDone ?? false),
-        revisionDone: _isRevision ? true : (existingRecord?.revisionDone ?? false),
-        memorizationAmount: !_isRevision
+        arrivalTime: existingRecord?.arrivalTime ??
+            (BackdatedEntryPolicy.daysAgo(recordDate) == 0 ? actualNow : null),
+        memorizationDone: !_isRevision && sessionCompleted
+            ? true
+            : (existingRecord?.memorizationDone ?? false),
+        revisionDone: _isRevision && sessionCompleted
+            ? true
+            : (existingRecord?.revisionDone ?? false),
+        memorizationAmount: !_isRevision && sessionCompleted
             ? (existingRecord?.memorizationAmount ?? 0) + newlyMemorizedAyahs
             : (existingRecord?.memorizationAmount ?? 0),
-        revisionAmount: _isRevision
-            ? (existingRecord?.revisionAmount ?? 0) + _ayahs.length
+        revisionAmount: _isRevision && sessionCompleted
+            ? (existingRecord?.revisionAmount ?? 0) + sessionRange.ayahs.length
             : (existingRecord?.revisionAmount ?? 0),
+        memorizationNote: !_isRevision && remark.isNotEmpty
+            ? remark
+            : existingRecord?.memorizationNote,
+        revisionNote: _isRevision && remark.isNotEmpty
+            ? remark
+            : existingRecord?.revisionNote,
       );
-      await _db.saveDailyRecord(record);
 
-      // 4.b تحديث إجمالي المحفوظ للطالب عند الحفظ الجديد (غير المراجعة)
-      // حتى تعمل آلية اكتشاف ختم القرآن وإحصائيات التقدم.
-      if (!_isRevision && _selectedGrade != 'absent') {
-        final newTotal = currentStudent.totalMemorized + newlyMemorizedAyahs;
-        final updatedStudent = currentStudent.copyWith(totalMemorized: newTotal);
-        await _db.updateStudent(updatedStudent);
+      final updatedTotalMemorized = !_isRevision && sessionCompleted
+          ? (currentStudent.totalMemorized + newlyMemorizedAyahs)
+              .clamp(0, 6236)
+              .toInt()
+          : null;
+      await _db.saveRecitationSession(
+        progress: progressRows,
+        grades: grades,
+        dailyRecord: record,
+        updatedTotalMemorized: updatedTotalMemorized,
+      );
+
+      if (sessionCompleted) {
+        for (final grade in grades) {
+          try {
+            await MushafService().updateProgressAfterGrading(grade);
+          } catch (mushafError) {
+            debugPrint('Error updating mushaf progress: $mushafError');
+          }
+        }
       }
 
-      // 5. Send message to parent if selected
+      var shareFailed = false;
       if (sendToParent) {
-        if (sendAsImage) {
-          final bytes = await _drawReportCardImage(
-            studentName: widget.student.name,
-            surahName: _selectedSurah?.name ?? '',
-            fromAyah: _fromAyah,
-            toAyah: _toAyah,
-            grade: _selectedGrade,
-            mistakes: _mistakesCount,
-            isRevision: _isRevision,
-            remark: _remarkController.text,
-          );
+        try {
+          if (sendAsImage) {
+            final bytes = await _drawReportCardImage(
+              studentName: widget.student.name,
+              surahName: _surahRangeLabel(sessionRange),
+              fromAyah: sessionRange.fromAyah,
+              toAyah: sessionRange.toAyah,
+              grade: _selectedGrade,
+              mistakes: _mistakesCount,
+              isRevision: _isRevision,
+              remark: _remarkController.text,
+            );
 
-          final tempDir = await getTemporaryDirectory();
-          final file = await File('${tempDir.path}/report_${widget.student.name}.png').create();
-          await file.writeAsBytes(bytes);
+            final tempDir = await getTemporaryDirectory();
+            final file = await File(
+              '${tempDir.path}/${ShareFileNameService.dated(label: 'تقرير_تسميع_${widget.student.name}', extension: 'png', date: recordDate)}',
+            ).create();
+            await file.writeAsBytes(bytes);
 
-          await Share.shareXFiles(
-            [XFile(file.path)],
-            text: 'تقرير تسميع الطالب ${widget.student.name} لليوم',
-          );
-        } else {
-          final template = await _db.getMessageTemplate('grading');
-          String templateText = template?.content ?? 
-              'السلام عليكم ورحمة الله وبركاته، تسميع الطالب {اسم_الطالب} اليوم في سورة {السورة} من آية {من} إلى آية {إلى}:\n- التقييم: {التقييم}\n- الأخطاء: {الأخطاء}\n- ملاحظة: {الملاحظة}';
+            await Share.shareXFiles(
+              [XFile(file.path)],
+              text: '${ShareFileNameService.appName} — تقرير تسميع الطالب ${widget.student.name}',
+            );
+          } else {
+            final template = await _db.getMessageTemplate('grading');
+            String templateText = template?.content ??
+                'السلام عليكم ورحمة الله وبركاته، تسميع الطالب {اسم_الطالب} اليوم في سورة {السورة} من آية {من} إلى آية {إلى}:\n- التقييم: {التقييم}\n- الأخطاء: {الأخطاء}\n- ملاحظة: {الملاحظة}';
 
-          String message = templateText
-              .replaceAll('{اسم_الطالب}', widget.student.name)
-              .replaceAll('{السورة}', _selectedSurah?.name ?? '')
-              .replaceAll('{من}', '$_fromAyah')
-              .replaceAll('{إلى}', '$_toAyah')
-              .replaceAll('{التقييم}', homeworkGrade.gradeMarkArabic)
-              .replaceAll('{الأخطاء}', '$_mistakesCount')
-              .replaceAll('{الملاحظة}', _remarkController.text.isNotEmpty ? _remarkController.text : 'لا يوجد');
+            String message = templateText
+                .replaceAll('{اسم_الطالب}', widget.student.name)
+                .replaceAll('{السورة}', _surahRangeLabel(sessionRange))
+                .replaceAll('{من}', '${sessionRange.fromAyah}')
+                .replaceAll('{إلى}', '${sessionRange.toAyah}')
+                .replaceAll('{التقييم}', grades.first.gradeMarkArabic)
+                .replaceAll('{الأخطاء}', '$_mistakesCount')
+                .replaceAll(
+                  '{الملاحظة}',
+                  remark.isNotEmpty ? remark : 'لا يوجد',
+                );
 
-          await Share.share(message);
+            await Share.share(message);
+          }
+        } catch (shareError) {
+          shareFailed = true;
+          debugPrint('Recitation saved but sharing failed: $shareError');
         }
       }
 
-      // Check for extra memorization bonus points
-      bool addedExtraPoints = false;
-      int extraPoints = 0;
-      const bonusReason = 'زيادة عن المقرر اليومي';
-      final exceedsPlan = !_isRevision &&
-          _selectedSurah != null &&
-          MemorizationMeasureService.exceedsPlan(
-            surah: _selectedSurah!,
-            fromAyah: _fromAyah,
-            toAyah: _toAyah,
-            planType: widget.student.planType,
-            planAmount: widget.student.planAmount,
-          );
-      final bonusAlreadyAdded = exceedsPlan &&
-          await _db.hasBehaviorPointForDate(
-            widget.student.id,
-            bonusReason,
-            DateTime.now(),
-          );
-      if (exceedsPlan && !bonusAlreadyAdded) {
-        final settings = await _db.getSettings();
-        extraPoints = settings.pointsConfig['extra_memorization'] ?? 2;
-        if (extraPoints > 0) {
-          final point = BehaviorPoint(
-            studentId: widget.student.id,
-            type: 'positive',
-            reason: bonusReason,
-            points: extraPoints,
-            date: DateTime.now(),
-          );
-          await _db.insertBehaviorPoint(point);
-          addedExtraPoints = true;
-        }
-      }
+      final pointsResult = _isRevision
+          ? null
+          : await _db.recalculateDailyRecitationPoints(
+              studentId: widget.student.id,
+              date: recordDate,
+            );
 
-      final requiresSurahRevision = !_isRevision &&
-          newlyMemorizedAyahs > 0 &&
-          _selectedSurah != null &&
-          await _db.isSurahFullyMemorized(
+      final completedSurahNames = <String>[];
+      if (!_isRevision && newlyMemorizedAyahs > 0) {
+        for (final segment in sessionRange.segments) {
+          final surah = _quran.getSurah(segment.surahId);
+          if (surah == null || segment.toAyah != surah.totalAyahs) continue;
+          final completed = await _db.isSurahFullyMemorized(
             student: currentStudent,
-            surahId: _selectedSurahId!,
-            totalAyahs: _selectedSurah!.totalAyahs,
+            surahId: segment.surahId,
+            totalAyahs: surah.totalAyahs,
           );
+          if (completed) {
+            completedSurahNames.add(surah.name);
+            await _db.ensureSurahCompletionNotification(
+              student: currentStudent,
+              surahName: surah.name,
+            );
+          }
+        }
+      }
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              requiresSurahRevision
-                  ? 'تم إتمام السورة، وأضيفت تلقائيًا إلى المراجعة الإلزامية'
-                  : addedExtraPoints
-                      ? 'تم حفظ التقييم بنجاح، وإضافة $extraPoints نقاط مكافأة للزيادة 🎉'
-                      : 'تم حفظ التقييم بنجاح',
+              '${completedSurahNames.isNotEmpty
+                  ? 'تم إتمام ${completedSurahNames.map((name) => 'سورة $name').join('، ')}، وأضيفت للمراجعة الإلزامية'
+                  : pointsResult != null && pointsResult.totalPoints > 0
+                      ? 'تم حفظ التقييم، ورصيد إنجاز اليوم ${pointsResult.totalPoints} نقاط 🎉'
+                      : 'تم حفظ التقييم بنجاح'}'
+              '${shareFailed ? '، لكن تعذرت المشاركة؛ يمكنك مشاركته من السجل لاحقًا' : ''}',
             ),
             backgroundColor: Colors.green,
           ),
@@ -1291,7 +1638,7 @@ class _RecitationScreenState extends State<RecitationScreen> {
       );
     canvas.drawRect(const Rect.fromLTWH(0, 0, 800, 500), paintBg);
 
-    final paintCircle = Paint()..color = Colors.white.withOpacity(0.03);
+    final paintCircle = Paint()..color = Colors.white.withValues(alpha: 0.03);
     canvas.drawCircle(const Offset(80, 80), 150, paintCircle);
     canvas.drawCircle(const Offset(720, 420), 200, paintCircle);
 
@@ -1303,7 +1650,7 @@ class _RecitationScreenState extends State<RecitationScreen> {
     canvas.drawRRect(rrectCard, paintCard);
 
     final paintBorder = Paint()
-      ..color = const Color(0xFF14B8A6).withOpacity(0.2)
+      ..color = const Color(0xFF14B8A6).withValues(alpha: 0.2)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 4;
     canvas.drawRRect(rrectCard, paintBorder);
@@ -1382,7 +1729,7 @@ class _RecitationScreenState extends State<RecitationScreen> {
       );
     }
 
-    final dateText = Helpers.formatGregorianDate(DateTime.now());
+    final dateText = Helpers.formatPlanDate(_recordDate);
     _drawText(
       canvas: canvas,
       text: 'التاريخ: $dateText',

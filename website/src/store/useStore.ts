@@ -1,7 +1,18 @@
 import { create } from 'zustand';
 import type { User } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
+import {
+  normalizePointsConfig,
+  type DailyClosingReceipt,
+  type DailyClosingStatus,
+} from '@/lib/dailyClosing';
 import { quranService } from '@/services/quranService';
+import {
+  acceptSupervisorCenterInvitation,
+  acceptSupervisorTeamInvitation,
+  createSupervisorOrganization,
+} from '@/services/supervisionService';
+import { logOperationalError } from '@/lib/operationalLog';
 
 function createInvitationCode(): string {
   const bytes = new Uint8Array(12);
@@ -48,7 +59,7 @@ export interface Student {
   level: string;
   joinDate: string;
   photoUrl?: string;
-  planType: 'ayahs' | 'pages' | 'lines';
+  planType: 'ayahs' | 'pages' | 'lines' | 'hizbs';
   planAmount: number;
   reviewPlanAmount: number;
   status: 'active' | 'inactive' | 'suspended' | 'expelled' | 'graduated';
@@ -67,6 +78,12 @@ export interface AttendanceRecord {
   arrivalTime?: string;
   absenceReason?: string;
   notes?: string;
+  activityType?: string;
+  activityNote?: string;
+  recitationExempt?: boolean;
+  talaqqinDone?: boolean;
+  talaqqinAmount?: number;
+  talaqqinNote?: string;
 }
 
 export interface MemorizationRecord {
@@ -99,7 +116,7 @@ export interface DailyAchievement {
   reason: string;
   actualAmount: number;
   planAmount: number;
-  unit: 'ayahs' | 'pages' | 'lines';
+  unit: 'ayahs' | 'pages' | 'lines' | 'hizbs';
   rewardType?: 'points' | 'certificate' | 'gift' | 'meal' | 'other';
   rewardDetails?: string;
   rewardPoints: number;
@@ -116,7 +133,7 @@ export interface DailyAchievementInput {
   reason: string;
   actualAmount: number;
   planAmount: number;
-  unit: 'ayahs' | 'pages' | 'lines';
+  unit: 'ayahs' | 'pages' | 'lines' | 'hizbs';
   notes?: string;
 }
 
@@ -129,11 +146,30 @@ export interface Vacation {
   approved: boolean;
 }
 
+export interface StudentHold {
+  id: string;
+  studentId: string;
+  startDate: string;
+  endDate: string;
+  reason: string;
+  notes?: string;
+  endedAt?: string;
+  scope?: 'recitation_only' | 'full_pause';
+}
+
+export interface StudySuspension {
+  id: string;
+  date: string;
+  reason: string;
+  halaqaId?: string;
+  createdAt: string;
+}
+
 export interface Exam {
   id: string;
   title: string;
   date: string;
-  type: 'oral' | 'written';
+  type: 'oral' | 'written' | 'monthly_plan';
   maxDegree: number;
   studentScores: { studentId: string; degree: number; notes: string }[];
 }
@@ -144,9 +180,10 @@ export interface SmartPlan {
   period: 'weekly' | 'monthly';
   startDate: string;
   endDate: string;
-  unit: 'ayahs' | 'pages' | 'lines';
+  unit: 'ayahs' | 'pages' | 'lines' | 'hizbs';
   newAmount: number;
   reviewAmount: number;
+  recitationAmount: number;
   status: 'active' | 'completed' | 'cancelled';
   testStatus: 'not_required' | 'pending' | 'passed' | 'failed';
   completionExamId?: string;
@@ -248,6 +285,12 @@ type AttendanceRow = {
   arrival_time?: string;
   absence_reason?: string;
   notes?: string;
+  activity_type?: string;
+  activity_note?: string;
+  recitation_exempt?: boolean;
+  talaqqin_done?: boolean;
+  talaqqin_amount?: number;
+  talaqqin_note?: string;
 };
 
 type MemorizationRow = {
@@ -300,6 +343,7 @@ type PlanRow = {
   unit: SmartPlan['unit'];
   new_amount: number;
   review_amount: number;
+  recitation_amount?: number;
   status: SmartPlan['status'];
   test_status?: SmartPlan['testStatus'];
   completion_exam_id?: string | null;
@@ -338,7 +382,12 @@ interface HalaqahStore {
   mushafProgress: MushafProgress[];
   messageTemplates: MessageTemplate[];
   dailyAchievements: DailyAchievement[];
+  studentHolds: StudentHold[];
+  studySuspensions: StudySuspension[];
   currencySymbol: string;
+  sessionEndTime: string;
+  timezoneName: string;
+  weeklyHolidayDays: number[];
   loading: boolean;
   darkMode: boolean;
   centerType: 'men' | 'women' | 'mixed';
@@ -422,9 +471,15 @@ interface HalaqahStore {
   updateSmartPlan: (id: string, changes: Partial<SmartPlan>) => Promise<void>;
   deleteSmartPlan: (id: string) => Promise<void>;
   fetchCenterData: () => Promise<void>;
+  fetchStudentHolds: () => Promise<void>;
+  getDailyClosingStatus: (date: string) => Promise<DailyClosingStatus>;
+  closeDailyOperations: (date: string) => Promise<DailyClosingReceipt>;
 
   fetchHomeworkGrades: () => Promise<void>;
   addHomeworkGrade: (record: Omit<HomeworkGrade, 'id'>) => Promise<boolean>;
+  addHomeworkGradeSession: (
+    records: Array<Omit<HomeworkGrade, 'id'>>
+  ) => Promise<boolean>;
   updateHomeworkGrade: (
     id: string,
     record: Omit<HomeworkGrade, 'id' | 'createdAt'>
@@ -436,14 +491,19 @@ interface HalaqahStore {
   saveMessageTemplate: (type: 'assignment' | 'grading', content: string) => Promise<void>;
   fetchCenterSettings: () => Promise<void>;
   updateCurrencySymbol: (symbol: string) => Promise<void>;
+  updateDailySchedule: (settings: {
+    sessionEndTime: string;
+    timezoneName: string;
+    weeklyHolidayDays: number[];
+  }) => Promise<void>;
 
   toggleDarkMode: () => void;
   pointsConfig: Record<string, number>;
   fetchPointsConfig: () => void;
   savePointsConfig: (config: Record<string, number>) => void;
   suspendedDates: string[];
-  fetchSuspendedDates: () => void;
-  toggleSuspendedDate: (date: string) => void;
+  fetchSuspendedDates: () => Promise<void>;
+  toggleSuspendedDate: (date: string, reason?: string) => Promise<void>;
 }
 
 const gradeValue = (mark: HomeworkGrade['gradeMark']) => {
@@ -455,6 +515,37 @@ const gradeValue = (mark: HomeworkGrade['gradeMark']) => {
     default: return 0;
   }
 };
+
+function mapDailyClosingStatus(row: Record<string, unknown>): DailyClosingStatus {
+  return {
+    date: String(row.date),
+    isClosed: Boolean(row.is_closed),
+    isSuspended: Boolean(row.is_suspended),
+    isWeeklyHoliday: Boolean(row.is_weekly_holiday),
+    suspensionReason: row.suspension_reason ? String(row.suspension_reason) : undefined,
+    canClose: Boolean(row.can_close),
+    blocker: row.blocker ? String(row.blocker) as DailyClosingStatus['blocker'] : undefined,
+    sessionEndTime: String(row.session_end_time || '18:00').slice(0, 5),
+    timezoneName: String(row.timezone_name || 'Asia/Aden'),
+    closedAt: row.closed_at ? String(row.closed_at) : undefined,
+    closedBy: row.closed_by ? String(row.closed_by) : undefined,
+  };
+}
+
+function mapDailyClosingReceipt(row: Record<string, unknown>): DailyClosingReceipt {
+  return {
+    closingId: String(row.closing_id),
+    date: String(row.date),
+    alreadyClosed: Boolean(row.already_closed),
+    recordsCreated: Number(row.records_created || 0),
+    recordsExcused: Number(row.records_excused || 0),
+    absencePointsAdded: Number(row.absence_points_added || 0),
+    noRecitationPointsAdded: Number(row.no_recitation_points_added || 0),
+    completedStudents: Number(row.completed_students || 0),
+    exemptStudents: Number(row.exempt_students || 0),
+    closedAt: String(row.closed_at),
+  };
+}
 
 async function rebuildWebMushafProgress(
   studentId: string,
@@ -559,7 +650,12 @@ export const useStore = create<HalaqahStore>((set, get) => ({
   mushafProgress: [],
   messageTemplates: [],
   dailyAchievements: [],
+  studentHolds: [],
+  studySuspensions: [],
   currencySymbol: 'ر.س',
+  sessionEndTime: '18:00',
+  timezoneName: 'Asia/Aden',
+  weeklyHolidayDays: [5],
   pointsConfig: {},
   suspendedDates: [],
   loading: false,
@@ -661,14 +757,14 @@ export const useStore = create<HalaqahStore>((set, get) => ({
     const user = get().user;
     if (!user) return null;
 
-    const { data, error } = await supabase
-      .rpc('create_supervisor_organization', { p_name: name.trim() });
+    const { data, error } = await createSupervisorOrganization(name);
 
     if (data && !error) {
       const organization = data as { id: string; name: string; role: Supervisor['role'] };
       set({ currentSupervisor: organization });
       return organization.id;
     }
+    if (error) logOperationalError('supervision.organization.create', error);
     return null;
   },
 
@@ -677,19 +773,15 @@ export const useStore = create<HalaqahStore>((set, get) => ({
     const center = get().currentCenter;
     if (!center) return false;
 
-    const { data, error } = await supabase.rpc(
-      'accept_supervisor_center_invitation',
-      { p_center_id: center.id, p_code: code.trim().toUpperCase() },
-    );
+    const { data, error } = await acceptSupervisorCenterInvitation(center.id, code);
+    if (error) logOperationalError('supervision.center.join', error);
     return !error && Boolean((data as { success?: boolean } | null)?.success);
   },
 
   acceptSupervisorMemberInvitation: async (code) => {
     if (!supabase) return false;
-    const { data, error } = await supabase.rpc(
-      'accept_supervisor_member_invitation',
-      { p_code: code.trim().toUpperCase() },
-    );
+    const { data, error } = await acceptSupervisorTeamInvitation(code);
+    if (error) logOperationalError('supervision.member.join', error);
     if (error || !(data as { success?: boolean } | null)?.success) return false;
     await get().fetchProfile();
     return true;
@@ -869,7 +961,7 @@ export const useStore = create<HalaqahStore>((set, get) => ({
         set({ students: [] });
       }
     } catch (err: unknown) {
-      console.error("Fetch students error:", err);
+      logOperationalError("store.fetch_students", err);
       set({ students: [] });
     } finally {
       set({ loading: false });
@@ -1036,18 +1128,26 @@ export const useStore = create<HalaqahStore>((set, get) => ({
   addAttendance: async (record) => {
     const center = get().currentCenter;
     if (supabase && center) {
+      const attendancePayload: Record<string, unknown> = {
+        student_id: record.studentId,
+        center_id: center.id,
+        halaqa_id: center.activeHalaqa?.id,
+        date: record.date,
+        status: record.status,
+        arrival_time: record.arrivalTime,
+        absence_reason: record.absenceReason,
+        notes: record.notes,
+      };
+      if (record.activityType !== undefined) attendancePayload.activity_type = record.activityType;
+      if (record.activityNote !== undefined) attendancePayload.activity_note = record.activityNote;
+      if (record.recitationExempt !== undefined) attendancePayload.recitation_exempt = record.recitationExempt;
+      if (record.talaqqinDone !== undefined) attendancePayload.talaqqin_done = record.talaqqinDone;
+      if (record.talaqqinAmount !== undefined) attendancePayload.talaqqin_amount = record.talaqqinAmount;
+      if (record.talaqqinNote !== undefined) attendancePayload.talaqqin_note = record.talaqqinNote;
+
       const { data, error } = await supabase
         .from('attendance')
-        .upsert([{
-          student_id: record.studentId,
-          center_id: center.id,
-          halaqa_id: center.activeHalaqa?.id,
-          date: record.date,
-          status: record.status,
-          arrival_time: record.arrivalTime,
-          absence_reason: record.absenceReason,
-          notes: record.notes
-        }], { onConflict: 'student_id,date' })
+        .upsert([attendancePayload], { onConflict: 'student_id,date' })
         .select()
         .single();
       if (error) {
@@ -1064,6 +1164,12 @@ export const useStore = create<HalaqahStore>((set, get) => ({
             arrivalTime: data.arrival_time,
             absenceReason: data.absence_reason,
             notes: data.notes,
+            activityType: data.activity_type,
+            activityNote: data.activity_note,
+            recitationExempt: Boolean(data.recitation_exempt),
+            talaqqinDone: Boolean(data.talaqqin_done),
+            talaqqinAmount: Number(data.talaqqin_amount || 0),
+            talaqqinNote: data.talaqqin_note,
           } as AttendanceRecord;
           return {
             attendance: [
@@ -1080,14 +1186,19 @@ export const useStore = create<HalaqahStore>((set, get) => ({
 
   updateAttendance: async (id, status, extra) => {
     if (supabase) {
+      const attendancePatch: Record<string, unknown> = { status };
+      if (extra?.arrivalTime !== undefined) attendancePatch.arrival_time = extra.arrivalTime;
+      if (extra?.absenceReason !== undefined) attendancePatch.absence_reason = extra.absenceReason;
+      if (extra?.notes !== undefined) attendancePatch.notes = extra.notes;
+      if (extra?.activityType !== undefined) attendancePatch.activity_type = extra.activityType;
+      if (extra?.activityNote !== undefined) attendancePatch.activity_note = extra.activityNote;
+      if (extra?.recitationExempt !== undefined) attendancePatch.recitation_exempt = extra.recitationExempt;
+      if (extra?.talaqqinDone !== undefined) attendancePatch.talaqqin_done = extra.talaqqinDone;
+      if (extra?.talaqqinAmount !== undefined) attendancePatch.talaqqin_amount = extra.talaqqinAmount;
+      if (extra?.talaqqinNote !== undefined) attendancePatch.talaqqin_note = extra.talaqqinNote;
       const { error } = await supabase
         .from('attendance')
-        .update({
-          status,
-          arrival_time: extra?.arrivalTime,
-          absence_reason: extra?.absenceReason,
-          notes: extra?.notes,
-        })
+        .update(attendancePatch)
         .eq('id', id);
       if (error) {
         alert(`فشل تحديث الحضور: ${error.message}`);
@@ -1116,12 +1227,18 @@ export const useStore = create<HalaqahStore>((set, get) => ({
           status: a.status,
           arrivalTime: a.arrival_time,
           absenceReason: a.absence_reason,
-          notes: a.notes
+          notes: a.notes,
+          activityType: a.activity_type,
+          activityNote: a.activity_note,
+          recitationExempt: Boolean(a.recitation_exempt),
+          talaqqinDone: Boolean(a.talaqqin_done),
+          talaqqinAmount: Number(a.talaqqin_amount || 0),
+          talaqqinNote: a.talaqqin_note,
         }));
         set({ attendance: mapped as AttendanceRecord[] });
       }
     } catch (err) {
-      console.error("Fetch attendance error:", err);
+      logOperationalError("store.fetch_attendance", err);
     }
   },
 
@@ -1149,7 +1266,7 @@ export const useStore = create<HalaqahStore>((set, get) => ({
         set({ memorization: mapped as MemorizationRecord[] });
       }
     } catch (err) {
-      console.error("Fetch memorization error:", err);
+      logOperationalError("store.fetch_memorization", err);
     }
   },
 
@@ -1175,7 +1292,7 @@ export const useStore = create<HalaqahStore>((set, get) => ({
         set({ points: mapped as PointRecord[] });
       }
     } catch (err) {
-      console.error("Fetch points error:", err);
+      logOperationalError("store.fetch_points", err);
     }
   },
 
@@ -1213,7 +1330,7 @@ export const useStore = create<HalaqahStore>((set, get) => ({
         get().fetchAllHalaqat(currentCenter.id);
       }
     } else {
-      console.error("Error updating halaqah:", error);
+      logOperationalError("store.update_halaqah", error);
     }
   },
 
@@ -1229,7 +1346,7 @@ export const useStore = create<HalaqahStore>((set, get) => ({
         get().fetchAllHalaqat(currentCenter.id);
       }
     } else {
-      console.error("Error deleting halaqah:", error);
+      logOperationalError("store.delete_halaqah", error);
     }
   },
 
@@ -1443,7 +1560,7 @@ export const useStore = create<HalaqahStore>((set, get) => ({
       if (data) set({ activities: data as Activity[] });
       else set({ activities: [] });
     } catch (err) {
-      console.error("Fetch activities error:", err);
+      logOperationalError("store.fetch_activities", err);
       set({ activities: [] });
     }
   },
@@ -1629,6 +1746,7 @@ export const useStore = create<HalaqahStore>((set, get) => ({
         unit: plan.unit,
         newAmount: plan.new_amount,
         reviewAmount: plan.review_amount,
+        recitationAmount: plan.recitation_amount ?? 1,
         status: plan.status,
         testStatus: plan.test_status || 'not_required',
         completionExamId: plan.completion_exam_id || undefined,
@@ -1653,6 +1771,7 @@ export const useStore = create<HalaqahStore>((set, get) => ({
       unit: plan.unit,
       new_amount: plan.newAmount,
       review_amount: plan.reviewAmount,
+      recitation_amount: plan.recitationAmount,
       status: plan.status,
       test_status: plan.testStatus,
       completion_exam_id: plan.completionExamId,
@@ -1679,6 +1798,7 @@ export const useStore = create<HalaqahStore>((set, get) => ({
     if (changes.unit !== undefined) payload.unit = changes.unit;
     if (changes.newAmount !== undefined) payload.new_amount = changes.newAmount;
     if (changes.reviewAmount !== undefined) payload.review_amount = changes.reviewAmount;
+    if (changes.recitationAmount !== undefined) payload.recitation_amount = changes.recitationAmount;
     if (changes.status !== undefined) payload.status = changes.status;
     if (changes.testStatus !== undefined) payload.test_status = changes.testStatus;
     if (changes.completionExamId !== undefined) {
@@ -1727,7 +1847,7 @@ export const useStore = create<HalaqahStore>((set, get) => ({
     }
     const { data, error } = await query.order('date', { ascending: false });
     if (error) {
-      console.error('Fetch daily achievements error:', error);
+      logOperationalError("store.fetch_daily_achievements", error);
       return;
     }
     set({
@@ -1795,6 +1915,73 @@ export const useStore = create<HalaqahStore>((set, get) => ({
     await Promise.all([get().fetchDailyAchievements(), get().fetchPoints()]);
   },
 
+  fetchStudentHolds: async () => {
+    const center = get().currentCenter;
+    if (!supabase || !center) return;
+    let query = supabase
+      .from('student_holds')
+      .select('*')
+      .eq('center_id', center.id);
+    if (center.activeHalaqa?.id) {
+      query = query.eq('halaqa_id', center.activeHalaqa.id);
+    }
+    const { data, error } = await query.order('start_date', { ascending: false });
+    if (error) {
+      logOperationalError("store.fetch_student_holds", error);
+      set({ studentHolds: [] });
+      return;
+    }
+    set({
+      studentHolds: (data || []).map((row: Record<string, unknown>) => ({
+        id: String(row.id),
+        studentId: String(row.student_id),
+        startDate: String(row.start_date),
+        endDate: String(row.end_date),
+        reason: String(row.reason || ''),
+        notes: row.notes ? String(row.notes) : undefined,
+        endedAt: row.ended_at ? String(row.ended_at) : undefined,
+        scope: row.scope === 'full_pause' ? 'full_pause' : 'recitation_only',
+      })),
+    });
+  },
+
+  getDailyClosingStatus: async (date) => {
+    const center = get().currentCenter;
+    if (!supabase || !center) {
+      throw new Error('اختر المركز واتصل بقاعدة البيانات أولًا');
+    }
+    const { data, error } = await supabase.rpc('get_daily_closing_state', {
+      p_center_id: center.id,
+      p_halaqa_id: center.activeHalaqa?.id || null,
+      p_date: date,
+    });
+    if (error) throw new Error(`تعذر قراءة حالة الإغلاق: ${error.message}`);
+    return mapDailyClosingStatus((data || {}) as Record<string, unknown>);
+  },
+
+  closeDailyOperations: async (date) => {
+    const center = get().currentCenter;
+    if (!supabase || !center) {
+      throw new Error('اختر المركز واتصل بقاعدة البيانات أولًا');
+    }
+    const config = normalizePointsConfig(get().pointsConfig);
+    const { data, error } = await supabase.rpc('close_daily_operations', {
+      p_center_id: center.id,
+      p_halaqa_id: center.activeHalaqa?.id || null,
+      p_date: date,
+      p_absence_penalty: config.unexcused_absence,
+      p_no_recitation_penalty: config.incomplete_penalty,
+    });
+    if (error) throw new Error(`تعذر إغلاق اليوم: ${error.message}`);
+    const receipt = mapDailyClosingReceipt((data || {}) as Record<string, unknown>);
+    await Promise.all([
+      get().fetchAttendance(),
+      get().fetchPoints(),
+      get().fetchActivities(),
+    ]);
+    return receipt;
+  },
+
   fetchCenterData: async () => {
     const g = get();
     await Promise.all([
@@ -1810,6 +1997,8 @@ export const useStore = create<HalaqahStore>((set, get) => ({
       g.fetchMessageTemplates(),
       g.fetchCenterSettings(),
       g.fetchDailyAchievements(),
+      g.fetchStudentHolds(),
+      g.fetchSuspendedDates(),
     ]);
   },
 
@@ -1863,7 +2052,7 @@ export const useStore = create<HalaqahStore>((set, get) => ({
         set({ homeworkGrades: mapped });
       }
     } catch (err) {
-      console.error("Fetch homework grades error:", err);
+      logOperationalError("store.fetch_homework_grades", err);
     }
   },
 
@@ -1913,11 +2102,114 @@ export const useStore = create<HalaqahStore>((set, get) => ({
           ],
         }));
       } catch (rebuildError) {
-        console.warn('Mushaf rebuild after recitation failed:', rebuildError);
+        logOperationalError("store.rebuild_mushaf_after_recitation", rebuildError);
       }
       return true;
     } catch (err) {
-      console.error("Add homework grade error:", err);
+      logOperationalError("store.add_homework_grade", err);
+      return false;
+    }
+  },
+
+  addHomeworkGradeSession: async (records) => {
+    const center = get().currentCenter;
+    if (!supabase || !center || records.length === 0) return false;
+
+    const first = records[0];
+    if (records.some(record =>
+      record.studentId !== first.studentId ||
+      record.date !== first.date ||
+      record.gradeMark !== first.gradeMark ||
+      record.isRevision !== first.isRevision
+    )) {
+      alert('تعذر الحفظ: أجزاء جلسة التسميع غير متسقة.');
+      return false;
+    }
+
+    const createdAt = new Date().toISOString();
+    const pendingRecords: HomeworkGrade[] = records.map(record => ({
+      id: crypto.randomUUID(),
+      ...record,
+      createdAt,
+    }));
+
+    try {
+      const sessionResult = await supabase.rpc('save_recitation_session', {
+        p_student_id: first.studentId,
+        p_segments: pendingRecords.map(record => ({
+          id: record.id,
+          surah: record.surah,
+          from_ayah: record.fromAyah,
+          to_ayah: record.toAyah,
+        })),
+        p_date: first.date,
+        p_grade_mark: first.gradeMark,
+        p_mistakes_count: first.mistakesCount,
+        p_is_revision: first.isRevision,
+        p_remark: first.remark || null,
+      });
+      let sessionError = sessionResult.error;
+      const functionMissing = sessionError && (
+        sessionError.code === 'PGRST202' ||
+        sessionError.code === '42883' ||
+        sessionError.message.includes('save_recitation_session')
+      );
+      if (functionMissing && pendingRecords.length === 1) {
+        const onlyRecord = pendingRecords[0];
+        const fallback = await supabase.rpc('save_recitation_record', {
+          p_record_id: onlyRecord.id,
+          p_student_id: onlyRecord.studentId,
+          p_surah: onlyRecord.surah,
+          p_from_ayah: onlyRecord.fromAyah,
+          p_to_ayah: onlyRecord.toAyah,
+          p_date: onlyRecord.date,
+          p_grade_mark: onlyRecord.gradeMark,
+          p_mistakes_count: onlyRecord.mistakesCount,
+          p_is_revision: onlyRecord.isRevision,
+          p_remark: onlyRecord.remark || null,
+        });
+        sessionError = fallback.error;
+      }
+      if (sessionError) {
+        alert(
+          'فشل حفظ جلسة التسميع المتصلة. نفّذ migration المرحلة P1.7 ثم أعد المحاولة: ' +
+          sessionError.message,
+        );
+        return false;
+      }
+
+      set((state) => ({
+        homeworkGrades: [...pendingRecords, ...state.homeworkGrades],
+      }));
+      const isMen = get().centerType === 'men';
+      const studentName = get().students.find(
+        student => student.id === first.studentId,
+      )?.name || '';
+      get().addActivity(
+        'grade_session_added',
+        `تم تسجيل جلسة تسميع متصلة لـ ${isMen ? 'الطالب' : 'الطالبة'}: ${studentName}`,
+      );
+
+      try {
+        const rebuilt = await rebuildWebMushafProgress(
+          first.studentId,
+          center.id,
+          get().homeworkGrades,
+        );
+        set((state) => ({
+          mushafProgress: [
+            ...state.mushafProgress.filter(
+              item => item.studentId !== first.studentId,
+            ),
+            ...rebuilt,
+          ],
+        }));
+      } catch (rebuildError) {
+        logOperationalError("store.rebuild_mushaf_after_connected_session", rebuildError);
+      }
+      return true;
+    } catch (error) {
+      logOperationalError("store.add_connected_recitation", error);
       return false;
     }
   },
@@ -1961,7 +2253,7 @@ export const useStore = create<HalaqahStore>((set, get) => ({
         ],
       }));
     } catch (rebuildError) {
-      console.warn('Mushaf rebuild after edit failed:', rebuildError);
+      logOperationalError("store.rebuild_mushaf_after_edit", rebuildError);
     }
     get().addActivity('grade_updated', `تم تعديل سجل تسميع: ${existing.surah}`);
     return true;
@@ -1995,7 +2287,7 @@ export const useStore = create<HalaqahStore>((set, get) => ({
         ],
       }));
     } catch (rebuildError) {
-      console.warn('Mushaf rebuild after deletion failed:', rebuildError);
+      logOperationalError("store.rebuild_mushaf_after_delete", rebuildError);
     }
     get().addActivity('grade_deleted', `تم حذف سجل تسميع: ${existing.surah}`);
     return true;
@@ -2028,7 +2320,7 @@ export const useStore = create<HalaqahStore>((set, get) => ({
         });
       }
     } catch (err) {
-      console.error("Fetch mushaf progress error:", err);
+      logOperationalError("store.fetch_mushaf_progress", err);
     }
   },
 
@@ -2074,7 +2366,7 @@ export const useStore = create<HalaqahStore>((set, get) => ({
         });
       }
     } catch (err) {
-      console.error("Toggle pre memorized error:", err);
+      logOperationalError("store.toggle_pre_memorized", err);
     }
   },
 
@@ -2097,7 +2389,7 @@ export const useStore = create<HalaqahStore>((set, get) => ({
         set({ messageTemplates: mapped });
       }
     } catch (err) {
-      console.error("Fetch message templates error:", err);
+      logOperationalError("store.fetch_message_templates", err);
     }
   },
 
@@ -2129,7 +2421,7 @@ export const useStore = create<HalaqahStore>((set, get) => ({
 
       await get().fetchMessageTemplates();
     } catch (err) {
-      console.error("Save message template error:", err);
+      logOperationalError("store.save_message_template", err);
     }
   },
 
@@ -2139,18 +2431,34 @@ export const useStore = create<HalaqahStore>((set, get) => ({
     try {
       const { data, error } = await supabase
         .from('center_settings')
-        .select('currency_symbol')
+        .select('currency_symbol,session_end_time,timezone_name,weekly_holiday_days,points_config')
         .eq('center_id', center.id)
         .maybeSingle();
 
       if (error) throw error;
-      if (data && data.currency_symbol) {
-        set({ currencySymbol: data.currency_symbol });
-      } else {
-        set({ currencySymbol: 'ر.س' });
+      const cloudPoints = data?.points_config && typeof data.points_config === 'object'
+        ? normalizePointsConfig(data.points_config as Record<string, number>)
+        : undefined;
+      set({
+        currencySymbol: data?.currency_symbol || 'ر.س',
+        sessionEndTime: String(data?.session_end_time || '18:00').slice(0, 5),
+        timezoneName: data?.timezone_name || 'Asia/Aden',
+        weeklyHolidayDays: Array.isArray(data?.weekly_holiday_days)
+          ? data.weekly_holiday_days.map(Number)
+          : [5],
+        ...(cloudPoints ? { pointsConfig: cloudPoints } : {}),
+      });
+      if (cloudPoints && typeof window !== 'undefined') {
+        localStorage.setItem('pointsConfig', JSON.stringify(cloudPoints));
       }
     } catch (err) {
-      console.error("Fetch center settings error:", err);
+      logOperationalError("store.fetch_center_settings", err);
+      const { data } = await supabase
+        .from('center_settings')
+        .select('currency_symbol')
+        .eq('center_id', center.id)
+        .maybeSingle();
+      set({ currencySymbol: data?.currency_symbol || 'ر.س' });
     }
   },
 
@@ -2168,17 +2476,37 @@ export const useStore = create<HalaqahStore>((set, get) => ({
       if (error) throw error;
       set({ currencySymbol: symbol });
     } catch (err) {
-      console.error("Update currency symbol error:", err);
+      logOperationalError("store.update_currency_symbol", err);
       const message = err instanceof Error ? err.message : String(err);
       alert("فشل تحديث رمز العملة: " + message);
     }
+  },
+
+  updateDailySchedule: async ({ sessionEndTime, timezoneName, weeklyHolidayDays }) => {
+    const center = get().currentCenter;
+    if (!supabase || !center) throw new Error('اختر المركز أولًا');
+    const validDays = [...new Set(weeklyHolidayDays)]
+      .filter((day) => Number.isInteger(day) && day >= 0 && day <= 6)
+      .sort();
+    const { error } = await supabase
+      .from('center_settings')
+      .upsert([{
+        center_id: center.id,
+        session_end_time: sessionEndTime,
+        timezone_name: timezoneName,
+        weekly_holiday_days: validDays,
+        updated_at: new Date().toISOString(),
+      }], { onConflict: 'center_id' });
+    if (error) throw new Error(`تعذر حفظ أوقات الحلقة: ${error.message}`);
+    set({ sessionEndTime, timezoneName, weeklyHolidayDays: validDays });
   },
 
   fetchPointsConfig: () => {
     if (typeof window !== 'undefined') {
       const stored = localStorage.getItem('pointsConfig');
       if (stored) {
-        set({ pointsConfig: JSON.parse(stored) });
+        const normalized = normalizePointsConfig(JSON.parse(stored));
+        set({ pointsConfig: normalized });
         return;
       }
     }
@@ -2191,38 +2519,92 @@ export const useStore = create<HalaqahStore>((set, get) => ({
       good_appearance: 1,
       late_penalty: -2,
       incomplete_penalty: -3,
-      unexcused_absence: -5,
-      appearance_violation: -3
+      unexcused_absence: -10,
+      appearance_violation: -3,
+      no_thobe: -3,
     };
-    set({ pointsConfig: defaultPointsConfig });
+    set({ pointsConfig: normalizePointsConfig(defaultPointsConfig) });
   },
 
   savePointsConfig: (config: Record<string, number>) => {
+    const normalized = normalizePointsConfig(config);
     if (typeof window !== 'undefined') {
-      localStorage.setItem('pointsConfig', JSON.stringify(config));
+      localStorage.setItem('pointsConfig', JSON.stringify(normalized));
     }
-    set({ pointsConfig: config });
+    set({ pointsConfig: normalized });
+    const center = get().currentCenter;
+    if (supabase && center) {
+      void supabase
+        .from('center_settings')
+        .upsert([{
+          center_id: center.id,
+          points_config: normalized,
+          updated_at: new Date().toISOString(),
+        }], { onConflict: 'center_id' })
+        .then(({ error }) => {
+          if (error) logOperationalError("store.save_cloud_points_config", error);
+        });
+    }
   },
 
-  fetchSuspendedDates: () => {
+  fetchSuspendedDates: async () => {
+    const center = get().currentCenter;
+    if (!supabase || !center) {
+      const stored = typeof window !== 'undefined'
+        ? localStorage.getItem('suspendedDates')
+        : null;
+      set({ suspendedDates: stored ? JSON.parse(stored) : [], studySuspensions: [] });
+      return;
+    }
+    let query = supabase
+      .from('study_suspensions')
+      .select('id,date,reason,halaqa_id,created_at')
+      .eq('center_id', center.id);
+    if (center.activeHalaqa?.id) {
+      query = query.or(`halaqa_id.is.null,halaqa_id.eq.${center.activeHalaqa.id}`);
+    } else {
+      query = query.is('halaqa_id', null);
+    }
+    const { data, error } = await query.order('date', { ascending: false });
+    if (error) {
+      logOperationalError("store.fetch_study_suspensions", error);
+      return;
+    }
+    const suspensions = (data || []).map((row: Record<string, unknown>) => ({
+      id: String(row.id),
+      date: String(row.date),
+      reason: String(row.reason || 'تعليق دراسة'),
+      halaqaId: row.halaqa_id ? String(row.halaqa_id) : undefined,
+      createdAt: String(row.created_at),
+    }));
+    const dates = [...new Set(suspensions.map((item) => item.date))];
     if (typeof window !== 'undefined') {
-      const stored = localStorage.getItem('suspendedDates');
-      if (stored) {
-        set({ suspendedDates: JSON.parse(stored) });
-        return;
+      localStorage.setItem('suspendedDates', JSON.stringify(dates));
+    }
+    set({ studySuspensions: suspensions, suspendedDates: dates });
+  },
+
+  toggleSuspendedDate: async (date: string, reason?: string) => {
+    const center = get().currentCenter;
+    const suspended = get().suspendedDates.includes(date);
+    if (!supabase || !center) {
+      const updated = suspended
+        ? get().suspendedDates.filter((item) => item !== date)
+        : [...get().suspendedDates, date];
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('suspendedDates', JSON.stringify(updated));
       }
+      set({ suspendedDates: updated });
+      return;
     }
-    set({ suspendedDates: [] });
-  },
-
-  toggleSuspendedDate: (date: string) => {
-    const current = get().suspendedDates;
-    const updated = current.includes(date)
-      ? current.filter(d => d !== date)
-      : [...current, date];
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('suspendedDates', JSON.stringify(updated));
-    }
-    set({ suspendedDates: updated });
+    const { error } = await supabase.rpc('set_study_suspension', {
+      p_center_id: center.id,
+      p_halaqa_id: center.activeHalaqa?.id || null,
+      p_date: date,
+      p_suspended: !suspended,
+      p_reason: suspended ? null : (reason?.trim() || 'تعليق دراسة'),
+    });
+    if (error) throw new Error(`تعذر تحديث تعليق الدراسة: ${error.message}`);
+    await get().fetchSuspendedDates();
   },
 }));

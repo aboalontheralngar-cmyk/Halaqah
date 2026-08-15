@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useEffect, useState } from "react";
+import { useMemo, useEffect, useState, useCallback } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { 
   Download, 
   BookOpen, 
@@ -12,16 +13,19 @@ import {
   AlertCircle,
   MessageCircle,
   Copy,
-  Check
+  Check,
+  Printer
 } from "lucide-react";
 import { useStore } from "@/store/useStore";
 import { buildMonthlyReportMessage, buildWhatsAppLink } from "@/lib/monthlyReport";
+import { isWeeklyHoliday } from "@/lib/dailyClosing";
+import { localDateKey } from "@/utils/dateUtils";
 
 export default function ReportsPage() {
-  const { 
-    students, 
-    homeworkGrades, 
-    points, 
+  const {
+    students,
+    homeworkGrades,
+    points,
     memorization,
     exams,
     centerType,
@@ -29,10 +33,28 @@ export default function ReportsPage() {
     attendance,
     fetchCenterData,
     suspendedDates = [],
-    fetchSuspendedDates
-  } = useStore();
-  const currentMonthKey = new Date().toISOString().slice(0, 7);
-  const todayKey = new Date().toISOString().slice(0, 10);
+    weeklyHolidayDays,
+    fetchSuspendedDates,
+    fetchCenterSettings
+  } = useStore(
+    useShallow((state) => ({
+      students: state.students,
+      homeworkGrades: state.homeworkGrades,
+      points: state.points,
+      memorization: state.memorization,
+      exams: state.exams,
+      centerType: state.centerType,
+      currentCenter: state.currentCenter,
+      attendance: state.attendance,
+      fetchCenterData: state.fetchCenterData,
+      suspendedDates: state.suspendedDates,
+      weeklyHolidayDays: state.weeklyHolidayDays,
+      fetchSuspendedDates: state.fetchSuspendedDates,
+      fetchCenterSettings: state.fetchCenterSettings,
+    })),
+  );
+  const currentMonthKey = localDateKey().slice(0, 7);
+  const todayKey = localDateKey();
   const [periodStart, setPeriodStart] = useState(`${currentMonthKey}-01`);
   const [periodEnd, setPeriodEnd] = useState(todayKey);
   const [reportStudentId, setReportStudentId] = useState<string>("");
@@ -40,7 +62,10 @@ export default function ReportsPage() {
   const [copied, setCopied] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
 
-  const inPeriod = (date: string) => date >= periodStart && date <= periodEnd;
+  const inPeriod = useCallback(
+    (date: string) => date >= periodStart && date <= periodEnd,
+    [periodEnd, periodStart],
+  );
   const activeStudents = useMemo(
     () => students.filter(student => student.status === "active"),
     [students]
@@ -51,30 +76,31 @@ export default function ReportsPage() {
   );
 
   const periodAttendance = useMemo(
-    () => attendance.filter(record => activeStudentIds.has(record.studentId) && inPeriod(record.date) && !suspendedDates.includes(record.date)),
-    [attendance, activeStudentIds, suspendedDates, periodStart, periodEnd]
+    () => attendance.filter(record => activeStudentIds.has(record.studentId) && inPeriod(record.date) && !suspendedDates.includes(record.date) && !isWeeklyHoliday(record.date, weeklyHolidayDays)),
+    [attendance, activeStudentIds, suspendedDates, weeklyHolidayDays, inPeriod]
   );
   const periodGrades = useMemo(
-    () => homeworkGrades.filter(record => activeStudentIds.has(record.studentId) && inPeriod(record.date) && !suspendedDates.includes(record.date)),
-    [homeworkGrades, activeStudentIds, suspendedDates, periodStart, periodEnd]
+    () => homeworkGrades.filter(record => activeStudentIds.has(record.studentId) && inPeriod(record.date) && !suspendedDates.includes(record.date) && !isWeeklyHoliday(record.date, weeklyHolidayDays)),
+    [homeworkGrades, activeStudentIds, suspendedDates, weeklyHolidayDays, inPeriod]
   );
   const periodPoints = useMemo(
     () => points.filter(record => activeStudentIds.has(record.studentId) && inPeriod(record.date)),
-    [points, activeStudentIds, periodStart, periodEnd]
+    [points, activeStudentIds, inPeriod]
   );
   const periodMemorization = useMemo(
     () => memorization.filter(record => activeStudentIds.has(record.studentId) && inPeriod(record.date)),
-    [memorization, activeStudentIds, periodStart, periodEnd]
+    [memorization, activeStudentIds, inPeriod]
   );
   const periodExams = useMemo(
     () => exams.filter(exam => inPeriod(exam.date)),
-    [exams, periodStart, periodEnd]
+    [exams, inPeriod]
   );
 
   useEffect(() => {
     fetchCenterData();
     fetchSuspendedDates();
-  }, [fetchCenterData, fetchSuspendedDates]);
+    fetchCenterSettings();
+  }, [fetchCenterData, fetchCenterSettings, fetchSuspendedDates]);
 
   const reportMessage = useMemo(() => {
     const student = students.find(s => s.id === reportStudentId);
@@ -86,9 +112,10 @@ export default function ReportsPage() {
       grades: homeworkGrades,
       points,
       suspendedDates,
+      weeklyHolidayDays,
       centerType: centerType as "men" | "women" | "mixed",
     });
-  }, [reportStudentId, reportMonth, students, attendance, homeworkGrades, points, suspendedDates, centerType]);
+  }, [reportStudentId, reportMonth, students, attendance, homeworkGrades, points, suspendedDates, weeklyHolidayDays, centerType]);
 
   const handleSendWhatsApp = () => {
     const student = students.find(s => s.id === reportStudentId);
@@ -102,6 +129,47 @@ export default function ReportsPage() {
     await navigator.clipboard.writeText(reportMessage);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const printStudentPeriodReport = () => {
+    const student = students.find(item => item.id === reportStudentId);
+    if (!student) return;
+    const escapeHtml = (value: unknown) => String(value ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+    const studentAttendance = periodAttendance.filter(item => item.studentId === student.id);
+    const studentMemorization = periodMemorization.filter(item => item.studentId === student.id);
+    const studentPoints = periodPoints.filter(item => item.studentId === student.id);
+    const studentExams = periodExams.flatMap(exam => exam.studentScores
+      .filter(score => score.studentId === student.id)
+      .map(score => ({ ...exam, score })));
+    const present = studentAttendance.filter(item => item.status === "present").length;
+    const late = studentAttendance.filter(item => item.status === "late").length;
+    const absent = studentAttendance.filter(item => item.status === "absent").length;
+    const excused = studentAttendance.filter(item => item.status === "excused").length;
+    const heard = studentMemorization.filter(item => !item.isRevision)
+      .reduce((sum, item) => sum + Math.max(0, item.toAyah - item.fromAyah + 1), 0);
+    const revised = studentMemorization.filter(item => item.isRevision)
+      .reduce((sum, item) => sum + Math.max(0, item.toAyah - item.fromAyah + 1), 0);
+    const positive = studentPoints.filter(item => item.amount > 0).reduce((sum, item) => sum + item.amount, 0);
+    const negative = studentPoints.filter(item => item.amount < 0).reduce((sum, item) => sum + Math.abs(item.amount), 0);
+    const row = (cells: unknown[]) => `<tr>${cells.map(cell => `<td>${escapeHtml(cell)}</td>`).join("")}</tr>`;
+    const popup = window.open("", "_blank", "width=980,height=900");
+    if (!popup) return;
+    popup.document.write(`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>تقرير ${escapeHtml(student.name)}</title><style>
+      *{box-sizing:border-box}body{font-family:Tahoma,Arial,sans-serif;color:#20312b;margin:0;background:#fff;direction:rtl}main{max-width:920px;margin:auto;padding:28px}header{border-bottom:4px solid #1f6b5d;padding-bottom:16px;margin-bottom:18px}.brand{color:#1f6b5d;font-size:13px;font-weight:800}.title{font-size:26px;font-weight:900;margin:5px 0}.meta{font-size:12px;color:#68736f}.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:16px 0}.stat{border:1px solid #dbe4df;border-radius:12px;padding:11px}.stat b{display:block;font-size:18px;color:#1f6b5d}.stat span{font-size:10px;color:#68736f}.section{margin-top:20px;break-inside:avoid}.section h2{font-size:15px;margin:0 0 8px;color:#1f6b5d}table{border-collapse:collapse;width:100%;font-size:11px;direction:rtl}th,td{border:1px solid #dbe4df;padding:7px;text-align:right;vertical-align:top}th{background:#f3f6f3;font-weight:900}.empty{padding:12px;border:1px dashed #cbd5ce;border-radius:10px;color:#7b8581;font-size:11px}@page{size:A4;margin:12mm}@media print{main{padding:0}.no-print{display:none}}
+    </style></head><body><main><header><div class="brand">حلقتي — ${escapeHtml(currentCenter?.activeHalaqa?.name || currentCenter?.name || "")}</div><div class="title">تقرير الطالب: ${escapeHtml(student.name)}</div><div class="meta">الفترة: ${escapeHtml(periodStart)} — ${escapeHtml(periodEnd)} · المستوى: ${escapeHtml(student.level)}</div></header>
+      <div class="stats"><div class="stat"><b>${present + late}</b><span>حضور</span></div><div class="stat"><b>${absent}</b><span>غياب</span></div><div class="stat"><b>${heard}</b><span>آيات حفظ</span></div><div class="stat"><b>${revised}</b><span>آيات مراجعة</span></div><div class="stat"><b>${positive}</b><span>نقاط إيجابية</span></div><div class="stat"><b>${negative}</b><span>نقاط سلبية</span></div><div class="stat"><b>${studentExams.length}</b><span>اختبارات</span></div><div class="stat"><b>${excused}</b><span>استئذان/عذر</span></div></div>
+      <section class="section"><h2>الحضور اليومي</h2>${studentAttendance.length ? `<table><thead><tr><th>التاريخ</th><th>الحالة</th><th>ملاحظة</th></tr></thead><tbody>${studentAttendance.map(item => row([item.date, item.status === "present" ? "حاضر" : item.status === "late" ? "متأخر" : item.status === "absent" ? "غائب" : "مستأذن", item.notes || item.absenceReason || ""])).join("")}</tbody></table>` : '<div class="empty">لا توجد سجلات حضور في هذه الفترة.</div>'}</section>
+      <section class="section"><h2>الحفظ والمراجعة</h2>${studentMemorization.length ? `<table><thead><tr><th>التاريخ</th><th>المسار</th><th>السورة</th><th>النطاق</th><th>التقييم</th></tr></thead><tbody>${studentMemorization.map(item => row([item.date, item.isRevision ? "مراجعة" : "حفظ", item.surah, `${item.fromAyah} — ${item.toAyah}`, `${item.degree}/5`])).join("")}</tbody></table>` : '<div class="empty">لا توجد جلسات حفظ أو مراجعة في هذه الفترة.</div>'}</section>
+      <section class="section"><h2>الاختبارات</h2>${studentExams.length ? `<table><thead><tr><th>التاريخ</th><th>الاختبار</th><th>النوع</th><th>الدرجة</th><th>ملاحظة</th></tr></thead><tbody>${studentExams.map(item => row([item.date, item.title, item.type === "oral" ? "شفهي" : item.type === "monthly_plan" ? "الخطة الشهرية" : "تحريري", `${item.score.degree}/${item.maxDegree}`, item.score.notes || ""])).join("")}</tbody></table>` : '<div class="empty">لا توجد اختبارات في هذه الفترة.</div>'}</section>
+      <section class="section"><h2>النقاط والسلوك</h2>${studentPoints.length ? `<table><thead><tr><th>التاريخ</th><th>النوع</th><th>السبب</th><th>النقاط</th></tr></thead><tbody>${studentPoints.map(item => row([item.date, item.amount >= 0 ? "إيجابي" : "سلبي", item.reason, item.amount])).join("")}</tbody></table>` : '<div class="empty">لا توجد نقاط في هذه الفترة.</div>'}</section>
+      <p class="meta" style="margin-top:22px">يمكن اختيار «حفظ كملف PDF» من نافذة الطباعة في المتصفح. صُمم التقرير بالكامل من اليمين إلى اليسار.</p>
+    </main><script>window.onload=()=>setTimeout(()=>window.print(),200)</script></body></html>`);
+    popup.document.close();
   };
 
   const stats = useMemo(() => {
@@ -353,7 +421,7 @@ export default function ReportsPage() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.setAttribute("href", url);
-    link.setAttribute("download", `تقرير_طلاب_الحلقة_${new Date().toISOString().split("T")[0]}.csv`);
+    link.setAttribute("download", `تقرير_طلاب_الحلقة_${localDateKey()}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -376,8 +444,8 @@ export default function ReportsPage() {
         <div className="flex items-center gap-4">
           <div className="text-4xl">📊</div>
           <div>
-            <h1 className="text-3xl font-black text-gray-900 dark:text-white">التقارير والإحصائيات</h1>
-            <p className="text-gray-500 dark:text-gray-400 font-medium">تحليل شامل لأداء الحلقة ومستويات تقدم الطلاب.</p>
+            <h1 className="text-3xl font-black text-[var(--foreground)]">التقارير والإحصائيات</h1>
+            <p className="text-[var(--muted)] font-medium">تحليل شامل لأداء الحلقة ومستويات تقدم الطلاب.</p>
           </div>
         </div>
         <div className="flex items-center gap-4">
@@ -389,7 +457,7 @@ export default function ReportsPage() {
           </button>
           <button 
             onClick={downloadSummaryImage}
-            className="p-4 bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-2xl text-gray-400 hover:text-teal-600 transition-all shadow-sm"
+            className="p-4 bg-[var(--surface)] border border-[var(--border)] rounded-2xl text-gray-400 hover:text-teal-600 transition-all shadow-sm"
             title="تنزيل صورة التقرير"
           >
             <Share2 className="w-5 h-5" />
@@ -397,7 +465,7 @@ export default function ReportsPage() {
         </div>
       </div>
 
-      <div className="bg-white dark:bg-gray-900 rounded-3xl border border-gray-100 dark:border-gray-800 p-5 grid sm:grid-cols-2 lg:grid-cols-[1fr_1fr_auto] gap-4 items-end">
+      <div className="bg-[var(--surface)] rounded-3xl border border-[var(--border)] p-5 grid sm:grid-cols-2 lg:grid-cols-[1fr_1fr_auto] gap-4 items-end">
         <label className="text-sm font-black text-gray-600 dark:text-gray-300">
           من تاريخ
           <input type="date" value={periodStart} max={periodEnd} onChange={event => setPeriodStart(event.target.value)} className="mt-2 w-full rounded-xl border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-800" />
@@ -420,24 +488,24 @@ export default function ReportsPage() {
           { label: "إجمالي النقاط", value: stats.points, icon: Award, color: "text-purple-600", bg: "bg-purple-50" },
           { label: "معدل الاختبارات", value: `${stats.exams}%`, icon: Target, color: "text-rose-600", bg: "bg-rose-50" },
         ].map((item, i) => (
-          <div key={i} className="bg-white dark:bg-gray-900 rounded-[2.5rem] border border-gray-100 dark:border-gray-800 p-8 flex flex-col items-center text-center group hover:scale-[1.02] transition-all shadow-sm">
+          <div key={i} className="bg-[var(--surface)] rounded-[2.5rem] border border-[var(--border)] p-8 flex flex-col items-center text-center group hover:scale-[1.02] transition-all shadow-sm">
             <div className={`w-12 h-12 ${item.bg} dark:bg-gray-800 rounded-2xl flex items-center justify-center mb-4`}>
               <item.icon className={`w-6 h-6 ${item.color}`} />
             </div>
-            <p className="text-3xl font-black text-gray-900 dark:text-white mb-1 tracking-tight">{item.value}</p>
+            <p className="text-3xl font-black text-[var(--foreground)] mb-1 tracking-tight">{item.value}</p>
             <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{item.label}</p>
           </div>
         ))}
       </div>
 
       {/* Monthly WhatsApp Report */}
-      <div className="bg-white dark:bg-gray-900 rounded-[3rem] border border-gray-100 dark:border-gray-800 p-8 lg:p-10 shadow-sm">
+      <div className="bg-[var(--surface)] rounded-[3rem] border border-[var(--border)] p-8 lg:p-10 shadow-sm">
         <div className="flex items-center gap-4 mb-8">
           <div className="w-12 h-12 bg-green-50 dark:bg-green-900/20 rounded-2xl flex items-center justify-center">
             <MessageCircle className="w-6 h-6 text-green-600" />
           </div>
           <div>
-            <h3 className="text-xl font-black text-gray-900 dark:text-white">التقرير الشهري لولي الأمر</h3>
+            <h3 className="text-xl font-black text-[var(--foreground)]">التقرير الشهري لولي الأمر</h3>
             <p className="text-xs font-bold text-gray-400">قالب واتساب جاهز بالإيموجي — اختر الطالب والشهر ثم أرسل مباشرة.</p>
           </div>
         </div>
@@ -490,13 +558,21 @@ export default function ReportsPage() {
           >
             {copied ? <><Check className="w-5 h-5 text-green-600" /> تم النسخ</> : <><Copy className="w-5 h-5" /> نسخ النص</>}
           </button>
+          <button
+            onClick={printStudentPeriodReport}
+            disabled={!reportStudentId}
+            className="flex items-center justify-center gap-2 bg-[var(--primary)] text-white px-6 py-4 rounded-2xl font-black text-sm disabled:opacity-40 disabled:cursor-not-allowed"
+            title="طباعة تقرير الفترة أو حفظه PDF من المتصفح"
+          >
+            <Printer className="w-5 h-5" /> تقرير الفترة / PDF
+          </button>
         </div>
       </div>
 
       <div className="grid lg:grid-cols-2 gap-10">
         {/* Top Students */}
-        <div className="bg-white dark:bg-gray-900 rounded-[3rem] border border-gray-100 dark:border-gray-800 p-10 shadow-sm">
-          <h3 className="text-xl font-black text-gray-900 dark:text-white mb-8">الطلاب الأكثر تميزاً ⭐</h3>
+        <div className="bg-[var(--surface)] rounded-[3rem] border border-[var(--border)] p-10 shadow-sm">
+          <h3 className="text-xl font-black text-[var(--foreground)] mb-8">الطلاب الأكثر تميزاً ⭐</h3>
           <div className="space-y-6">
             {topStudents.map((student, i) => (
               <div key={student.id} className="flex items-center gap-6 p-4 rounded-3xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-all group">
@@ -518,9 +594,9 @@ export default function ReportsPage() {
         </div>
 
         {/* Attendance Progress */}
-        <div className="bg-white dark:bg-gray-900 rounded-[3rem] border border-gray-100 dark:border-gray-800 p-10 shadow-sm flex flex-col">
+        <div className="bg-[var(--surface)] rounded-[3rem] border border-[var(--border)] p-10 shadow-sm flex flex-col">
           <div className="flex items-center justify-between mb-8">
-            <h3 className="text-xl font-black text-gray-900 dark:text-white">تطور الحضور</h3>
+            <h3 className="text-xl font-black text-[var(--foreground)]">تطور الحضور</h3>
             <span className="text-[10px] font-black text-teal-600 bg-teal-50 px-3 py-1 rounded-full">الفترة المختارة</span>
           </div>
           <div className="space-y-5">
@@ -561,7 +637,7 @@ export default function ReportsPage() {
             <PieChart className="w-12 h-12 text-teal-400" />
           </div>
         </div>
-        <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/islamic-art.png')] opacity-10 pointer-events-none" />
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_15%_20%,rgba(255,255,255,0.10),transparent_28%),radial-gradient(circle_at_85%_80%,rgba(45,212,191,0.14),transparent_30%)]" />
       </div>
     </div>
   );

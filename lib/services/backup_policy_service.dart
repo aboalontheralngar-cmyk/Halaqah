@@ -1,6 +1,22 @@
 class BackupPolicyService {
   const BackupPolicyService._();
 
+  /// Returns the delay until the next local occurrence of [scheduledHour].
+  ///
+  /// A small minimum delay avoids registering an immediate task repeatedly
+  /// when the scheduler is refreshed at exactly the configured hour.
+  static Duration delayUntilNextScheduledHour({
+    required int scheduledHour,
+    required DateTime now,
+  }) {
+    final safeHour = scheduledHour.clamp(0, 23).toInt();
+    var target = DateTime(now.year, now.month, now.day, safeHour);
+    if (!target.isAfter(now.add(const Duration(minutes: 1)))) {
+      target = target.add(const Duration(days: 1));
+    }
+    return target.difference(now);
+  }
+
   static bool isAutomaticBackupDue({
     required bool enabled,
     required int scheduledHour,

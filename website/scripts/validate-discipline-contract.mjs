@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const root = resolve(import.meta.dirname, '../..');
-const database = readFileSync(resolve(root, 'lib/services/database_service.dart'), 'utf8');
+const database = readFileSync(resolve(root, 'lib/services/database_service.dart'), 'utf8') + readFileSync(resolve(root, 'lib/services/local_database_schema.dart'), 'utf8');
 const vacations = readFileSync(
   resolve(root, 'lib/screens/vacations/vacations_screen.dart'),
   'utf8',
@@ -17,7 +17,7 @@ const memorization = readFileSync(
 );
 
 for (const fragment of [
-  'version: 18',
+  'version: 24',
   'CREATE TABLE IF NOT EXISTS student_holds',
   'Future<void> insertVacations(List<Vacation> vacations)',
   'await db.transaction((txn) async',
@@ -26,7 +26,7 @@ for (const fragment of [
   'settings.autoExpulsionEnabled',
   'settings.absenceDaysBeforeExpulsion',
   '_isPastClassEndTime',
-  'getActiveStudentHold(record.studentId, date: targetDate)',
+  'getActiveStudentHolds(date: targetDate)',
 ]) {
   if (!database.includes(fragment)) {
     throw new Error(`Discipline database contract is missing: ${fragment}`);
@@ -45,8 +45,8 @@ for (const fragment of [
 }
 
 for (const fragment of [
-  'إيقاف التسميع مؤقتًا',
-  'يبقى تسجيل الحضور متاحًا خلال الإيقاف',
+  'توقف / إيقاف مؤقت',
+  'إيقاف التسميع فقط يبقي الطالب مطلوبًا في الحضور',
   'await _db.saveStudentHold',
   'await _db.endStudentHold',
 ]) {

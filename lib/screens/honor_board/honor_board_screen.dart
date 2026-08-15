@@ -26,18 +26,23 @@ class _HonorBoardScreenState extends State<HonorBoardScreen> {
   Future<void> _loadRanking() async {
     setState(() => _isLoading = true);
     try {
-      final activeStudents = await _db.getStudents(status: 'active');
-      final List<StudentRankData> list = [];
-      
-      for (final student in activeStudents) {
-        int score = 0;
-        if (_rankingMode == 'points') {
-          score = await _db.getStudentTotalPoints(student.id);
-        } else {
-          score = student.totalMemorized;
-        }
-        list.add(StudentRankData(student: student, score: score));
-      }
+      final results = await Future.wait<dynamic>([
+        _db.getStudents(status: 'active'),
+        if (_rankingMode == 'points') _db.getBehaviorSummaries(),
+      ]);
+      final activeStudents = results[0] as List<Student>;
+      final summaries = _rankingMode == 'points'
+          ? results[1] as Map<String, StudentBehaviorSummary>
+          : const <String, StudentBehaviorSummary>{};
+      final List<StudentRankData> list = [
+        for (final student in activeStudents)
+          StudentRankData(
+            student: student,
+            score: _rankingMode == 'points'
+                ? (summaries[student.id]?.totalPoints ?? 0)
+                : student.totalMemorized,
+          ),
+      ];
       
       // Sort descending by score
       list.sort((a, b) => b.score.compareTo(a.score));
@@ -98,11 +103,11 @@ class _HonorBoardScreenState extends State<HonorBoardScreen> {
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(Icons.emoji_events_outlined, size: 64, color: Colors.grey[400]),
+                          Icon(Icons.emoji_events_outlined, size: 64, color: Theme.of(context).colorScheme.onSurfaceVariant),
                           const SizedBox(height: 16),
                           Text(
                             'لا تتوفر إحصائيات للطلاب حالياً',
-                            style: TextStyle(color: Colors.grey[600]),
+                            style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
                           ),
                         ],
                       ),
@@ -148,18 +153,14 @@ class _HonorBoardScreenState extends State<HonorBoardScreen> {
     final hasTwo = _ranking.length >= 2;
     final hasThree = _ranking.length >= 3;
     
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final scheme = Theme.of(context).colorScheme;
 
     return Container(
-      padding: const EdgeInsets.fromLTRB(16, 24, 16, 16),
+      margin: const EdgeInsets.fromLTRB(14, 12, 14, 0),
+      padding: const EdgeInsets.fromLTRB(14, 18, 14, 14),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: isDark
-              ? [const Color(0xFF0D9488).withOpacity(0.1), Colors.transparent]
-              : [const Color(0xFFE0F2FE).withOpacity(0.5), Colors.transparent],
-        ),
+        color: scheme.primaryContainer.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(18),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -252,12 +253,12 @@ class _HonorBoardScreenState extends State<HonorBoardScreen> {
           Container(
             height: height,
             decoration: BoxDecoration(
-              color: color.withOpacity(0.15),
+              color: color.withValues(alpha: 0.15),
               borderRadius: const BorderRadius.only(
                 topLeft: Radius.circular(16),
                 topRight: Radius.circular(16),
               ),
-              border: Border.all(color: color.withOpacity(0.4), width: 1.5),
+              border: Border.all(color: color.withValues(alpha: 0.4), width: 1.5),
             ),
             child: Center(
               child: Text(
@@ -307,7 +308,7 @@ class _HonorBoardScreenState extends State<HonorBoardScreen> {
           width: 38,
           height: 38,
           decoration: BoxDecoration(
-            color: rankColor.withOpacity(0.1),
+            color: rankColor.withValues(alpha: 0.1),
             shape: BoxShape.circle,
           ),
           child: Center(
@@ -317,7 +318,7 @@ class _HonorBoardScreenState extends State<HonorBoardScreen> {
                     rankLabel,
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
-                      color: isDark ? Colors.grey[400] : const Color(0xFF334155),
+                      color: isDark ? Theme.of(context).colorScheme.onSurfaceVariant : const Color(0xFF334155),
                       fontSize: 13,
                     ),
                   ),
@@ -333,14 +334,14 @@ class _HonorBoardScreenState extends State<HonorBoardScreen> {
             _rankingMode == 'points' ? 'السلوك والمشاركات' : 'عدد السور/الآيات المحفوظة',
             style: TextStyle(
               fontSize: 11,
-              color: isDark ? Colors.grey[400] : Colors.grey[600],
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),
           ),
         ),
         trailing: Container(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
           decoration: BoxDecoration(
-            color: rankColor.withOpacity(0.15),
+            color: rankColor.withValues(alpha: 0.15),
             borderRadius: BorderRadius.circular(16),
           ),
           child: Text(

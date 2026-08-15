@@ -72,6 +72,9 @@ class _MemorizationPlanScreenState extends State<MemorizationPlanScreen>
       appBar: AppBar(
         title: const Text('خطة الحفظ'),
         bottom: TabBar(
+          labelColor: Theme.of(context).colorScheme.onPrimary,
+          unselectedLabelColor: Theme.of(context).colorScheme.onPrimary.withValues(alpha: 0.72),
+          indicatorColor: Theme.of(context).colorScheme.secondary,
           controller: _tabController,
           isScrollable: true,
           tabs: const [
@@ -120,7 +123,7 @@ class _MemorizationPlanScreenState extends State<MemorizationPlanScreen>
               child: Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  border: Border.all(color: Colors.grey[300]!),
+                  border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Row(
@@ -131,7 +134,13 @@ class _MemorizationPlanScreenState extends State<MemorizationPlanScreen>
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text('سورة البداية', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                          Text(
+                            'سورة البداية',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Theme.of(context).colorScheme.onSurfaceVariant,
+                            ),
+                          ),
                           Text(
                             'سورة ${_quran.getSurahName(_startSurah)} - الآية $_startAyah',
                             style: const TextStyle(fontWeight: FontWeight.bold),
@@ -238,13 +247,13 @@ class _MemorizationPlanScreenState extends State<MemorizationPlanScreen>
         decoration: BoxDecoration(
           color: icon == Icons.add
               ? Theme.of(context).primaryColor
-              : Colors.grey[200],
+              : Theme.of(context).colorScheme.surfaceContainer,
           borderRadius: BorderRadius.circular(10),
         ),
         child: Icon(
           icon,
           size: 20,
-          color: icon == Icons.add ? Colors.white : Colors.grey[700],
+          color: icon == Icons.add ? Theme.of(context).colorScheme.onPrimary : Theme.of(context).colorScheme.onSurface,
         ),
       ),
     );
@@ -293,8 +302,8 @@ class _MemorizationPlanScreenState extends State<MemorizationPlanScreen>
               children: [
                 Text(
                   title,
-                  style: const TextStyle(
-                    color: Colors.white,
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onPrimary,
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
                   ),
@@ -302,11 +311,11 @@ class _MemorizationPlanScreenState extends State<MemorizationPlanScreen>
                 const SizedBox(height: 4),
                 Text(
                   'من ${plan['start']} إلى ${plan['end']}',
-                  style: const TextStyle(color: Colors.white70),
+                  style: TextStyle(color: Theme.of(context).colorScheme.onPrimary.withValues(alpha: 0.78)),
                 ),
                 Text(
                   'المقرر اليومي: ${plan['daily_target']} سطر',
-                  style: const TextStyle(color: Colors.white70, fontSize: 12),
+                  style: TextStyle(color: Theme.of(context).colorScheme.onPrimary.withValues(alpha: 0.78), fontSize: 12),
                 ),
               ],
             ),
@@ -323,7 +332,7 @@ class _MemorizationPlanScreenState extends State<MemorizationPlanScreen>
                   backgroundColor: _getDayColor(index),
                   child: Text(
                     '${day['day']}',
-                    style: const TextStyle(color: Colors.white, fontSize: 12),
+                    style: TextStyle(color: Theme.of(context).colorScheme.onPrimary, fontSize: 12),
                   ),
                 ),
                 title: Text(
@@ -334,7 +343,7 @@ class _MemorizationPlanScreenState extends State<MemorizationPlanScreen>
                 ),
                 trailing: Text(
                   '${day['lines']} سطر',
-                  style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                  style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 12),
                 ),
               );
             },
@@ -422,11 +431,11 @@ class _MemorizationPlanScreenState extends State<MemorizationPlanScreen>
                 const SizedBox(height: 4),
                 Text(
                   'من ${plan['start']} إلى ${plan['end']}',
-                  style: const TextStyle(color: Colors.white70),
+                  style: TextStyle(color: Theme.of(context).colorScheme.onPrimary.withValues(alpha: 0.78)),
                 ),
                 Text(
                   'المقرر اليومي: ${plan['daily_target']} سطر',
-                  style: const TextStyle(color: Colors.white70, fontSize: 12),
+                  style: TextStyle(color: Theme.of(context).colorScheme.onPrimary.withValues(alpha: 0.78), fontSize: 12),
                 ),
               ],
             ),
@@ -443,7 +452,7 @@ class _MemorizationPlanScreenState extends State<MemorizationPlanScreen>
                   backgroundColor: _getDayColor(index),
                   child: Text(
                     '${day['day']}',
-                    style: const TextStyle(color: Colors.white, fontSize: 12),
+                    style: TextStyle(color: Theme.of(context).colorScheme.onPrimary, fontSize: 12),
                   ),
                 ),
                 title: Text(
@@ -454,7 +463,7 @@ class _MemorizationPlanScreenState extends State<MemorizationPlanScreen>
                 ),
                 trailing: Text(
                   '${day['lines']} سطر',
-                  style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                  style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 12),
                 ),
               );
             },
@@ -494,11 +503,11 @@ class _MemorizationPlanScreenState extends State<MemorizationPlanScreen>
                 const SizedBox(height: 4),
                 Text(
                   'البداية: ${plan['start']}',
-                  style: const TextStyle(color: Colors.white70),
+                  style: TextStyle(color: Theme.of(context).colorScheme.onPrimary.withValues(alpha: 0.78)),
                 ),
                 Text(
                   'المقرر: ${plan['daily_target']} سطر - ${plan['days_per_week']} أيام/أسبوع',
-                  style: const TextStyle(color: Colors.white70, fontSize: 12),
+                  style: TextStyle(color: Theme.of(context).colorScheme.onPrimary.withValues(alpha: 0.78), fontSize: 12),
                 ),
               ],
             ),
@@ -515,7 +524,7 @@ class _MemorizationPlanScreenState extends State<MemorizationPlanScreen>
                   backgroundColor: _getMonthColor(index),
                   child: Text(
                     '${index + 1}',
-                    style: const TextStyle(color: Colors.white, fontSize: 12),
+                    style: TextStyle(color: Theme.of(context).colorScheme.onPrimary, fontSize: 12),
                   ),
                 ),
                 title: Text(
@@ -535,7 +544,7 @@ class _MemorizationPlanScreenState extends State<MemorizationPlanScreen>
                     ),
                     Text(
                       '${month['work_days']} يوم',
-                      style: TextStyle(color: Colors.grey[600], fontSize: 10),
+                      style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 10),
                     ),
                   ],
                 ),

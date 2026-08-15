@@ -68,7 +68,7 @@ class _ExamTemplatesScreenState extends State<ExamTemplatesScreen> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.quiz_outlined, size: 64, color: Colors.grey[400]),
+          Icon(Icons.quiz_outlined, size: 64, color: Theme.of(context).colorScheme.onSurfaceVariant),
           const SizedBox(height: 12),
           const Text('لا توجد نماذج معتمدة بعد'),
           const SizedBox(height: 8),

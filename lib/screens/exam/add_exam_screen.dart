@@ -60,8 +60,12 @@ class _AddExamScreenState extends State<AddExamScreen> {
       setState(() {
         _memorizedSurahs = surahs;
         if (surahs.isNotEmpty) {
-          _fromSurahId = surahs.first;
-          _toSurahId = surahs.last;
+          final currentSurah = _selectedStudent!.memorizationDirection == 'desc'
+              ? surahs.first
+              : surahs.last;
+          // افتح نطاق الاختبار حول موضع الطالب الحالي بدل القفز لأول الفهرس.
+          _fromSurahId = currentSurah;
+          _toSurahId = currentSurah;
         }
       });
     } catch (e) {
@@ -127,7 +131,7 @@ class _AddExamScreenState extends State<AddExamScreen> {
             const Text('اختر الطالب', style: TextStyle(fontWeight: FontWeight.bold)),
             const SizedBox(height: 12),
             DropdownButtonFormField<Student>(
-              value: _selectedStudent,
+              initialValue: _selectedStudent,
               decoration: const InputDecoration(
                 border: OutlineInputBorder(),
                 prefixIcon: Icon(Icons.person),
@@ -156,7 +160,7 @@ class _AddExamScreenState extends State<AddExamScreen> {
   Widget _buildStudentInfo() {
     final student = _selectedStudent!;
     return Card(
-      color: Theme.of(context).primaryColor.withOpacity(0.1),
+      color: Theme.of(context).primaryColor.withValues(alpha: 0.1),
       child: ListTile(
         leading: CircleAvatar(
           backgroundColor: Theme.of(context).primaryColor,
@@ -180,27 +184,29 @@ class _AddExamScreenState extends State<AddExamScreen> {
           children: [
             const Text('نوع الامتحان', style: TextStyle(fontWeight: FontWeight.bold)),
             const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: RadioListTile<String>(
-                    value: 'oral',
-                    groupValue: _examType,
-                    title: const Text('شفهي'),
-                    contentPadding: EdgeInsets.zero,
-                    onChanged: (value) => setState(() => _examType = value!),
+            RadioGroup<String>(
+              groupValue: _examType,
+              onChanged: (value) {
+                if (value != null) setState(() => _examType = value);
+              },
+              child: Row(
+                children: [
+                  Expanded(
+                    child: RadioListTile<String>(
+                      value: 'oral',
+                      title: const Text('شفهي'),
+                      contentPadding: EdgeInsets.zero,
+                    ),
                   ),
-                ),
-                Expanded(
-                  child: RadioListTile<String>(
-                    value: 'written',
-                    groupValue: _examType,
-                    title: const Text('تحريري'),
-                    contentPadding: EdgeInsets.zero,
-                    onChanged: (value) => setState(() => _examType = value!),
+                  Expanded(
+                    child: RadioListTile<String>(
+                      value: 'written',
+                      title: const Text('تحريري'),
+                      contentPadding: EdgeInsets.zero,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ],
         ),
@@ -223,7 +229,7 @@ class _AddExamScreenState extends State<AddExamScreen> {
               Container(
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: Colors.orange.withOpacity(0.1),
+                  color: Colors.orange.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Row(
@@ -261,7 +267,7 @@ class _AddExamScreenState extends State<AddExamScreen> {
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: Colors.blue.withOpacity(0.1),
+                  color: Colors.blue.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Row(
@@ -305,7 +311,7 @@ class _AddExamScreenState extends State<AddExamScreen> {
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          border: Border.all(color: Colors.grey[300]!),
+          border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
           borderRadius: BorderRadius.circular(8),
         ),
         child: Column(
@@ -313,14 +319,16 @@ class _AddExamScreenState extends State<AddExamScreen> {
           children: [
             Text(
               label,
-              style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+              style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant),
             ),
             const SizedBox(height: 4),
             Text(
               surahName ?? 'اختر السورة',
               style: TextStyle(
                 fontWeight: surahName != null ? FontWeight.bold : FontWeight.normal,
-                color: surahName != null ? Colors.black : Colors.grey,
+                color: surahName != null
+                    ? Theme.of(context).colorScheme.onSurface
+                    : Theme.of(context).colorScheme.onSurfaceVariant,
               ),
             ),
           ],
@@ -344,7 +352,7 @@ class _AddExamScreenState extends State<AddExamScreen> {
                 height: 120,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: _scoreColor.withOpacity(0.1),
+                  color: _scoreColor.withValues(alpha: 0.1),
                   border: Border.all(color: _scoreColor, width: 4),
                 ),
                 child: Column(
@@ -384,8 +392,8 @@ class _AddExamScreenState extends State<AddExamScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text('0%', style: TextStyle(color: Colors.grey[600])),
-                Text('100%', style: TextStyle(color: Colors.grey[600])),
+                Text('0%', style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                Text('100%', style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
               ],
             ),
           ],

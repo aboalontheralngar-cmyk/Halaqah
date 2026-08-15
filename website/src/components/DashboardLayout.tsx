@@ -1,6 +1,14 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { logOperationalError } from "@/lib/operationalLog";
+import {
+  useState,
+  useMemo,
+  useEffect,
+  type ComponentType,
+  type MouseEvent,
+  type ReactNode,
+} from "react";
 import { useRouter, usePathname } from "next/navigation";
 import {
   Home,
@@ -27,62 +35,104 @@ import {
   Building2,
   Loader2
 } from "lucide-react";
+import type { LucideProps } from "lucide-react";
 import { useStore } from "@/store/useStore";
 import { supabase } from "@/lib/supabase";
+import { useShallow } from "zustand/react/shallow";
 
-export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+type NavigationItem = {
+  id: string;
+  label: string;
+  icon: ComponentType<LucideProps>;
+  href: string;
+  section: "daily" | "people" | "learning" | "management";
+};
+
+const sectionLabels: Record<NavigationItem["section"], string> = {
+  daily: "عمل اليوم",
+  people: "الطلاب والأسر",
+  learning: "التعلّم والمتابعة",
+  management: "الإدارة",
+};
+
+export default function DashboardLayout({ children }: { children: ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   
-  const { 
-    darkMode, 
-    toggleDarkMode, 
-    centerType, 
-    user, 
-    setUser, 
-    currentCenter, 
+  const {
+    darkMode,
+    toggleDarkMode,
+    centerType,
+    user,
+    setUser,
+    currentCenter,
     currentSupervisor,
-    profile, 
+    profile,
     fetchProfile,
-    fetchCenterData 
-  } = useStore();
+    fetchCenterData,
+  } = useStore(
+    useShallow((state) => ({
+      darkMode: state.darkMode,
+      toggleDarkMode: state.toggleDarkMode,
+      centerType: state.centerType,
+      user: state.user,
+      setUser: state.setUser,
+      currentCenter: state.currentCenter,
+      currentSupervisor: state.currentSupervisor,
+      profile: state.profile,
+      fetchProfile: state.fetchProfile,
+      fetchCenterData: state.fetchCenterData,
+    })),
+  );
 
   const isAuthPage = pathname === "/login" || pathname === "/onboarding" || pathname === "/select-center";
   const isPublicPage = isAuthPage || pathname.startsWith("/portal");
   const isCenterIndependentPage = pathname.startsWith("/supervision");
 
   const navItems = useMemo(() => {
-    const items = [
-      { id: "home", label: "الرئيسية", icon: Home, href: "/" },
-      { id: "students", label: centerType === 'men' ? "الطلاب" : centerType === 'women' ? "الطالبات" : "الطلاب والطالبات", icon: Users, href: "/students" },
-      { id: "parents", label: "أولياء الأمور", icon: User, href: "/parents" },
-      { id: "attendance", label: "الحضور", icon: ClipboardCheck, href: "/attendance" },
-      { id: "discipline", label: "الانضباط", icon: AlertTriangle, href: "/discipline" },
-      { id: "memorization", label: "الحفظ", icon: BookOpen, href: "/memorization" },
-      { id: "plans", label: "الخطط الذكية", icon: Target, href: "/plans" },
-      { id: "points", label: "السلوك والنقاط", icon: ShieldCheck, href: "/points" },
-      { id: "fund", label: "صندوق الحلقة", icon: Wallet, href: "/fund" },
-      { id: "vacations", label: "الإجازات", icon: Palmtree, href: "/vacations" },
-      { id: "exams", label: "الامتحانات", icon: FileText, href: "/exams" },
-      { id: "honor-board", label: "لوحة الشرف", icon: Trophy, href: "/honor-board" },
-      { id: "daily-excellence", label: "متميزو اليوم", icon: Award, href: "/daily-excellence" },
-      { id: "reports", label: "التقارير", icon: BarChart3, href: "/reports" },
-      { id: "notifications", label: "الإشعارات", icon: Bell, href: "/notifications" },
+    const items: NavigationItem[] = [
+      { id: "home", label: "الرئيسية", icon: Home, href: "/", section: "daily" },
+      { id: "attendance", label: "الحضور", icon: ClipboardCheck, href: "/attendance", section: "daily" },
+      { id: "daily-closing", label: "مراجعة اليوم", icon: ShieldCheck, href: "/daily-closing", section: "daily" },
+      { id: "notifications", label: "الإشعارات", icon: Bell, href: "/notifications", section: "daily" },
+      { id: "students", label: centerType === 'men' ? "الطلاب" : centerType === 'women' ? "الطالبات" : "الطلاب والطالبات", icon: Users, href: "/students", section: "people" },
+      { id: "parents", label: "أولياء الأمور", icon: User, href: "/parents", section: "people" },
+      { id: "vacations", label: "الإجازات", icon: Palmtree, href: "/vacations", section: "people" },
+      { id: "memorization", label: "الحفظ والمراجعة", icon: BookOpen, href: "/memorization", section: "learning" },
+      { id: "plans", label: "الخطط الذكية", icon: Target, href: "/plans", section: "learning" },
+      { id: "exams", label: "الامتحانات", icon: FileText, href: "/exams", section: "learning" },
+      { id: "reports", label: "التقارير", icon: BarChart3, href: "/reports", section: "learning" },
+      { id: "honor-board", label: "لوحة الشرف", icon: Trophy, href: "/honor-board", section: "learning" },
+      { id: "daily-excellence", label: "متميزو اليوم", icon: Award, href: "/daily-excellence", section: "learning" },
+      { id: "discipline", label: "الانضباط", icon: AlertTriangle, href: "/discipline", section: "management" },
+      { id: "points", label: "السلوك والنقاط", icon: ShieldCheck, href: "/points", section: "management" },
+      { id: "fund", label: "صندوق الحلقة", icon: Wallet, href: "/fund", section: "management" },
     ];
 
     if (profile?.role === 'center_admin' || profile?.role === 'supervisor') {
-      items.push({ id: "teachers", label: "المعلمون", icon: Users, href: "/teachers" });
-      items.push({ id: "audit-log", label: "سجل التدقيق", icon: ShieldCheck, href: "/audit-log" });
+      items.push({ id: "teachers", label: "المعلمون", icon: Users, href: "/teachers", section: "management" });
+      items.push({ id: "audit-log", label: "سجل التدقيق", icon: ShieldCheck, href: "/audit-log", section: "management" });
     }
 
     if (currentSupervisor) {
-      items.push({ id: "supervision", label: "لوحة الإشراف", icon: Building2, href: "/supervision" });
+      items.push({ id: "supervision", label: "لوحة الإشراف", icon: Building2, href: "/supervision", section: "management" });
     }
 
-    items.push({ id: "settings", label: "الإعدادات", icon: Settings, href: "/settings" });
+    items.push({ id: "settings", label: "الإعدادات", icon: Settings, href: "/settings", section: "management" });
     return items;
   }, [centerType, profile?.role, currentSupervisor]);
+
+  const navGroups = useMemo(
+    () => (["daily", "people", "learning", "management"] as const)
+      .map((section) => ({
+        section,
+        label: sectionLabels[section],
+        items: navItems.filter((item) => item.section === section),
+      }))
+      .filter((group) => group.items.length > 0),
+    [navItems],
+  );
 
   const activeNav = useMemo(() => {
     const current = navItems.find(item => 
@@ -117,11 +167,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           }
         }
       } catch (err) {
-        console.error("Auth check error:", err);
+        logOperationalError("dashboard.auth_check", err);
       }
     };
     checkUser();
-  }, [user, profile, pathname, isPublicPage]);
+  }, [fetchProfile, isPublicPage, pathname, profile, router, setUser, user]);
 
   useEffect(() => {
     if (user && currentCenter && profile && !isPublicPage) {
@@ -137,7 +187,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     } else if (!currentCenter && pathname !== "/select-center" && !pathname.startsWith("/manage-center") && !isCenterIndependentPage) {
       router.push("/select-center");
     }
-  }, [user, currentCenter, pathname, isPublicPage, isCenterIndependentPage]);
+  }, [currentCenter, isCenterIndependentPage, isPublicPage, pathname, router, user]);
 
   const handleNavClick = (href: string) => {
     router.push(href);
@@ -147,7 +197,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   // --- RENDER LOGIC STARTS HERE ---
 
   if (isPublicPage || pathname.startsWith("/manage-center") || isCenterIndependentPage) {
-    return <div dir="rtl" className={`${darkMode ? "dark" : ""} min-h-screen bg-[var(--background)] text-[var(--foreground)]`}>{children}</div>;
+    return <div dir="rtl" className={`${darkMode ? "dark" : ""} app-shell min-h-screen`}>{children}</div>;
   }
 
   if (!user || !currentCenter) {
@@ -162,7 +212,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const centerInitial = centerNameSafe[0] || "?";
 
   return (
-    <div className={`${darkMode ? "dark" : ""} min-h-screen bg-[var(--background)] text-[var(--foreground)] flex flex-col lg:flex-row transition-colors duration-300`} dir="rtl">
+    <div className={`${darkMode ? "dark" : ""} app-shell min-h-screen flex flex-col lg:flex-row transition-colors duration-200`} dir="rtl">
       <style dangerouslySetInnerHTML={{__html: `
         .sidebar-scroll::-webkit-scrollbar {
           width: 5px;
@@ -198,28 +248,35 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {/* Mobile Drawer */}
       {mobileMenuOpen && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 lg:hidden" onClick={() => setMobileMenuOpen(false)}>
-          <div className="safe-top safe-bottom bg-[var(--surface)] w-72 h-full px-4 flex flex-col shadow-2xl animate-in slide-in-from-right duration-300" onClick={(e) => e.stopPropagation()}>
+          <div className="safe-top safe-bottom bg-[var(--surface)] w-72 h-full px-4 flex flex-col shadow-2xl animate-in slide-in-from-right duration-300" onClick={(e: MouseEvent<HTMLDivElement>) => e.stopPropagation()}>
             <div className="flex justify-between items-center mb-8 px-2">
               <h2 className="text-xl font-extrabold text-[#1f6b5d] dark:text-[#8ed7c5]">حلقتي</h2>
               <button aria-label="إغلاق القائمة الرئيسية" onClick={() => setMobileMenuOpen(false)} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors">
-                <X className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+                <X className="w-5 h-5 text-[var(--muted)]" />
               </button>
             </div>
-            <nav className="space-y-1.5 overflow-y-auto overflow-x-hidden flex-1 sidebar-scroll">
-              {navItems.map((item) => (
-                <button
-                  key={item.id}
-                  onClick={() => handleNavClick(item.href)}
-                  aria-current={activeNav === item.id ? "page" : undefined}
-                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl transition-all duration-200 ${
-                    activeNav === item.id
-                      ? "bg-[#ddefe8] dark:bg-[#1d4f44] text-[#174f45] dark:text-[#b7f3e3] font-bold"
-                      : "text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white"
-                  }`}
-                >
-                  <item.icon className="w-5 h-5" />
-                  <span className="text-sm">{item.label}</span>
-                </button>
+            <nav className="overflow-y-auto overflow-x-hidden flex-1 sidebar-scroll">
+              {navGroups.map((group) => (
+                <div key={group.section} className="mb-5">
+                  <p className="mb-1.5 px-3 text-[10px] font-extrabold text-[var(--muted)]">{group.label}</p>
+                  <div className="space-y-1">
+                    {group.items.map((item) => (
+                      <button
+                        key={item.id}
+                        onClick={() => handleNavClick(item.href)}
+                        aria-current={activeNav === item.id ? "page" : undefined}
+                        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors duration-150 ${
+                          activeNav === item.id
+                            ? "bg-[var(--primary-soft)] text-[var(--primary-ink)] font-bold"
+                            : "text-[var(--muted)] hover:bg-[var(--surface-soft)] hover:text-[var(--foreground)]"
+                        }`}
+                      >
+                        <item.icon className="w-4.5 h-4.5" />
+                        <span className="text-sm">{item.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
               ))}
             </nav>
           </div>
@@ -227,35 +284,42 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       )}
 
       {/* Desktop Sidebar */}
-      <aside className="hidden lg:flex flex-col w-72 bg-[var(--surface)] border-l border-[var(--border)] h-screen sticky top-0 p-5">
-        <div className="mb-10 px-4 flex justify-between items-center">
+      <aside className="hidden lg:flex flex-col w-72 bg-[var(--surface)] border-l border-[var(--border)] h-screen sticky top-0 p-4">
+        <div className="mb-6 px-3 flex justify-between items-center">
           <div>
-            <h1 className="text-2xl font-extrabold text-[#1f6b5d] dark:text-[#8ed7c5]">حلقتي</h1>
-            <p className="text-xs text-gray-400 mt-1">لوحة إدارة الحلقات القرآنية</p>
+            <h1 className="text-2xl font-extrabold text-[var(--primary)]">حلقتي</h1>
+            <p className="text-xs text-[var(--muted)] mt-1">إدارة الحلقة القرآنية</p>
           </div>
           <button aria-label={darkMode ? "تفعيل الوضع الفاتح" : "تفعيل الوضع الداكن"} onClick={toggleDarkMode} className="p-2 rounded-xl bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300">
             {darkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
           </button>
         </div>
         
-        <nav className="flex-1 space-y-1.5 overflow-y-auto overflow-x-hidden sidebar-scroll">
-          {navItems.map((item) => (
-            <button
-              key={item.id}
-              onClick={() => handleNavClick(item.href)}
-              aria-current={activeNav === item.id ? "page" : undefined}
-              className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl transition-all duration-200 group ${
-                activeNav === item.id
-                  ? "bg-[#ddefe8] text-[#174f45] dark:bg-[#1d4f44] dark:text-[#b7f3e3]"
-                  : "text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white"
-              }`}
-            >
-              <item.icon className="w-5 h-5 transition-transform group-hover:scale-105" />
-              <span className="font-semibold text-sm">{item.label}</span>
-              {activeNav === item.id && (
-                <div className="mr-auto w-1.5 h-1.5 bg-[#1f6b5d] dark:bg-[#8ed7c5] rounded-full" />
-              )}
-            </button>
+        <nav className="flex-1 overflow-y-auto overflow-x-hidden sidebar-scroll">
+          {navGroups.map((group) => (
+            <div key={group.section} className="mb-4">
+              <p className="mb-1 px-3 text-[10px] font-extrabold text-[var(--muted)]">{group.label}</p>
+              <div className="space-y-0.5">
+                {group.items.map((item) => (
+                  <button
+                    key={item.id}
+                    onClick={() => handleNavClick(item.href)}
+                    aria-current={activeNav === item.id ? "page" : undefined}
+                    className={`group w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors duration-150 ${
+                      activeNav === item.id
+                        ? "bg-[var(--primary-soft)] text-[var(--primary-ink)]"
+                        : "text-[var(--muted)] hover:bg-[var(--surface-soft)] hover:text-[var(--foreground)]"
+                    }`}
+                  >
+                    <item.icon className="w-4.5 h-4.5" />
+                    <span className="font-semibold text-sm">{item.label}</span>
+                    {activeNav === item.id && (
+                      <div className="mr-auto w-1.5 h-1.5 bg-[var(--primary)] rounded-full" />
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
           ))}
         </nav>
 
@@ -280,7 +344,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               <Building2 className="w-5 h-5" />
             </div>
             <div>
-              <p className="text-xs font-black text-gray-500 dark:text-gray-400 group-hover:text-white">تبديل المركز</p>
+              <p className="text-xs font-black text-[var(--muted)] group-hover:text-white">تبديل المركز</p>
               <p className="text-[10px] text-gray-400 dark:text-gray-500 group-hover:text-teal-100">إدارة حلقة أخرى</p>
             </div>
           </div>
@@ -306,8 +370,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       </aside>
 
       {/* Main Content */}
-      <main className="safe-main-bottom flex-1 p-4 lg:p-8 max-w-[1440px] mx-auto w-full">
-        {children}
+      <main className="app-main safe-main-bottom flex-1">
+        <div className="app-page">{children}</div>
       </main>
 
       {/* Mobile Bottom Nav */}

@@ -21,7 +21,6 @@ ios/Flutter/flutter_settings.json
 android/local.properties
 android/key.properties
 android/app/src/main/res/values/strings.xml
-*.lock
 *.log
 
 # Environment
@@ -30,3 +29,7 @@ android/app/src/main/res/values/strings.xml
 .env.development.local
 .env.test.local
 .env.production.local
+
+# Lock files
+# This is an application, not a reusable Dart package. Keep pubspec.lock and
+# website/package-lock.json under version control for reproducible builds.

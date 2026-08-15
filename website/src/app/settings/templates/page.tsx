@@ -1,6 +1,8 @@
 "use client";
 
+import { logOperationalError } from "@/lib/operationalLog";
 import { useState, useEffect, useMemo } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { 
   ArrowRight, 
   Save, 
@@ -15,7 +17,19 @@ const DEFAULT_GRADING_TEMPLATE = "السلام عليكم ورحمة الله و
 const DEFAULT_ASSIGNMENT_TEMPLATE = "السلام عليكم ورحمة الله وبركاته، تم تكليف الطالب {اسم_الطالب} بواجب حفظ جديد: من سورة {السورة} آية {من} إلى آية {إلى}. نسأل الله له التوفيق.";
 
 export default function MessageTemplatesPage() {
-  const { messageTemplates, fetchMessageTemplates, saveMessageTemplate, loading } = useStore();
+  const {
+    messageTemplates,
+    fetchMessageTemplates,
+    saveMessageTemplate,
+    loading
+  } = useStore(
+    useShallow((state) => ({
+      messageTemplates: state.messageTemplates,
+      fetchMessageTemplates: state.fetchMessageTemplates,
+      saveMessageTemplate: state.saveMessageTemplate,
+      loading: state.loading,
+    })),
+  );
   const [activeTab, setActiveTab] = useState<"grading" | "assignment">("grading");
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
@@ -29,9 +43,15 @@ export default function MessageTemplatesPage() {
   useEffect(() => {
     const gradingTpl = messageTemplates.find(t => t.type === "grading");
     const assignmentTpl = messageTemplates.find(t => t.type === "assignment");
-
-    setGradingContent(gradingTpl ? gradingTpl.content : DEFAULT_GRADING_TEMPLATE);
-    setAssignmentContent(assignmentTpl ? assignmentTpl.content : DEFAULT_ASSIGNMENT_TEMPLATE);
+    let active = true;
+    queueMicrotask(() => {
+      if (!active) return;
+      setGradingContent(gradingTpl ? gradingTpl.content : DEFAULT_GRADING_TEMPLATE);
+      setAssignmentContent(assignmentTpl ? assignmentTpl.content : DEFAULT_ASSIGNMENT_TEMPLATE);
+    });
+    return () => {
+      active = false;
+    };
   }, [messageTemplates]);
 
   const showToast = (message: string) => {
@@ -50,7 +70,7 @@ export default function MessageTemplatesPage() {
       }
       showToast("تم حفظ قالب الرسالة بنجاح");
     } catch (error) {
-      console.error(error);
+      logOperationalError("settings.templates.save", error);
       showToast("حدث خطأ أثناء حفظ القالب");
     }
   };
@@ -122,13 +142,13 @@ export default function MessageTemplatesPage() {
             <ArrowRight className="w-4 h-4" />
             <span>العودة للإعدادات</span>
           </Link>
-          <h1 className="text-3xl font-black text-gray-900 dark:text-white tracking-tight">قوالب الرسائل لولي الأمر 💬</h1>
-          <p className="text-gray-500 dark:text-gray-400 font-medium">قم بصياغة نص الرسالة التي ترسلها لأولياء الأمور عبر واتساب بنقرة واحدة.</p>
+          <h1 className="text-3xl font-black text-[var(--foreground)] tracking-tight">قوالب الرسائل لولي الأمر 💬</h1>
+          <p className="text-[var(--muted)] font-medium">قم بصياغة نص الرسالة التي ترسلها لأولياء الأمور عبر واتساب بنقرة واحدة.</p>
         </div>
       </div>
 
       {/* Tabs */}
-      <div className="flex bg-white dark:bg-gray-900 p-2 rounded-[2rem] border border-gray-100 dark:border-gray-800 w-fit mx-auto shadow-sm">
+      <div className="flex bg-[var(--surface)] p-2 rounded-[2rem] border border-[var(--border)] w-fit mx-auto shadow-sm">
         <button 
           onClick={() => setActiveTab("grading")} 
           className={`px-8 py-3 rounded-2xl text-xs font-black transition-all ${activeTab === "grading" ? "bg-teal-600 text-white shadow-lg" : "text-gray-400"}`}
@@ -145,9 +165,9 @@ export default function MessageTemplatesPage() {
 
       <div className="grid lg:grid-cols-3 gap-10">
         {/* Editor (2 Columns) */}
-        <div className="lg:col-span-2 bg-white dark:bg-gray-900 rounded-[3rem] border border-gray-100 dark:border-gray-800 p-10 shadow-sm space-y-6">
+        <div className="lg:col-span-2 bg-[var(--surface)] rounded-[3rem] border border-[var(--border)] p-10 shadow-sm space-y-6">
           <div>
-            <h3 className="text-lg font-black text-gray-900 dark:text-white">تعديل صيغة الرسالة</h3>
+            <h3 className="text-lg font-black text-[var(--foreground)]">تعديل صيغة الرسالة</h3>
             <p className="text-xs text-gray-400 font-bold mt-1">اكتب الرسالة وأدرج المتغيرات الديناميكية لملء البيانات تلقائياً لكل طالب.</p>
           </div>
 
@@ -220,7 +240,7 @@ export default function MessageTemplatesPage() {
           <div className="bg-gray-100 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-[3rem] p-6 shadow-inner min-h-[200px] flex flex-col justify-end">
             <div className="bg-white dark:bg-teal-950/20 text-gray-800 dark:text-gray-200 border border-gray-100 dark:border-teal-900/30 rounded-2xl p-5 rounded-tr-none text-xs font-bold leading-relaxed self-start shadow-sm whitespace-pre-wrap max-w-[90%] select-none relative">
               {previewMessage}
-              <div className="absolute top-0 -right-2.5 w-3 h-3 bg-white dark:bg-gray-900 [clip-path:polygon(0_0,100%_0,0_100%)]"></div>
+              <div className="absolute top-0 -right-2.5 w-3 h-3 bg-[var(--surface)] [clip-path:polygon(0_0,100%_0,0_100%)]"></div>
             </div>
             <span className="text-[10px] text-gray-400 font-bold mt-3 self-start mr-2">منذ قليل • تقرير تلقائي</span>
           </div>
@@ -229,7 +249,7 @@ export default function MessageTemplatesPage() {
             <Info className="w-5 h-5 text-cyan-600 shrink-0 mt-0.5" />
             <div className="space-y-1">
               <h4 className="text-xs font-black text-cyan-950 dark:text-cyan-400">تنبيه حول المتغيرات</h4>
-              <p className="text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed font-bold">
+              <p className="text-[11px] text-[var(--muted)] leading-relaxed font-bold">
                 تأكد من عدم تعديل أو حذف الأقواس المحيطة بالمتغيرات مثل <span className="font-mono">{`{اسم_الطالب}`}</span> لتجنب فشل تعبئة البيانات تلقائياً.
               </p>
             </div>

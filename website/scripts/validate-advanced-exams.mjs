@@ -12,7 +12,7 @@ const range = read('lib/services/quran_cross_surah_range_service.dart');
 const screen = read('lib/screens/exam/exam_generator_screen.dart');
 const assessment = read('lib/services/exam_assessment_service.dart');
 const model = read('lib/models/exam_template.dart');
-const database = read('lib/services/database_service.dart');
+const database = read('lib/services/database_service.dart') + read('lib/services/local_database_schema.dart');
 const sync = read('lib/services/supabase_service.dart');
 const pdf = read('lib/services/pdf_service.dart');
 const migration = read(
@@ -59,7 +59,7 @@ for (const contract of [
 ]) requireText(model, contract, `question model ${contract}`);
 
 for (const contract of [
-  'version: 18',
+  'version: 24',
   '_upgradeToVersion13',
   "'to_surah_id': 'INTEGER'",
   "'question_score': 'REAL NOT NULL DEFAULT 0'",

@@ -16,6 +16,14 @@ export interface PortalAttendanceEntry {
   notes?: string | null;
 }
 
+export interface PortalBehaviorEntry {
+  date: string;
+  reason: string;
+  amount: number;
+  resolved: boolean;
+  notes?: string | null;
+}
+
 export interface StudentPortalDashboard {
   session_expires_at: string;
   period_days: number;
@@ -24,9 +32,10 @@ export interface StudentPortalDashboard {
     student_code: string;
     level?: string | null;
     join_date: string;
-    plan_type: 'ayahs' | 'pages' | 'lines';
+    plan_type: 'ayahs' | 'pages' | 'lines' | 'hizbs';
     plan_amount: number;
     review_plan_amount: number;
+    review_plan_type?: 'ayahs' | 'pages' | 'lines' | 'hizbs';
     total_memorized: number;
   };
   organization: {
@@ -36,6 +45,7 @@ export interface StudentPortalDashboard {
   };
   summary: {
     points_balance: number;
+    unresolved_violations: number;
     attendance: {
       present: number;
       late: number;
@@ -47,7 +57,8 @@ export interface StudentPortalDashboard {
     period: 'weekly' | 'monthly';
     start_date: string;
     end_date: string;
-    unit: 'ayahs' | 'pages' | 'lines';
+    unit: 'ayahs' | 'pages' | 'lines' | 'hizbs';
+    review_unit?: 'ayahs' | 'pages' | 'lines' | 'hizbs';
     new_amount: number;
     review_amount: number;
     status: string;
@@ -56,6 +67,7 @@ export interface StudentPortalDashboard {
   } | null;
   recent_memorization: PortalMemorizationEntry[];
   recent_attendance: PortalAttendanceEntry[];
+  recent_behavior: PortalBehaviorEntry[];
 }
 
 export interface FamilyPortalDashboard {
@@ -76,6 +88,24 @@ export interface FamilyPortalDashboard {
   }>;
   selected_student_id: string;
   student_dashboard: StudentPortalDashboard;
+  automatic_reports: GuardianAutomaticReport[];
+}
+
+export interface GuardianAutomaticReport {
+  id: string;
+  period_start: string;
+  period_end: string;
+  frequency: 'weekly' | 'monthly';
+  published_at: string;
+  external_status: 'not_requested' | 'pending' | 'sending' | 'sent' | 'failed';
+  report: {
+    schema_version: number;
+    generated_at: string;
+    period_start: string;
+    period_end: string;
+    frequency: 'weekly' | 'monthly';
+    students: Array<Omit<StudentPortalDashboard, 'session_expires_at'>>;
+  };
 }
 
 export class StudentPortalError extends Error {

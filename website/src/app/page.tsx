@@ -1,225 +1,291 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useMemo, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
-import { 
-  Users, 
-  ClipboardCheck, 
-  BookOpen, 
-  Award, 
-  BarChart3, 
-  UserPlus,
-  Calendar,
-  Sparkles,
-  CheckCircle2,
-  ShieldCheck,
-  Bell,
+import {
   Activity,
-  Lightbulb,
-  Trophy,
-  X,
+  Award,
+  BarChart3,
+  Bell,
+  BookOpen,
+  CheckCircle2,
+  ClipboardCheck,
+  ListChecks,
   Loader2,
-  Dices,
-  Palmtree
+  Target,
+  UserPlus,
+  Users,
+  X,
 } from "lucide-react";
+import { useShallow } from "zustand/react/shallow";
 import { useStore } from "@/store/useStore";
-import { StatCard } from "@/components/ui/DashboardCards";
-import { getHijriDate } from "@/utils/dateUtils";
+import {
+  ActionLinkCard,
+  MetricCard,
+  PageHeader,
+  PageStack,
+  ProgressPanel,
+  SectionHeading,
+  Surface,
+} from "@/components/ui/AppDesign";
+import { getHijriDate, localDateKey } from "@/utils/dateUtils";
+
+const subscribeToClient = () => () => undefined;
+const getClientSnapshot = () => true;
+const getServerSnapshot = () => false;
+
 
 export default function Dashboard() {
   const router = useRouter();
-  const [mounted, setMounted] = useState(false);
-  
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  const mounted = useSyncExternalStore(
+    subscribeToClient,
+    getClientSnapshot,
+    getServerSnapshot,
+  );
+  const {
+    students,
+    attendance,
+    centerType,
+    activities,
+    loading,
+  } = useStore(
+    useShallow((state) => ({
+      students: state.students,
+      attendance: state.attendance,
+      centerType: state.centerType,
+      activities: state.activities,
+      loading: state.loading,
+    })),
+  );
 
-  const { 
-    students = [], 
-    attendance = [], 
-    centerType = 'men', 
-    activities = [], 
-    loading 
-  } = useStore();
+  const safeStudents = useMemo(
+    () => (Array.isArray(students) ? students : []),
+    [students],
+  );
+  const safeAttendance = useMemo(
+    () => (Array.isArray(attendance) ? attendance : []),
+    [attendance],
+  );
+  const isMen = centerType === "men";
+  const labels = {
+    students: isMen ? "الطلاب" : "الطالبات",
+    addStudent: isMen ? "إضافة طالب" : "إضافة طالبة",
+  };
 
-  const safeStudents = Array.isArray(students) ? students : [];
-  const safeAttendance = Array.isArray(attendance) ? attendance : [];
+  const dashboardState = useMemo(() => {
+    const today = localDateKey();
+    const todayAttendance = safeAttendance.filter(
+      (record) => record?.date === today,
+    );
+    const presentToday = todayAttendance.filter(
+      (record) => record.status === "present" || record.status === "late",
+    ).length;
+    const absentToday = todayAttendance.filter(
+      (record) => record.status === "absent",
+    ).length;
+    const recordedToday = new Set(
+      todayAttendance.map((record) => record.studentId),
+    ).size;
+    const pendingToday = Math.max(0, safeStudents.length - recordedToday);
+    const attendanceRate = safeStudents.length
+      ? Math.round((recordedToday / safeStudents.length) * 100)
+      : 0;
+    return {
+      presentToday,
+      absentToday,
+      pendingToday,
+      attendanceRate,
+    };
+  }, [safeAttendance, safeStudents.length]);
 
   if (!mounted) return null;
 
-  // Render safe loading state
   if (loading && safeStudents.length === 0) {
     return (
-      <div className="min-h-[60vh] flex items-center justify-center">
-        <Loader2 className="w-12 h-12 text-teal-600 animate-spin" />
+      <div className="flex min-h-[60vh] items-center justify-center">
+        <Loader2 className="h-9 w-9 animate-spin text-[var(--primary)]" />
       </div>
     );
   }
 
-  // Defensively calculate everything
-  const isMen = centerType === 'men';
-  let stats = { totalStudents: 0, presentToday: 0, absentToday: 0, attendanceRate: 0 };
-  let hijriDateData = { full: "---" };
-  let labels = { welcome: "أهلاً بك", students: "الطلاب", student: "طالب", honorTitle: "الفرسان", addStudent: "إضافة" };
-
-  try {
-    const hDate = getHijriDate();
-    if (hDate) hijriDateData = hDate;
-
-    labels = {
-      welcome: "أهلاً بك 👋",
-      students: isMen ? "الطلاب" : "الطالبات",
-      student: isMen ? "طالب" : "طالبة",
-      honorTitle: isMen ? "فرسان الحلقة" : "ملكات الحلقة",
-      addStudent: isMen ? "إضافة طالب" : "إضافة طالبة",
-    };
-
-    const today = new Date().toISOString().split("T")[0];
-    const todayAttendance = safeAttendance.filter(a => a && a.date === today);
-    const presentToday = todayAttendance.filter(a => a && (a.status === "present" || a.status === "late")).length;
-    const absentToday = todayAttendance.filter(a => a && a.status === "absent").length;
-    
-    stats = {
-      totalStudents: safeStudents.length,
-      presentToday,
-      absentToday,
-      attendanceRate: safeStudents.length > 0 ? Math.round((presentToday / safeStudents.length) * 100) : 0
-    };
-  } catch (err) {
-    console.error("Dashboard calculation error:", err);
-  }
+  const hijriDate = getHijriDate()?.full ?? "";
+  const dailyActions = [
+    {
+      title: "تسجيل الحضور",
+      description: dashboardState.pendingToday
+        ? `${dashboardState.pendingToday} لم يُرصد بعد`
+        : "اكتمل رصد اليوم",
+      icon: ClipboardCheck,
+      tone: "teal" as const,
+      href: "/attendance",
+    },
+    {
+      title: "الحفظ والمراجعة",
+      description: "تسجيل مباشر أو جلسة تسميع",
+      icon: BookOpen,
+      tone: "blue" as const,
+      href: "/memorization",
+    },
+    {
+      title: "مراجعة اليوم",
+      description: "تحقق من السجلات ثم اعتمد الإغلاق",
+      icon: ListChecks,
+      tone: "amber" as const,
+      href: "/daily-closing",
+    },
+    {
+      title: "الخطط الذكية",
+      description: "المقرر والتقدم الفعلي",
+      icon: Target,
+      tone: "purple" as const,
+      href: "/plans",
+    },
+    {
+      title: "التقارير",
+      description: "الأداء والتصدير والطباعة",
+      icon: BarChart3,
+      tone: "green" as const,
+      href: "/reports",
+    },
+    {
+      title: labels.addStudent,
+      description: `إدارة ملفات ${labels.students}`,
+      icon: UserPlus,
+      tone: "teal" as const,
+      href: "/students",
+    },
+    {
+      title: "السلوك والنقاط",
+      description: "تعزيز ومتابعة موثقة",
+      icon: Award,
+      tone: "amber" as const,
+      href: "/points",
+    },
+  ];
 
   return (
-    <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-700">
-      {/* Header Section */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-8">
-        <div className="space-y-2">
-          <div className="flex items-center gap-3">
-            <h1 className="text-4xl lg:text-5xl font-black text-gray-900 dark:text-white tracking-tight">{labels.welcome}</h1>
-            <Sparkles className="w-8 h-8 text-amber-500 animate-pulse" />
-          </div>
-          <p className="text-3xl font-black text-teal-600 dark:text-teal-400">طبت وطاب يومك ✨</p>
-        </div>
-        
-        <div className="flex items-center gap-4">
-          <div className="bg-white dark:bg-gray-900 p-6 rounded-3xl border border-gray-100 dark:border-gray-800 shadow-xl flex items-center gap-6">
-            <div className="w-14 h-14 bg-teal-50 dark:bg-teal-900/20 rounded-2xl flex items-center justify-center">
-              <Calendar className="w-7 h-7 text-teal-600 dark:text-teal-400" />
-            </div>
-            <div>
-              <p className="text-[11px] font-black text-teal-600 dark:text-teal-400 uppercase tracking-[0.2em] mb-1">التاريخ الهجري</p>
-              <p className="text-xl font-black text-gray-800 dark:text-white">{hijriDateData.full}</p>
-            </div>
-          </div>
-          <button className="w-16 h-16 bg-white dark:bg-gray-900 rounded-2xl flex items-center justify-center border border-gray-100 dark:border-gray-800 shadow-xl text-gray-400 hover:text-teal-600 transition-all">
-            <Bell className="w-6 h-6" />
+    <PageStack>
+      <PageHeader
+        title="مساحة عمل الحلقة"
+        description={`${hijriDate} · ابدأ بما يحتاج إجراءً اليوم، ثم انتقل إلى المتابعة والتقارير.`}
+        actions={
+          <button
+            type="button"
+            aria-label="فتح الإشعارات"
+            onClick={() => router.push("/notifications")}
+            className="flex h-11 w-11 items-center justify-center rounded-xl border border-[var(--border)] bg-[var(--surface)] text-[var(--muted)] shadow-[var(--shadow-soft)] hover:text-[var(--primary)]"
+          >
+            <Bell className="h-5 w-5" />
           </button>
-        </div>
-      </div>
+        }
+      />
 
-      {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-        <StatCard label={`إجمالي ${labels.students}`} value={stats.totalStudents.toString()} icon={Users} trend="+2" color={isMen ? "teal" : "rose"} />
-        <StatCard label={`الطلاب الحاضرين`} value={stats.presentToday.toString()} icon={CheckCircle2} trend="نشط" color="teal" />
-        <StatCard label="الطلاب الغائبين" value={stats.absentToday.toString()} icon={X} trend="انتباه" color="rose" />
-      </div>
-
-      <div className="grid lg:grid-cols-3 gap-10">
-        {/* Recent Activities */}
-        <div className="bg-white dark:bg-gray-900 rounded-3xl border border-gray-100 dark:border-gray-800 p-8 shadow-sm flex flex-col h-full">
-          <div className="flex items-center justify-between mb-8">
-            <h3 className="text-xl font-black text-gray-900 dark:text-white flex items-center gap-2">
-              آخر النشاطات
-            </h3>
-            <Activity className="w-5 h-5 text-teal-600" />
-          </div>
-          <div className="space-y-6 flex-1">
-            {activities.length > 0 ? activities.slice(0, 3).map((act) => (
-              <div key={act.id} className="relative pr-6 border-r-2 border-teal-500/20 py-2">
-                <div className="absolute -right-[7px] top-1/2 -translate-y-1/2 w-3 h-3 bg-teal-500 rounded-full" />
-                <p className="text-sm font-black text-gray-800 dark:text-white">{act.description}</p>
-                <p className="text-[10px] font-bold text-gray-400 mt-1">منذ قليل</p>
-              </div>
-            )) : (
-              <div className="text-center py-10">
-                <p className="text-xs font-bold text-gray-400">لا توجد نشاطات حالياً</p>
-              </div>
-            )}
-          </div>
-          <button className="mt-8 w-full py-4 bg-teal-50 dark:bg-teal-900/20 rounded-2xl text-[10px] font-black text-teal-600 dark:text-teal-400 hover:bg-teal-600 hover:text-white transition-all uppercase tracking-widest">
-            عرض السجل الكامل
+      <ProgressPanel
+        eyebrow="متابعة اليوم"
+        title={
+          dashboardState.pendingToday
+            ? `تبقّى رصد ${dashboardState.pendingToday} من ${labels.students}`
+            : "تم رصد حضور الجميع"
+        }
+        description={
+          dashboardState.pendingToday
+            ? "ابدأ بالحضور؛ بعده يصبح التسميع وإغلاق اليوم أكثر دقة."
+            : "يمكنك الانتقال مباشرةً إلى الحفظ والمراجعة."
+        }
+        progress={dashboardState.attendanceRate}
+        action={
+          <button
+            type="button"
+            onClick={() =>
+              router.push(
+                dashboardState.pendingToday ? "/attendance" : "/memorization",
+              )
+            }
+            className="rounded-xl bg-[var(--primary)] px-5 py-3 text-sm font-extrabold text-white transition hover:bg-[var(--primary-hover)] dark:text-[#00382d]"
+          >
+            {dashboardState.pendingToday ? "فتح الحضور" : "فتح التسميع"}
           </button>
-        </div>
+        }
+      />
 
-        {/* Quick Actions */}
-        <div className="lg:col-span-2 space-y-8">
-          <div className="flex items-center justify-between">
-            <h2 className="text-2xl font-black text-gray-900 dark:text-white">إجراءات سريعة</h2>
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-6">
-            {[
-              { label: "تسجيل الحضور", icon: ClipboardCheck, color: "text-teal-600", bg: "bg-teal-50 dark:bg-teal-900/20", href: "/attendance" },
-              { label: labels.addStudent, icon: UserPlus, color: "text-blue-600", bg: "bg-blue-50 dark:bg-blue-900/20", href: "/students" },
-              { label: "الحفظ والمراجعة", icon: BookOpen, color: "text-amber-600", bg: "bg-amber-50 dark:bg-amber-900/20", href: "/memorization" },
-              { label: "النقاط والسلوك", icon: Award, color: "text-purple-600", bg: "bg-purple-50 dark:bg-purple-900/20", href: "/points" },
-              { label: "إجازات الطلاب", icon: Palmtree, color: "text-sky-600", bg: "bg-sky-50 dark:bg-sky-900/20", href: "/vacations" },
-              { label: "الامتحانات", icon: ShieldCheck, color: "text-rose-600", bg: "bg-rose-50 dark:bg-rose-900/20", href: "/exams" },
-              { label: "القرعة العشوائية", icon: Dices, color: "text-emerald-600", bg: "bg-emerald-50 dark:bg-emerald-900/20", href: "/students/raffle" },
-              { label: "التقارير", icon: BarChart3, color: "text-cyan-600", bg: "bg-cyan-50 dark:bg-cyan-900/20", href: "/reports" },
-            ].map((action, i) => (
-              <button 
-                key={i}
-                onClick={() => router.push(action.href)}
-                className="group flex flex-col items-center justify-center p-8 bg-white dark:bg-gray-900 rounded-3xl border border-gray-100 dark:border-gray-800 hover:shadow-xl hover:scale-[1.02] transition-all"
-              >
-                <div className={`w-14 h-14 ${action.bg} rounded-2xl flex items-center justify-center mb-4 transition-transform group-hover:scale-110`}>
-                  <action.icon className={`w-7 h-7 ${action.color}`} />
-                </div>
-                <span className="text-xs font-black text-gray-700 dark:text-gray-200">{action.label}</span>
-              </button>
-            ))}
-          </div>
-        </div>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <MetricCard
+          label={`إجمالي ${labels.students}`}
+          value={safeStudents.length}
+          icon={Users}
+          tone="blue"
+        />
+        <MetricCard
+          label="حاضر أو متأخر"
+          value={dashboardState.presentToday}
+          icon={CheckCircle2}
+          tone="green"
+        />
+        <MetricCard
+          label="غائب اليوم"
+          value={dashboardState.absentToday}
+          icon={X}
+          tone="red"
+        />
       </div>
 
-      <div className="grid lg:grid-cols-3 gap-10">
-        {/* Daily Tip */}
-        <div className="bg-teal-50/50 dark:bg-teal-900/10 border border-teal-100 dark:border-teal-800 rounded-3xl p-8 flex items-center gap-6 relative overflow-hidden group">
-          <div className="w-14 h-14 bg-teal-600 rounded-2xl flex items-center justify-center text-white shadow-lg shrink-0">
-            <Lightbulb className="w-7 h-7" />
-          </div>
-          <div className="relative z-10">
-            <h4 className="text-sm font-black text-gray-900 dark:text-white mb-1">نصيحة اليوم</h4>
-            <p className="text-xs text-gray-500 dark:text-gray-400 font-bold leading-relaxed">
-              الاستمرارية في مراجعة المحفوظات القديمة تضمن ثبات الحفظ على المدى البعيد.
-            </p>
-          </div>
-          <div className="absolute -bottom-10 -left-10 w-32 h-32 bg-teal-600/5 rounded-full blur-2xl" />
+      <section className="space-y-3">
+        <SectionHeading
+          title="المهام اليومية"
+          description="أهم إجراءات المعلم في مكان واحد وبالترتيب الطبيعي للعمل."
+        />
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {dailyActions.map((action) => (
+            <ActionLinkCard
+              key={action.href}
+              title={action.title}
+              description={action.description}
+              icon={action.icon}
+              tone={action.tone}
+              onClick={() => router.push(action.href)}
+            />
+          ))}
         </div>
+      </section>
 
-        {/* Smart Motivation Banner */}
-        <div className="lg:col-span-2 bg-gray-900 rounded-[2rem] p-10 text-white relative overflow-hidden flex flex-col md:flex-row items-center justify-between gap-10">
-          <div className="relative z-10 space-y-6 text-center md:text-right">
-            <div className="inline-flex items-center gap-2 px-4 py-2 bg-teal-500/20 rounded-full text-teal-400 text-[10px] font-black uppercase tracking-widest">
-              <span className="w-2 h-2 bg-teal-400 rounded-full animate-pulse" /> ميزة جديدة
-            </div>
-            <h2 className="text-3xl font-black">نظام التحفيز الذكي 🏆</h2>
-            <p className="text-gray-400 text-sm font-medium max-w-md">
-              كافئ طلابك بنقاط تشجيعية فورية! تم إضافة نظام الأوسمة الجديد لتحفيز الطلاب على الحفظ والمواظبة.
-            </p>
-            <button className="bg-white text-gray-900 px-10 py-4 rounded-2xl font-black text-sm hover:bg-teal-500 hover:text-white transition-all shadow-xl">
-              استكشف النظام الآن
+      <section className="space-y-3">
+        <SectionHeading
+          title="آخر النشاطات"
+          description="أحدث ما تغيّر في الحلقة دون ازدحام بلوحات ثانوية."
+          action={
+            <button
+              type="button"
+              onClick={() => router.push("/notifications")}
+              className="text-sm font-extrabold text-[var(--primary)]"
+            >
+              عرض السجل
             </button>
-          </div>
-          <div className="relative shrink-0">
-            <div className="w-48 h-48 bg-teal-500/20 rounded-2xl flex items-center justify-center backdrop-blur-3xl border border-white/10 rotate-12">
-              <Trophy className="w-24 h-24 text-teal-400 -rotate-12" />
+          }
+        />
+        <Surface className="p-4">
+          {activities.length > 0 ? (
+            <div className="divide-y divide-[var(--border)]">
+              {activities.slice(0, 4).map((activity) => (
+                <div
+                  key={activity.id}
+                  className="flex items-start gap-3 py-3 first:pt-0 last:pb-0"
+                >
+                  <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[var(--primary-soft)] text-[var(--primary)]">
+                    <Activity className="h-4 w-4" />
+                  </span>
+                  <p className="text-sm font-bold leading-6 text-[var(--foreground)]">
+                    {activity.description}
+                  </p>
+                </div>
+              ))}
             </div>
-            <div className="absolute -top-10 -right-10 w-32 h-32 bg-teal-500/10 rounded-full blur-3xl animate-pulse" />
-          </div>
-          <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/islamic-art.png')] opacity-5 pointer-events-none" />
-        </div>
-      </div>
-    </div>
+          ) : (
+            <p className="py-8 text-center text-sm font-bold text-[var(--muted)]">
+              لا توجد نشاطات جديدة حاليًا.
+            </p>
+          )}
+        </Surface>
+      </section>
+    </PageStack>
   );
 }

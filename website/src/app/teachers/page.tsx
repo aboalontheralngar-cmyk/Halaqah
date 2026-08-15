@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { 
   Users, 
   UserPlus, 
@@ -17,10 +18,23 @@ import {
 import { useStore } from "@/store/useStore";
 
 export default function TeachersPage() {
-  const { 
-    teachers, fetchTeachers, addTeacher, removeTeacher, 
-    halaqat, fetchHalaqat,
-  } = useStore();
+  const {
+    teachers,
+    fetchTeachers,
+    addTeacher,
+    removeTeacher,
+    halaqat,
+    fetchHalaqat
+  } = useStore(
+    useShallow((state) => ({
+      teachers: state.teachers,
+      fetchTeachers: state.fetchTeachers,
+      addTeacher: state.addTeacher,
+      removeTeacher: state.removeTeacher,
+      halaqat: state.halaqat,
+      fetchHalaqat: state.fetchHalaqat,
+    })),
+  );
   
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -37,7 +51,7 @@ export default function TeachersPage() {
       setLoading(false);
     };
     loadData();
-  }, []);
+  }, [fetchHalaqat, fetchTeachers]);
 
   const handleAddTeacher = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -60,9 +74,9 @@ export default function TeachersPage() {
             <div className="w-12 h-12 bg-teal-50 dark:bg-teal-900/20 rounded-2xl flex items-center justify-center">
               <Users className="w-6 h-6 text-teal-600 dark:text-teal-400" />
             </div>
-            <h1 className="text-3xl font-black text-gray-900 dark:text-white tracking-tight">إدارة المعلمين 👨‍🏫</h1>
+            <h1 className="text-3xl font-black text-[var(--foreground)] tracking-tight">إدارة المعلمين 👨‍🏫</h1>
           </div>
-          <p className="text-gray-500 dark:text-gray-400 font-medium">قم بإضافة معلمي الحلقات وتعيينهم للحلقات المناسبة.</p>
+          <p className="text-[var(--muted)] font-medium">قم بإضافة معلمي الحلقات وتعيينهم للحلقات المناسبة.</p>
         </div>
 
         <button 
@@ -76,31 +90,31 @@ export default function TeachersPage() {
 
       {/* Stats Bar */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-white dark:bg-gray-900 p-8 rounded-[2.5rem] border border-gray-100 dark:border-gray-800 shadow-sm flex items-center gap-6">
+        <div className="bg-[var(--surface)] p-8 rounded-[2.5rem] border border-[var(--border)] shadow-sm flex items-center gap-6">
           <div className="w-16 h-16 bg-teal-50 dark:bg-teal-900/20 rounded-2xl flex items-center justify-center text-teal-600">
             <UserCheck className="w-8 h-8" />
           </div>
           <div>
             <p className="text-gray-400 text-xs font-black uppercase tracking-widest mb-1">إجمالي المعلمين</p>
-            <p className="text-3xl font-black text-gray-900 dark:text-white">{teachers.length}</p>
+            <p className="text-3xl font-black text-[var(--foreground)]">{teachers.length}</p>
           </div>
         </div>
-        <div className="bg-white dark:bg-gray-900 p-8 rounded-[2.5rem] border border-gray-100 dark:border-gray-800 shadow-sm flex items-center gap-6">
+        <div className="bg-[var(--surface)] p-8 rounded-[2.5rem] border border-[var(--border)] shadow-sm flex items-center gap-6">
           <div className="w-16 h-16 bg-amber-50 dark:bg-amber-900/20 rounded-2xl flex items-center justify-center text-amber-600">
             <BookOpen className="w-8 h-8" />
           </div>
           <div>
             <p className="text-gray-400 text-xs font-black uppercase tracking-widest mb-1">حلقات مفعلة</p>
-            <p className="text-3xl font-black text-gray-900 dark:text-white">{halaqat.length}</p>
+            <p className="text-3xl font-black text-[var(--foreground)]">{halaqat.length}</p>
           </div>
         </div>
-        <div className="bg-white dark:bg-gray-900 p-8 rounded-[2.5rem] border border-gray-100 dark:border-gray-800 shadow-sm flex items-center gap-6">
+        <div className="bg-[var(--surface)] p-8 rounded-[2.5rem] border border-[var(--border)] shadow-sm flex items-center gap-6">
           <div className="w-16 h-16 bg-rose-50 dark:bg-rose-900/20 rounded-2xl flex items-center justify-center text-rose-600">
             <ShieldCheck className="w-8 h-8" />
           </div>
           <div>
             <p className="text-gray-400 text-xs font-black uppercase tracking-widest mb-1">بدون حلقة</p>
-            <p className="text-3xl font-black text-gray-900 dark:text-white">{teachers.filter(t => !t.halaqahId).length}</p>
+            <p className="text-3xl font-black text-[var(--foreground)]">{teachers.filter(t => !t.halaqahId).length}</p>
           </div>
         </div>
       </div>
@@ -113,7 +127,7 @@ export default function TeachersPage() {
           placeholder="ابحث عن معلم بالبريد الإلكتروني أو اسم الحلقة..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          className="w-full pr-16 pl-6 py-6 bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-[2.5rem] text-sm font-bold outline-none focus:ring-4 ring-teal-500/10 shadow-sm transition-all dark:text-white"
+          className="w-full pr-16 pl-6 py-6 bg-[var(--surface)] border border-[var(--border)] rounded-[2.5rem] text-sm font-bold outline-none focus:ring-4 ring-teal-500/10 shadow-sm transition-all dark:text-white"
         />
       </div>
 
@@ -126,7 +140,7 @@ export default function TeachersPage() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredTeachers.map((teacher) => (
-            <div key={teacher.id} className="bg-white dark:bg-gray-900 p-8 rounded-[3rem] border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all group relative overflow-hidden">
+            <div key={teacher.id} className="bg-[var(--surface)] p-8 rounded-[3rem] border border-[var(--border)] shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all group relative overflow-hidden">
               <div className="absolute top-0 left-0 w-2 h-full bg-teal-600 opacity-0 group-hover:opacity-100 transition-all" />
               
               <div className="flex justify-between items-start mb-6">
@@ -146,7 +160,7 @@ export default function TeachersPage() {
               <div className="space-y-4">
                 <div>
                   <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">البريد الإلكتروني</p>
-                  <p className="text-sm font-black text-gray-900 dark:text-white break-all">{teacher.email}</p>
+                  <p className="text-sm font-black text-[var(--foreground)] break-all">{teacher.email}</p>
                 </div>
 
                 <div className="pt-4 border-t border-gray-50 dark:border-gray-800">
@@ -156,7 +170,7 @@ export default function TeachersPage() {
                     </div>
                     <div>
                       <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">الحلقة المسندة</p>
-                      <p className={`text-xs font-black ${teacher.halaqahId ? "text-gray-900 dark:text-white" : "text-gray-400 italic"}`}>
+                      <p className={`text-xs font-black ${teacher.halaqahId ? "text-[var(--foreground)]" : "text-gray-400 italic"}`}>
                         {teacher.halaqahName || "غير محدد"}
                       </p>
                     </div>
@@ -171,7 +185,7 @@ export default function TeachersPage() {
               <div className="w-20 h-20 bg-gray-100 dark:bg-gray-800 rounded-[2.5rem] flex items-center justify-center mx-auto mb-6">
                 <Users className="w-10 h-10 text-gray-300" />
               </div>
-              <h3 className="text-xl font-black text-gray-900 dark:text-white mb-2">لا يوجد معلمون حالياً</h3>
+              <h3 className="text-xl font-black text-[var(--foreground)] mb-2">لا يوجد معلمون حالياً</h3>
               <p className="text-gray-500 font-medium">ابدأ بإضافة المعلمين لمركزك وتوزيعهم على الحلقات.</p>
             </div>
           )}
@@ -181,11 +195,11 @@ export default function TeachersPage() {
       {/* Add Teacher Modal */}
       {showAddModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-6 animate-in fade-in duration-300">
-          <div className="bg-white dark:bg-gray-950 w-full max-w-lg rounded-[3.5rem] p-10 shadow-2xl relative animate-in zoom-in-95 duration-300 overflow-hidden">
+          <div className="bg-[var(--surface)] w-full max-w-lg rounded-[3.5rem] p-10 shadow-2xl relative animate-in zoom-in-95 duration-300 overflow-hidden">
             <div className="absolute top-0 right-0 w-32 h-32 bg-teal-500/10 rounded-full blur-3xl -mr-16 -mt-16" />
             
             <div className="flex justify-between items-center mb-10 relative">
-              <h2 className="text-2xl font-black text-gray-900 dark:text-white flex items-center gap-4">
+              <h2 className="text-2xl font-black text-[var(--foreground)] flex items-center gap-4">
                 <UserPlus className="w-8 h-8 text-teal-600" /> إضافة معلم جديد
               </h2>
               <button onClick={() => setShowAddModal(false)} className="p-3 bg-gray-100 dark:bg-gray-800 rounded-2xl hover:bg-gray-200 transition-colors">

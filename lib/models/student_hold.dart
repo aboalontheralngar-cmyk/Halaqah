@@ -1,11 +1,23 @@
 import 'package:uuid/uuid.dart';
 
+class StudentHoldScope {
+  const StudentHoldScope._();
+
+  static const recitationOnly = 'recitation_only';
+  static const fullPause = 'full_pause';
+
+  static String label(String value) => value == fullPause
+      ? 'توقف كامل عن الحلقة'
+      : 'إيقاف التسميع فقط';
+}
+
 class StudentHold {
   final String id;
   final String studentId;
   final DateTime startDate;
   final DateTime endDate;
   final String reason;
+  final String scope;
   final String? notes;
   final DateTime? endedAt;
   final DateTime createdAt;
@@ -16,11 +28,15 @@ class StudentHold {
     required this.startDate,
     required this.endDate,
     required this.reason,
+    this.scope = StudentHoldScope.recitationOnly,
     this.notes,
     this.endedAt,
     DateTime? createdAt,
   })  : id = id ?? const Uuid().v4(),
         createdAt = createdAt ?? DateTime.now();
+
+  bool get exemptsAttendance => scope == StudentHoldScope.fullPause;
+  bool get exemptsRecitation => true;
 
   bool isActiveAt(DateTime date) {
     final target = DateTime(date.year, date.month, date.day);
@@ -38,6 +54,7 @@ class StudentHold {
         'start_date': startDate.toIso8601String().split('T')[0],
         'end_date': endDate.toIso8601String().split('T')[0],
         'reason': reason,
+        'scope': scope,
         'notes': notes,
         'ended_at': endedAt?.toIso8601String(),
         'created_at': createdAt.toIso8601String(),
@@ -49,6 +66,7 @@ class StudentHold {
         startDate: DateTime.parse(map['start_date']),
         endDate: DateTime.parse(map['end_date']),
         reason: map['reason'],
+        scope: map['scope'] ?? StudentHoldScope.recitationOnly,
         notes: map['notes'],
         endedAt: map['ended_at'] == null ? null : DateTime.parse(map['ended_at']),
         createdAt: DateTime.parse(map['created_at']),

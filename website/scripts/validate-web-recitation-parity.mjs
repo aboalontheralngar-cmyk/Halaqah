@@ -14,7 +14,7 @@ const migration = read(
   'website/supabase/migrations/20260713000100_p5_web_recitation_parity.sql',
 );
 const sync = read('lib/services/supabase_service.dart');
-const database = read('lib/services/database_service.dart');
+const database = read('lib/services/database_service.dart') + read('lib/services/local_database_schema.dart');
 const gradeModel = read('lib/models/homework_grade.dart');
 const progressModel = read('lib/models/memorization.dart');
 
@@ -80,7 +80,7 @@ for (const contract of [
 ]) requireText(sync, contract, `Android sync ${contract}`);
 
 for (const contract of [
-  'version: 18',
+  'version: 24',
   '_upgradeToVersion12',
   'deleteMemorizationProgressFromSync',
   'upsertMemorizationProgressFromSync',

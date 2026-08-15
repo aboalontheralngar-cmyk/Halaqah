@@ -1,8 +1,6 @@
 class AppConstants {
   static const String appName = 'حلقتي';
-  static const String appVersion = '1.0.0';
-  
-  static const String encryptionKey = 'HalaqahApp2024SecretKey!';
+  static const String appVersion = '4.3.0-alpha.22';
   
   static const int defaultAbsenceDaysBeforeWarning = 2;
   static const int defaultAbsenceDaysBeforeExpulsion = 7;

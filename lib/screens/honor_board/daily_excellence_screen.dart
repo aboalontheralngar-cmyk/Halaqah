@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../models/daily_achievement.dart';
 import '../../models/student.dart';
+import '../../models/memorization.dart';
 import '../../services/daily_excellence_service.dart';
 import '../../services/database_service.dart';
 import '../../services/quran_service.dart';
@@ -31,8 +32,20 @@ class _DailyExcellenceScreenState extends State<DailyExcellenceScreen> {
     setState(() => _isLoading = true);
     try {
       await QuranService.instance.initialize();
-      final students = await _db.getStudents(status: 'active');
-      final saved = await _db.getDailyAchievements(_selectedDate);
+      final results = await Future.wait<dynamic>([
+        _db.getStudents(),
+        _db.getDailyAchievements(_selectedDate),
+        _db.getMemorizationInRange(_selectedDate, _selectedDate),
+      ]);
+      final allStudents = results[0] as List<Student>;
+      final students = allStudents.where((student) => student.status == 'active').toList();
+      final studentsById = {for (final student in allStudents) student.id: student};
+      final saved = results[1] as List<DailyAchievement>;
+      final progressRows = results[2] as List<MemorizationProgress>;
+      final progressByStudent = <String, List<MemorizationProgress>>{};
+      for (final progress in progressRows) {
+        (progressByStudent[progress.studentId] ??= []).add(progress);
+      }
       final savedByStudent = {for (final item in saved) item.studentId: item};
       final entries = <_DailyExcellenceEntry>[];
       final surahs = {
@@ -41,11 +54,7 @@ class _DailyExcellenceScreenState extends State<DailyExcellenceScreen> {
       };
 
       for (final student in students) {
-        final progress = await _db.getStudentMemorizationInRange(
-          student.id,
-          _selectedDate,
-          _selectedDate,
-        );
+        final progress = progressByStudent[student.id] ?? const <MemorizationProgress>[];
         final actual = DailyExcellenceService.calculateActualAmount(
           progress: progress,
           surahs: surahs,
@@ -88,7 +97,7 @@ class _DailyExcellenceScreenState extends State<DailyExcellenceScreen> {
       }
 
       for (final orphan in savedByStudent.values) {
-        final student = await _db.getStudent(orphan.studentId);
+        final student = studentsById[orphan.studentId];
         if (student != null) {
           entries.add(_DailyExcellenceEntry(
             student: student,
@@ -258,7 +267,7 @@ class _DailyExcellenceScreenState extends State<DailyExcellenceScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.auto_awesome_outlined, size: 72, color: Colors.grey[400]),
+            Icon(Icons.auto_awesome_outlined, size: 72, color: Theme.of(context).colorScheme.onSurfaceVariant),
             const SizedBox(height: 12),
             const Text('لا يوجد متميزون مسجلون في هذا اليوم'),
             const SizedBox(height: 6),
@@ -283,7 +292,7 @@ class _DailyExcellenceScreenState extends State<DailyExcellenceScreen> {
             Row(
               children: [
                 CircleAvatar(
-                  backgroundColor: Colors.amber.withOpacity(0.16),
+                  backgroundColor: Colors.amber.withValues(alpha: 0.16),
                   child: Text(entry.student.name.isEmpty ? '؟' : entry.student.name[0]),
                 ),
                 const SizedBox(width: 12),
@@ -292,7 +301,7 @@ class _DailyExcellenceScreenState extends State<DailyExcellenceScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(entry.student.name, style: const TextStyle(fontWeight: FontWeight.bold)),
-                      Text(achievement.reason, style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+                      Text(achievement.reason, style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant)),
                     ],
                   ),
                 ),
@@ -328,7 +337,7 @@ class _DailyExcellenceScreenState extends State<DailyExcellenceScreen> {
                 width: double.infinity,
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: Colors.purple.withOpacity(0.08),
+                  color: Colors.purple.withValues(alpha: 0.08),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Text(
@@ -366,7 +375,7 @@ class _DailyExcellenceScreenState extends State<DailyExcellenceScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               DropdownButtonFormField<Student>(
-                value: selected,
+                initialValue: selected,
                 decoration: const InputDecoration(labelText: 'الطالب'),
                 items: _students.map((student) => DropdownMenuItem(
                       value: student,
@@ -437,7 +446,7 @@ class _DailyExcellenceScreenState extends State<DailyExcellenceScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               DropdownButtonFormField<String>(
-                value: rewardType,
+                initialValue: rewardType,
                 decoration: const InputDecoration(labelText: 'نوع التكريم'),
                 items: const [
                   DropdownMenuItem(value: 'points', child: Text('نقاط مكافأة')),
@@ -525,6 +534,7 @@ class _DailyExcellenceScreenState extends State<DailyExcellenceScreen> {
   String _unitLabel(String unit) {
     if (unit == 'pages') return 'صفحة';
     if (unit == 'lines') return 'سطرًا';
+    if (unit == 'hizbs') return 'حزبًا';
     return 'آية';
   }
 

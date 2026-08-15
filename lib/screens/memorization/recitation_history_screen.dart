@@ -23,6 +23,7 @@ class _RecitationHistoryScreenState extends State<RecitationHistoryScreen> {
   final DatabaseService _db = DatabaseService();
   final MushafService _mushaf = MushafService();
   final QuranService _quran = QuranService.instance;
+  final TextEditingController _searchController = TextEditingController();
 
   List<Student> _students = [];
   List<MemorizationProgress> _records = [];
@@ -37,6 +38,12 @@ class _RecitationHistoryScreenState extends State<RecitationHistoryScreen> {
     super.initState();
     _studentId = widget.initialStudent?.id;
     _loadData();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadData() async {
@@ -73,9 +80,15 @@ class _RecitationHistoryScreenState extends State<RecitationHistoryScreen> {
         if (date.isBefore(start) || date.isAfter(end)) return false;
       }
       if (_query.isNotEmpty) {
-        final studentName = _studentName(record.studentId);
-        final surahName = _quran.getSurahName(record.surahId);
-        if (!studentName.contains(_query) && !surahName.contains(_query)) {
+        final student = _student(record.studentId);
+        final searchable = _normalizeSearch(
+          [
+            student?.name ?? '',
+            student?.displayCode ?? '',
+            _quran.getSurahName(record.surahId),
+          ].join(' '),
+        );
+        if (!searchable.contains(_query)) {
           return false;
         }
       }
@@ -120,15 +133,41 @@ class _RecitationHistoryScreenState extends State<RecitationHistoryScreen> {
         child: Column(
           children: [
             TextField(
-              decoration: const InputDecoration(
-                hintText: 'بحث باسم الطالب أو السورة',
-                prefixIcon: Icon(Icons.search),
+              controller: _searchController,
+              autofocus: widget.initialStudent == null,
+              textInputAction: TextInputAction.search,
+              decoration: InputDecoration(
+                labelText: 'البحث عن طالب',
+                hintText: 'الاسم أو كود الطالب أو السورة',
+                prefixIcon: const Icon(Icons.search),
+                suffixIcon: _query.isEmpty
+                    ? null
+                    : IconButton(
+                        onPressed: () {
+                          _searchController.clear();
+                          setState(() => _query = '');
+                        },
+                        icon: const Icon(Icons.close),
+                        tooltip: 'مسح البحث',
+                      ),
               ),
-              onChanged: (value) => setState(() => _query = value.trim()),
+              onChanged: (value) => setState(
+                () => _query = _normalizeSearch(value),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: Text(
+                '${_filteredRecords.length} سجل مطابق',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+              ),
             ),
             const SizedBox(height: 10),
             DropdownButtonFormField<String>(
-              value: _studentId ?? 'all',
+              initialValue: _studentId ?? 'all',
               decoration: const InputDecoration(
                 labelText: 'الطالب',
                 prefixIcon: Icon(Icons.person_outline),
@@ -223,7 +262,7 @@ class _RecitationHistoryScreenState extends State<RecitationHistoryScreen> {
             Row(
               children: [
                 CircleAvatar(
-                  backgroundColor: color.withOpacity(0.12),
+                  backgroundColor: color.withValues(alpha: 0.12),
                   child: Icon(
                     record.isRevision ? Icons.replay : Icons.menu_book,
                     color: color,
@@ -241,7 +280,7 @@ class _RecitationHistoryScreenState extends State<RecitationHistoryScreen> {
                       Text(
                         '${Helpers.getFullHijriDate(record.date)} — '
                         '${record.isRevision ? 'مراجعة' : 'حفظ جديد'}',
-                        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                        style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant),
                       ),
                     ],
                   ),
@@ -513,11 +552,24 @@ class _RecitationHistoryScreenState extends State<RecitationHistoryScreen> {
   }
 
   String _studentName(String id) {
-    for (final student in _students) {
-      if (student.id == id) return student.name;
-    }
-    return 'طالب غير متاح';
+    return _student(id)?.name ?? 'طالب غير متاح';
   }
+
+  Student? _student(String id) {
+    for (final student in _students) {
+      if (student.id == id) return student;
+    }
+    return null;
+  }
+
+  String _normalizeSearch(String value) => value
+      .toLowerCase()
+      .replaceAll(RegExp(r'[\u064B-\u065F\u0670\u06D6-\u06ED]'), '')
+      .replaceAll(RegExp(r'[أإآٱ]'), 'ا')
+      .replaceAll('ى', 'ي')
+      .replaceAll('ة', 'ه')
+      .replaceAll(RegExp(r'[^a-z0-9\u0600-\u06FF]+'), ' ')
+      .trim();
 
   String _date(DateTime date) =>
       '${date.year}/${date.month.toString().padLeft(2, '0')}/'

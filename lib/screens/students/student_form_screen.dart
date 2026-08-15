@@ -4,10 +4,13 @@ import 'dart:io' show Platform;
 import 'package:flutter_contacts/flutter_contacts.dart';
 import '../../services/database_service.dart';
 import '../../services/quran_service.dart';
+import '../../services/review_plan_policy.dart';
+import '../../services/revision_system_policy.dart';
 import '../../models/student.dart';
 import '../../models/settings.dart';
 import '../../models/family.dart';
 import '../../utils/helpers.dart';
+import '../../widgets/app_design_widgets.dart';
 
 class StudentFormScreen extends StatefulWidget {
   final Student? student;
@@ -27,7 +30,11 @@ class _StudentFormScreenState extends State<StudentFormScreen> {
   
   String _planType = 'ayahs';
   int _planAmount = 5;
+  int _reviewPlanAmount = 10;
+  String _reviewPlanType = 'ayahs';
+  String _reviewSystem = RevisionSystemPolicy.defaultSystem;
   String _memorizationDirection = 'desc';
+  bool _talaqqinEnabled = false;
   final DatabaseService _db = DatabaseService();
   bool _isSaving = false;
   HalaqahSettings _settings = HalaqahSettings();
@@ -56,7 +63,11 @@ class _StudentFormScreenState extends State<StudentFormScreen> {
       _familyId = widget.student!.familyId;
       _planType = widget.student!.planType;
       _planAmount = widget.student!.planAmount;
+      _reviewPlanAmount = widget.student!.reviewPlanAmount;
+      _reviewPlanType = widget.student!.reviewPlanType;
+      _reviewSystem = widget.student!.reviewSystem;
       _memorizationDirection = widget.student!.memorizationDirection;
+      _talaqqinEnabled = widget.student!.talaqqinEnabled;
       _startSurahId = widget.student!.preMemorizedStartSurah;
       _startAyah = widget.student!.preMemorizedStartAyah;
       _endSurahId = widget.student!.preMemorizedEndSurah;
@@ -220,6 +231,37 @@ class _StudentFormScreenState extends State<StudentFormScreen> {
     return totalAyahs;
   }
 
+  int _estimatedMemorizedAyahs() {
+    if (_startSurahId != null &&
+        _startAyah != null &&
+        _endSurahId != null &&
+        _endAyah != null) {
+      return _calculateAyahsInRange(
+        _startSurahId!,
+        _startAyah!,
+        _endSurahId!,
+        _endAyah!,
+      );
+    }
+    return widget.student?.totalMemorized ?? 0;
+  }
+
+  void _applyRecommendedReviewPlan() {
+    final recommendation =
+        ReviewPlanPolicy.recommend(_estimatedMemorizedAyahs());
+    setState(() {
+      _reviewPlanAmount = recommendation.amountForUnit(_reviewPlanType);
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'اعتمد مقترح ${recommendation.tierLabel}: '
+          '$_reviewPlanAmount ${_getPlanLabel(_reviewPlanType)} يوميًا',
+        ),
+      ),
+    );
+  }
+
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
     
@@ -272,6 +314,10 @@ class _StudentFormScreenState extends State<StudentFormScreen> {
           familyId: _familyId,
           planType: _planType,
           planAmount: _planAmount,
+          reviewPlanAmount: _reviewPlanAmount,
+          reviewPlanType: _reviewPlanType,
+          reviewSystem: _reviewSystem,
+          talaqqinEnabled: _talaqqinEnabled,
           notes: _notesController.text.trim(),
           memorizationDirection: _memorizationDirection,
           totalMemorized: newTotalMemorized,
@@ -283,20 +329,11 @@ class _StudentFormScreenState extends State<StudentFormScreen> {
           clearFamily: _familyId == null,
         );
         await _db.updateStudent(updated);
+        await _db.reconcileStudentMemorizedTotal(updated.id);
       } else {
-        int totalAyahs = 0;
-        bool hasRange = false;
-
-        if (_startSurahId != null && _endSurahId != null && _endAyah != null) {
-          hasRange = true;
-          totalAyahs = _calculateAyahsInRange(
-            _startSurahId!,
-            _startAyah ?? 1,
-            _endSurahId!,
-            _endAyah!,
-          );
-        }
-
+        // Build 75: new students only need a memorization direction. Their
+        // memorized frontier is inferred from the first actual memorization
+        // record, so registration no longer asks for a duplicate manual range.
         final student = Student(
           name: _nameController.text.trim(),
           phone: _phoneController.text.trim(),
@@ -304,25 +341,15 @@ class _StudentFormScreenState extends State<StudentFormScreen> {
           familyId: _familyId,
           planType: _planType,
           planAmount: _planAmount,
+          reviewPlanAmount: _reviewPlanAmount,
+          reviewPlanType: _reviewPlanType,
+          reviewSystem: _reviewSystem,
+          talaqqinEnabled: _talaqqinEnabled,
           notes: _notesController.text.trim(),
           memorizationDirection: _memorizationDirection,
-          totalMemorized: totalAyahs,
-          preMemorizedStartSurah: _startSurahId,
-          preMemorizedStartAyah: _startAyah,
-          preMemorizedEndSurah: _endSurahId,
-          preMemorizedEndAyah: _endAyah,
+          totalMemorized: 0,
         );
         await _db.insertStudent(student);
-
-        if (hasRange) {
-          await _db.initializeMushafProgressForRange(
-            student.id,
-            _startSurahId!,
-            _startAyah ?? 1,
-            _endSurahId!,
-            _endAyah!,
-          );
-        }
       }
       if (mounted) {
         Navigator.pop(context, true);
@@ -404,7 +431,7 @@ class _StudentFormScreenState extends State<StudentFormScreen> {
               ),
               const SizedBox(height: 16),
               DropdownButtonFormField<String>(
-                value: _familyId ?? '',
+                initialValue: _familyId ?? '',
                 isExpanded: true,
                 decoration: const InputDecoration(
                   labelText: 'العائلة',
@@ -449,58 +476,178 @@ class _StudentFormScreenState extends State<StudentFormScreen> {
                     children: [
                       const Text('نوع المقرر'),
                       const SizedBox(height: 8),
-                      SegmentedButton<String>(
-                        segments: const [
-                          ButtonSegment(value: 'ayahs', label: Text('آيات')),
-                          ButtonSegment(value: 'lines', label: Text('أسطر')),
-                          ButtonSegment(value: 'pages', label: Text('صفحات')),
+                      DropdownButtonFormField<String>(
+                        initialValue: _planType,
+                        isExpanded: true,
+                        decoration: const InputDecoration(
+                          prefixIcon: Icon(Icons.straighten),
+                        ),
+                        items: const [
+                          DropdownMenuItem(value: 'ayahs', child: Text('آيات')),
+                          DropdownMenuItem(value: 'lines', child: Text('أسطر المصحف')),
+                          DropdownMenuItem(value: 'pages', child: Text('صفحات')),
+                          DropdownMenuItem(value: 'hizbs', child: Text('أحزاب')),
                         ],
-                        selected: {_planType},
-                        onSelectionChanged: (set) {
-                          setState(() => _planType = set.first);
+                        onChanged: (value) {
+                          if (value != null) setState(() => _planType = value);
                         },
                       ),
                       const SizedBox(height: 16),
                       
-                      Row(
-                        children: [
-                          const Text('المقدار اليومي: '),
-                          const SizedBox(width: 16),
-                          IconButton(
-                            onPressed: _planAmount > 1
-                                ? () => setState(() => _planAmount--)
-                                : null,
-                            icon: const Icon(Icons.remove_circle_outline),
-                          ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 20,
-                              vertical: 8,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Theme.of(context).primaryColor.withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Text(
-                              '$_planAmount',
-                              style: const TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                          IconButton(
-                            onPressed: () => setState(() => _planAmount++),
-                            icon: const Icon(Icons.add_circle_outline),
-                          ),
-                          Text(_getPlanLabel(_planType)),
+                      _planAmountControl(
+                        label: 'الحفظ اليومي',
+                        value: _planAmount,
+                        unit: _planType,
+                        onChanged: (value) => setState(() => _planAmount = value),
+                      ),
+                      const SizedBox(height: 8),
+                      DropdownButtonFormField<String>(
+                        initialValue: _reviewPlanType,
+                        isExpanded: true,
+                        decoration: const InputDecoration(
+                          labelText: 'وحدة المراجعة',
+                          prefixIcon: Icon(Icons.menu_book_outlined),
+                          helperText: 'مستقلة عن وحدة الحفظ',
+                        ),
+                        items: const [
+                          DropdownMenuItem(value: 'ayahs', child: Text('آيات')),
+                          DropdownMenuItem(value: 'lines', child: Text('أسطر المصحف')),
+                          DropdownMenuItem(value: 'pages', child: Text('أوجه/صفحات')),
+                          DropdownMenuItem(value: 'hizbs', child: Text('أحزاب')),
                         ],
+                        onChanged: (value) {
+                          if (value != null) {
+                            setState(() => _reviewPlanType = value);
+                          }
+                        },
+                      ),
+                      const SizedBox(height: 8),
+                      _planAmountControl(
+                        label: 'المراجعة اليومية',
+                        value: _reviewPlanAmount,
+                        unit: _reviewPlanType,
+                        onChanged: (value) =>
+                            setState(() => _reviewPlanAmount = value),
+                      ),
+                      const SizedBox(height: 14),
+                      SwitchListTile.adaptive(
+                        contentPadding: EdgeInsets.zero,
+                        value: _talaqqinEnabled,
+                        title: const Text('الطالب في مرحلة التلقين'),
+                        subtitle: const Text(
+                          'يظهر في قائمة التلقين فقط أثناء هذه المرحلة، ويمكن إيقافها بعد تجاوزه لها.',
+                        ),
+                        onChanged: (value) =>
+                            setState(() => _talaqqinEnabled = value),
+                      ),
+                      const SizedBox(height: 6),
+                      DropdownButtonFormField<String>(
+                        initialValue: RevisionSystemPolicy.resolve(_reviewSystem).id,
+                        isExpanded: true,
+                        decoration: const InputDecoration(
+                          labelText: 'نظام تثبيت المراجعة',
+                          prefixIcon: Icon(Icons.repeat_on_outlined),
+                        ),
+                        items: RevisionSystemPolicy.systems
+                            .map(
+                              (system) => DropdownMenuItem(
+                                value: system.id,
+                                child: Text(
+                                  system.title,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            )
+                            .toList(),
+                        onChanged: (value) {
+                          if (value != null) {
+                            setState(() => _reviewSystem = value);
+                          }
+                        },
+                      ),
+                      const SizedBox(height: 8),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context)
+                              .colorScheme
+                              .surfaceContainerLow,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              RevisionSystemPolicy.resolve(_reviewSystem)
+                                  .summary,
+                              style:
+                                  const TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              RevisionSystemPolicy.resolve(_reviewSystem)
+                                  .workflow,
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodySmall
+                                  ?.copyWith(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onSurfaceVariant,
+                                  ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Align(
+                        alignment: AlignmentDirectional.centerStart,
+                        child: TextButton.icon(
+                          onPressed: _applyRecommendedReviewPlan,
+                          icon: const Icon(Icons.auto_awesome_outlined),
+                          label: const Text('اقتراح المراجعة بحسب مقدار المحفوظ'),
+                        ),
                       ),
                     ],
                   ),
                 ),
               ),
               const SizedBox(height: 24),
+              if (isEditing) ...[
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.primaryContainer,
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(
+                        Icons.sync_outlined,
+                        color:
+                            Theme.of(context).colorScheme.onPrimaryContainer,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'المحفوظ الحالي ${widget.student!.totalMemorized} آية. '
+                          'بعد الحفظ سيعاد حسابه تلقائيًا من المحفوظ المسبق '
+                          'وسجلات التسميع اليومية؛ تعديل الاسم أو الرقم لا '
+                          'يعيد ضبطه.',
+                          style: TextStyle(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onPrimaryContainer,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 24),
+              ],
               const Text(
                 'منهج الحفظ والتقدم',
                 style: TextStyle(
@@ -510,7 +657,7 @@ class _StudentFormScreenState extends State<StudentFormScreen> {
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
-                value: _memorizationDirection,
+                initialValue: _memorizationDirection,
                 isExpanded: true,
                 decoration: const InputDecoration(
                   labelText: 'اتجاه الحفظ والتقدم',
@@ -553,10 +700,32 @@ class _StudentFormScreenState extends State<StudentFormScreen> {
                   }
                 },
               ),
-              const SizedBox(height: 24),
-              
-              _buildPreMemorizedSurahSection(),
-              
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.secondaryContainer,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  isEditing
+                      ? 'يستنتج التطبيق المحفوظ تلقائيًا من اتجاه الطالب وأبعد سجل حفظ. يمكنك الإبقاء على الرصيد القديم أدناه فقط للتوافق مع الطلاب المسجلين سابقًا.'
+                      : 'لا تحتاج إلى إدخال المحفوظ السابق. بعد أول سجل حفظ سيعتبر التطبيق كل ما يقع خلف موضع الطالب في اتجاه الحفظ ضمن محفوظِه تلقائيًا.',
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSecondaryContainer,
+                  ),
+                ),
+              ),
+              if (isEditing) ...[
+                const SizedBox(height: 12),
+                ExpansionTile(
+                  tilePadding: EdgeInsets.zero,
+                  title: const Text('رصيد محفوظ سابق (إعداد متقدم)'),
+                  subtitle: const Text('للتوافق مع البيانات القديمة فقط'),
+                  children: [_buildPreMemorizedSurahSection()],
+                ),
+              ],
+              const SizedBox(height: 12),
               TextFormField(
                 controller: _notesController,
                 decoration: const InputDecoration(
@@ -595,9 +764,9 @@ class _StudentFormScreenState extends State<StudentFormScreen> {
       margin: const EdgeInsets.only(top: 8, bottom: 8),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.blue.withOpacity(0.05),
+        color: Colors.blue.withValues(alpha: 0.05),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.blue.withOpacity(0.15)),
+        border: Border.all(color: Colors.blue.withValues(alpha: 0.15)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -751,7 +920,7 @@ class _StudentFormScreenState extends State<StudentFormScreen> {
                 style: TextStyle(color: Colors.amber, fontWeight: FontWeight.bold, fontSize: 13),
               ),
               style: TextButton.styleFrom(
-                backgroundColor: Colors.amber.withOpacity(0.1),
+                backgroundColor: Colors.amber.withValues(alpha: 0.1),
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(15),
@@ -768,7 +937,7 @@ class _StudentFormScreenState extends State<StudentFormScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 DropdownButtonFormField<int>(
-                  value: _startSurahId,
+                  initialValue: _startSurahId,
                   isExpanded: true,
                   decoration: const InputDecoration(
                     labelText: 'من سورة (بداية الحفظ)',
@@ -806,7 +975,7 @@ class _StudentFormScreenState extends State<StudentFormScreen> {
                 if (_startSurahId != null) ...[
                   const SizedBox(height: 16),
                   DropdownButtonFormField<int>(
-                    value: _startAyah,
+                    initialValue: _startAyah,
                     isExpanded: true,
                     decoration: const InputDecoration(
                       labelText: 'من آية',
@@ -822,7 +991,7 @@ class _StudentFormScreenState extends State<StudentFormScreen> {
                   ),
                   const SizedBox(height: 16),
                   DropdownButtonFormField<int>(
-                    value: _endSurahId,
+                    initialValue: _endSurahId,
                     isExpanded: true,
                     decoration: const InputDecoration(
                       labelText: 'إلى سورة',
@@ -849,7 +1018,7 @@ class _StudentFormScreenState extends State<StudentFormScreen> {
                 if (_endSurahId != null) ...[
                   const SizedBox(height: 16),
                   DropdownButtonFormField<int>(
-                    value: _endAyah,
+                    initialValue: _endAyah,
                     isExpanded: true,
                     decoration: const InputDecoration(
                       labelText: 'إلى آية',
@@ -897,12 +1066,10 @@ class _StudentFormScreenState extends State<StudentFormScreen> {
       context: context,
       builder: (BuildContext context) {
         return AlertDialog(
-          title: Row(
-            children: const [
-              Icon(Icons.workspace_premium, color: Colors.amber),
-              SizedBox(width: 8),
-              Text('تأكيد ختم المصحف'),
-            ],
+          title: const AppDialogTitle(
+            icon: Icons.workspace_premium,
+            iconColor: Colors.amber,
+            title: 'تأكيد ختم المصحف',
           ),
           content: const Text('هل تريد تحديد أن هذا الطالب قد أتم حفظ القرآن الكريم كاملاً؟ سيتم ضبط نطاق المحفوظ تلقائيًا من سورة الفاتحة إلى سورة الناس.'),
           actions: [
@@ -943,10 +1110,10 @@ class _StudentFormScreenState extends State<StudentFormScreen> {
     final surah = QuranService.instance.getSurah(_startSurahId!);
     if (surah == null) return [];
     return List.generate(surah.totalAyahs, (i) => i + 1)
-        .map((num) => DropdownMenuItem<int>(
-              value: num,
+        .map((ayahNumber) => DropdownMenuItem<int>(
+              value: ayahNumber,
               child: Text(
-                num == 1 ? 'آية 1 (أول السورة)' : 'آية $num',
+                ayahNumber == 1 ? 'آية 1 (أول السورة)' : 'آية $ayahNumber',
                 overflow: TextOverflow.ellipsis,
               ),
             ))
@@ -958,9 +1125,9 @@ class _StudentFormScreenState extends State<StudentFormScreen> {
     final surah = QuranService.instance.getSurah(_endSurahId!);
     if (surah == null) return [];
     return List.generate(surah.totalAyahs, (i) => i + 1)
-        .map((num) => DropdownMenuItem<int>(
-              value: num,
-              child: Text('آية $num', overflow: TextOverflow.ellipsis),
+        .map((ayahNumber) => DropdownMenuItem<int>(
+              value: ayahNumber,
+              child: Text('آية $ayahNumber', overflow: TextOverflow.ellipsis),
             ))
         .toList();
   }
@@ -987,6 +1154,35 @@ class _StudentFormScreenState extends State<StudentFormScreen> {
     );
   }
 
+  Widget _planAmountControl({
+    required String label,
+    required int value,
+    required String unit,
+    required ValueChanged<int> onChanged,
+  }) {
+    return Row(
+      children: [
+        Expanded(child: Text(label)),
+        IconButton(
+          onPressed: value > 1 ? () => onChanged(value - 1) : null,
+          icon: const Icon(Icons.remove_circle_outline),
+        ),
+        SizedBox(
+          width: 72,
+          child: Text(
+            '$value ${_getPlanLabel(unit)}',
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontWeight: FontWeight.bold),
+          ),
+        ),
+        IconButton(
+          onPressed: () => onChanged(value + 1),
+          icon: const Icon(Icons.add_circle_outline),
+        ),
+      ],
+    );
+  }
+
   String _getPlanLabel(String type) {
     switch (type) {
       case 'ayahs':
@@ -995,6 +1191,8 @@ class _StudentFormScreenState extends State<StudentFormScreen> {
         return 'سطر';
       case 'pages':
         return 'صفحة';
+      case 'hizbs':
+        return 'حزب';
       default:
         return '';
     }

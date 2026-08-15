@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo, useEffect } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { 
   Plus, 
   Trophy, 
@@ -11,6 +12,7 @@ import {
   UserRoundSearch,
 } from "lucide-react";
 import { useStore } from "@/store/useStore";
+import { localDateKey } from "@/utils/dateUtils";
 
 export default function PointsPage() {
   const {
@@ -20,8 +22,18 @@ export default function PointsPage() {
     reassignPoint,
     deletePointWithAudit,
     pointsConfig,
-    fetchPointsConfig,
-  } = useStore();
+    fetchPointsConfig
+  } = useStore(
+    useShallow((state) => ({
+      students: state.students,
+      points: state.points,
+      addPoints: state.addPoints,
+      reassignPoint: state.reassignPoint,
+      deletePointWithAudit: state.deletePointWithAudit,
+      pointsConfig: state.pointsConfig,
+      fetchPointsConfig: state.fetchPointsConfig,
+    })),
+  );
   const [showForm, setShowForm] = useState(false);
   const [confirmingPoint, setConfirmingPoint] = useState(false);
   const [studentFilter, setStudentFilter] = useState('all');
@@ -128,7 +140,7 @@ export default function PointsPage() {
       studentId: formData.studentId,
       amount: formData.type === "positive" ? formData.amount : -formData.amount,
       reason: formData.reason,
-      date: new Date().toISOString().split("T")[0],
+      date: localDateKey(),
       type: formData.type
     });
     setConfirmingPoint(false);
@@ -162,10 +174,10 @@ export default function PointsPage() {
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div>
-          <h1 className="text-3xl font-black text-gray-900 dark:text-white tracking-tight flex items-center gap-4">
+          <h1 className="text-3xl font-black text-[var(--foreground)] tracking-tight flex items-center gap-4">
             نظام النقاط والتحفيز 🏆
           </h1>
-          <p className="text-gray-500 dark:text-gray-400 mt-2 font-medium">عزز السلوك الإيجابي وكافئ طلابك المتميزين بالأوسمة والنقاط.</p>
+          <p className="text-[var(--muted)] mt-2 font-medium">عزز السلوك الإيجابي وكافئ طلابك المتميزين بالأوسمة والنقاط.</p>
         </div>
         <button 
           onClick={() => setShowForm(true)}
@@ -176,10 +188,10 @@ export default function PointsPage() {
       </div>
 
       <div className="space-y-6">
-        <h2 className="text-xl font-black text-gray-900 dark:text-white">قائمة المتصدرين</h2>
+        <h2 className="text-xl font-black text-[var(--foreground)]">قائمة المتصدرين</h2>
         <div className="grid md:grid-cols-3 gap-8">
           {topStudents.map((student, i) => (
-            <div key={student.id} className="bg-white dark:bg-gray-900 rounded-[3rem] border border-gray-100 dark:border-gray-800 p-8 shadow-sm flex flex-col items-center relative overflow-hidden group">
+            <div key={student.id} className="bg-[var(--surface)] rounded-[3rem] border border-[var(--border)] p-8 shadow-sm flex flex-col items-center relative overflow-hidden group">
               <div className="absolute top-6 left-6">
                 <Trophy className={`w-10 h-10 ${i === 0 ? "text-amber-400" : "text-gray-200"}`} />
               </div>
@@ -188,7 +200,7 @@ export default function PointsPage() {
               }`}>
                 {student.name[0]}
               </div>
-              <h3 className="text-xl font-black text-gray-900 dark:text-white mb-6">{student.name}</h3>
+              <h3 className="text-xl font-black text-[var(--foreground)] mb-6">{student.name}</h3>
               <div className="flex items-center gap-10">
                 <div className="text-center">
                   <p className="text-xs font-black text-green-500">+{student.positive}</p>
@@ -223,8 +235,8 @@ export default function PointsPage() {
           </div>
 
           {/* Suggested Distribution */}
-          <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-[3rem] p-8">
-            <h4 className="text-sm font-black text-gray-900 dark:text-white mb-8">توزيع النقاط المقترح</h4>
+          <div className="bg-[var(--surface)] border border-[var(--border)] rounded-[3rem] p-8">
+            <h4 className="text-sm font-black text-[var(--foreground)] mb-8">توزيع النقاط المقترح</h4>
             <div className="space-y-6">
               {[
                 { label: "حفظ سورة كاملة", points: "+10 ن", color: "text-green-600" },
@@ -244,9 +256,9 @@ export default function PointsPage() {
         {/* Activity Log */}
         <div className="lg:col-span-2 space-y-6">
           <div className="flex items-center justify-between">
-            <h2 className="text-xl font-black text-gray-900 dark:text-white">سجل النشاطات</h2>
+            <h2 className="text-xl font-black text-[var(--foreground)]">سجل النشاطات</h2>
           </div>
-          <div className="flex items-center gap-3 bg-white dark:bg-gray-900 px-4 py-3 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm">
+          <div className="flex items-center gap-3 bg-[var(--surface)] px-4 py-3 rounded-2xl border border-[var(--border)] shadow-sm">
             <Filter className="w-4 h-4 text-gray-400" />
             <select
               value={studentFilter}
@@ -267,12 +279,12 @@ export default function PointsPage() {
                 const student = students.find(item => item.id === point.studentId);
                 const positive = point.amount > 0;
                 return (
-                  <div key={point.id} className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-3xl p-5 flex flex-col md:flex-row md:items-center gap-4">
+                  <div key={point.id} className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-5 flex flex-col md:flex-row md:items-center gap-4">
                     <div className={`w-11 h-11 rounded-2xl flex items-center justify-center font-black ${positive ? 'bg-green-50 text-green-600' : 'bg-rose-50 text-rose-600'}`}>
                       {positive ? '+' : ''}{point.amount}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="font-black text-gray-900 dark:text-white truncate">{student?.name || 'طالب غير معروف'}</div>
+                      <div className="font-black text-[var(--foreground)] truncate">{student?.name || 'طالب غير معروف'}</div>
                       <div className="text-xs font-bold text-gray-500 mt-1">{point.reason} — {point.date}</div>
                     </div>
                     <div className="flex items-center gap-2">
@@ -302,9 +314,9 @@ export default function PointsPage() {
       {/* Point Modal */}
       {showForm && (
         <div className="fixed inset-0 bg-gray-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-gray-900 rounded-[2.5rem] p-10 w-full max-w-md shadow-2xl relative">
+          <div className="bg-[var(--surface)] rounded-[2.5rem] p-10 w-full max-w-md shadow-2xl relative">
             <button onClick={() => setShowForm(false)} className="absolute top-8 left-8 p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full"><X className="w-6 h-6 text-gray-400" /></button>
-            <h3 className="text-2xl font-black text-gray-900 dark:text-white mb-8">تسجيل نقاط جديدة</h3>
+            <h3 className="text-2xl font-black text-[var(--foreground)] mb-8">تسجيل نقاط جديدة</h3>
             <form onSubmit={handleSubmit} className="space-y-6">
               <select 
                 value={formData.studentId} 
@@ -320,8 +332,8 @@ export default function PointsPage() {
                 ))}
               </select>
               <div className="grid grid-cols-2 gap-4">
-                <button type="button" onClick={() => setFormData({...formData, type: 'positive', amount: 5, reason: ''})} className={`py-4 rounded-xl font-black text-xs ${formData.type === 'positive' ? "bg-green-600 text-white" : "bg-gray-50 dark:bg-gray-850 text-gray-400"}`}>نقاط إيجابية</button>
-                <button type="button" onClick={() => setFormData({...formData, type: 'negative', amount: 3, reason: ''})} className={`py-4 rounded-xl font-black text-xs ${formData.type === 'negative' ? "bg-rose-600 text-white" : "bg-gray-50 dark:bg-gray-850 text-gray-400"}`}>نقاط سلبية</button>
+                <button type="button" onClick={() => setFormData({...formData, type: 'positive', amount: 5, reason: ''})} className={`py-4 rounded-xl font-black text-xs ${formData.type === 'positive' ? "bg-green-600 text-white" : "bg-gray-50 dark:bg-gray-800 text-gray-400"}`}>نقاط إيجابية</button>
+                <button type="button" onClick={() => setFormData({...formData, type: 'negative', amount: 3, reason: ''})} className={`py-4 rounded-xl font-black text-xs ${formData.type === 'negative' ? "bg-rose-600 text-white" : "bg-gray-50 dark:bg-gray-800 text-gray-400"}`}>نقاط سلبية</button>
               </div>
               
               <div>
@@ -338,7 +350,7 @@ export default function PointsPage() {
                       });
                     }
                   }}
-                  className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-100 dark:border-gray-750 rounded-2xl px-6 py-4 text-sm font-bold outline-none dark:text-white"
+                  className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded-2xl px-6 py-4 text-sm font-bold outline-none dark:text-white"
                 >
                   <option value="">اختر من القائمة المحددة</option>
                   {reasonChoices.map((choice, index) => (
@@ -366,8 +378,8 @@ export default function PointsPage() {
 
       {confirmingPoint && (
         <div className="fixed inset-0 bg-gray-950/60 backdrop-blur-sm flex items-center justify-center z-[60] p-4">
-          <div className="bg-white dark:bg-gray-900 rounded-[2.5rem] p-8 w-full max-w-md shadow-2xl">
-            <h3 className="text-2xl font-black text-gray-900 dark:text-white mb-6">تأكيد هوية الطالب</h3>
+          <div className="bg-[var(--surface)] rounded-[2.5rem] p-8 w-full max-w-md shadow-2xl">
+            <h3 className="text-2xl font-black text-[var(--foreground)] mb-6">تأكيد هوية الطالب</h3>
             {(() => {
               const student = activeStudents.find(item => item.id === formData.studentId);
               return (
@@ -392,10 +404,10 @@ export default function PointsPage() {
 
       {correctionPoint && (
         <div className="fixed inset-0 bg-gray-950/60 backdrop-blur-sm flex items-center justify-center z-[60] p-4">
-          <div className="bg-white dark:bg-gray-900 rounded-[2.5rem] p-8 w-full max-w-lg shadow-2xl">
+          <div className="bg-[var(--surface)] rounded-[2.5rem] p-8 w-full max-w-lg shadow-2xl">
             <div className="flex items-start justify-between gap-4 mb-6">
               <div>
-                <h3 className="text-2xl font-black text-gray-900 dark:text-white">
+                <h3 className="text-2xl font-black text-[var(--foreground)]">
                   {correctionAction === 'reassign' ? 'تصحيح إسناد السجل' : 'حذف سجل خاطئ'}
                 </h3>
                 <p className="text-xs font-bold text-gray-500 mt-2">

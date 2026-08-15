@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const root = resolve(import.meta.dirname, "../..");
@@ -13,12 +13,10 @@ const pubspec = read("pubspec.yaml");
 assertIncludes(
   pubspec,
   [
-    "version: 4.1.0-alpha.1+41",
+    "version: 4.3.0-alpha.22+76",
     "family: Tajawal",
     "assets/fonts/Tajawal-400.ttf",
-    "assets/fonts/Tajawal-500.ttf",
     "assets/fonts/Tajawal-700.ttf",
-    "assets/fonts/Tajawal-800.ttf",
   ],
   "Bundled Flutter typography",
 );
@@ -26,18 +24,13 @@ if (pubspec.includes("google_fonts:")) {
   throw new Error("Flutter UI must not depend on runtime Google Fonts downloads");
 }
 
-for (const weight of [400, 500, 700, 800]) {
-  if (!existsSync(resolve(root, `assets/fonts/Tajawal-${weight}.ttf`))) {
-    throw new Error(`Missing bundled Flutter Tajawal ${weight}`);
-  }
-}
 
 const theme = read("lib/app/theme.dart");
 assertIncludes(
   theme,
   [
-    "Color(0xFF1F6B5D)",
-    "Color(0xFFF7F4ED)",
+    "Color(0xFF176B57)",
+    "Color(0xFFF5F3ED)",
     "fontFamily: 'Tajawal'",
     "drawerTheme",
     "navigationBarTheme",
@@ -59,8 +52,8 @@ assertIncludes(
 );
 assertIncludes(
   read("lib/services/pdf_service.dart"),
-  ["rootBundle.load('assets/fonts/Tajawal-400.ttf')", "pw.Font.ttf(fontData)"],
-  "Offline PDF font",
+  ["rootBundle.load('assets/fonts/Tajawal-400.ttf')", "rootBundle.load('assets/fonts/Tajawal-700.ttf')", "pw.ThemeData.withFont", "pw.Document(theme: _pdfTheme)"],
+  "Offline static Arabic PDF font",
 );
 
 const dartSources = [
@@ -77,7 +70,7 @@ if (/GoogleFonts\./.test(dartSources)) {
 const layout = read("website/src/app/layout.tsx");
 assertIncludes(
   layout,
-  ["@fontsource/tajawal/400.css", "@fontsource/tajawal/800.css", "viewportFit: \"cover\""],
+  ["@fontsource/readex-pro/400.css", "@fontsource/readex-pro/700.css", "viewportFit: \"cover\""],
   "Web typography and viewport",
 );
 
@@ -85,11 +78,11 @@ const globals = read("website/src/app/globals.css");
 assertIncludes(
   globals,
   [
-    'font-family: "Tajawal"',
+    'font-family: "Readex Pro"',
     "env(safe-area-inset-top)",
     "env(safe-area-inset-bottom)",
     ".safe-main-bottom",
-    "--background: #f7f4ed",
+    "--background: #f5f3ed",
   ],
   "Web identity and safe area",
 );
@@ -98,8 +91,8 @@ const dashboard = read("website/src/components/DashboardLayout.tsx");
 assertIncludes(dashboard, ["safe-top", "safe-bottom", "safe-main-bottom"], "Responsive shell safe area");
 
 const packageJson = JSON.parse(read("website/package.json"));
-if (packageJson.dependencies["@fontsource/tajawal"] !== "^5.2.7") {
-  throw new Error("Web Tajawal package must remain pinned to the reviewed major version");
+if (packageJson.dependencies["@fontsource/readex-pro"] !== "5.3.0") {
+  throw new Error("Web Readex Pro package must remain pinned to the reviewed version");
 }
 
 console.log("P6.2.1 unified identity, typography, and safe-area contract passed.");

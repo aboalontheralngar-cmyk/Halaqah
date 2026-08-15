@@ -6,9 +6,12 @@ class SmartPlan {
   final String period; // 'weekly', 'monthly'
   final DateTime startDate;
   final DateTime endDate;
-  final String unit; // 'ayahs', 'pages', 'lines'
+  final String unit; // وحدة الحفظ/السرد
+  final String reviewUnit; // وحدة المراجعة مستقلة عن الحفظ
   final int newAmount;
   final int reviewAmount;
+  /// مقرر السرد اليومي: تلاوة متصلة بلا اختبار حفظ.
+  final int recitationAmount;
   final String status; // 'active', 'completed', 'cancelled'
   final String testStatus; // 'not_required', 'pending', 'passed', 'failed'
   final String? completionExamId;
@@ -24,8 +27,10 @@ class SmartPlan {
     required this.startDate,
     required this.endDate,
     this.unit = 'ayahs',
+    String? reviewUnit,
     this.newAmount = 5,
     this.reviewAmount = 10,
+    this.recitationAmount = 1,
     this.status = 'active',
     this.testStatus = 'not_required',
     this.completionExamId,
@@ -34,6 +39,7 @@ class SmartPlan {
     DateTime? createdAt,
     DateTime? updatedAt,
   })  : id = id ?? const Uuid().v4(),
+        reviewUnit = reviewUnit ?? unit,
         createdAt = createdAt ?? DateTime.now(),
         updatedAt = updatedAt ?? DateTime.now();
 
@@ -47,8 +53,10 @@ class SmartPlan {
     DateTime? startDate,
     DateTime? endDate,
     String? unit,
+    String? reviewUnit,
     int? newAmount,
     int? reviewAmount,
+    int? recitationAmount,
     String? status,
     String? testStatus,
     String? completionExamId,
@@ -66,8 +74,10 @@ class SmartPlan {
         startDate: startDate ?? this.startDate,
         endDate: endDate ?? this.endDate,
         unit: unit ?? this.unit,
+        reviewUnit: reviewUnit ?? this.reviewUnit,
         newAmount: newAmount ?? this.newAmount,
         reviewAmount: reviewAmount ?? this.reviewAmount,
+        recitationAmount: recitationAmount ?? this.recitationAmount,
         status: status ?? this.status,
         testStatus: testStatus ?? this.testStatus,
         completionExamId:
@@ -85,8 +95,10 @@ class SmartPlan {
         'start_date': startDate.toIso8601String().split('T')[0],
         'end_date': endDate.toIso8601String().split('T')[0],
         'unit': unit,
+        'review_unit': reviewUnit,
         'new_amount': newAmount,
         'review_amount': reviewAmount,
+        'recitation_amount': recitationAmount,
         'status': status,
         'test_status': testStatus,
         'completion_exam_id': completionExamId,
@@ -103,8 +115,10 @@ class SmartPlan {
         startDate: DateTime.parse(map['start_date']),
         endDate: DateTime.parse(map['end_date']),
         unit: map['unit'] ?? 'ayahs',
+        reviewUnit: map['review_unit'] ?? map['unit'] ?? 'ayahs',
         newAmount: map['new_amount'] ?? 5,
         reviewAmount: map['review_amount'] ?? 10,
+        recitationAmount: map['recitation_amount'] ?? 1,
         status: map['status'] ?? 'active',
         testStatus: map['test_status'] ?? 'not_required',
         completionExamId: map['completion_exam_id'],

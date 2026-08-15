@@ -176,6 +176,24 @@ Deno.serve(async (request) => {
     if (error || !data) {
       return jsonResponse({ ok: false, error: 'invalid_session' }, 401, cors);
     }
+    if (action === 'familyDashboard') {
+      const { data: automaticReports } = await admin.rpc(
+        'family_portal_get_automatic_reports',
+        {
+          p_session_token: sessionToken,
+          p_limit: 12,
+        },
+      );
+      return jsonResponse({
+        ok: true,
+        dashboard: {
+          ...data,
+          automatic_reports: Array.isArray(automaticReports)
+            ? automaticReports
+            : [],
+        },
+      }, 200, cors);
+    }
     return jsonResponse({ ok: true, dashboard: data }, 200, cors);
   }
 

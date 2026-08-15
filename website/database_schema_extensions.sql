@@ -60,12 +60,18 @@ CREATE TABLE IF NOT EXISTS fund_transactions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     center_id UUID REFERENCES centers(id) ON DELETE CASCADE,
     student_id UUID REFERENCES students(id) ON DELETE SET NULL, -- اختياري (المصروفات بلا طالب)
+    behavior_point_id UUID REFERENCES points(id) ON DELETE SET NULL, -- المخالفة المرتبطة بالغرامة
+    settled_negative_points INTEGER NOT NULL DEFAULT 0 CHECK (settled_negative_points >= 0),
     type TEXT CHECK (type IN ('subscription', 'penalty', 'expense', 'donation')) NOT NULL,
     amount NUMERIC(10, 2) NOT NULL,
     note TEXT,
     date DATE NOT NULL DEFAULT CURRENT_DATE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+
+CREATE INDEX IF NOT EXISTS idx_fund_transactions_behavior_point
+    ON fund_transactions (behavior_point_id)
+    WHERE behavior_point_id IS NOT NULL;
 
 -- ---------------------------------------------------------------------
 -- 3) الخطط (أسبوعية / شهرية)
@@ -79,9 +85,10 @@ CREATE TABLE IF NOT EXISTS plans (
     start_date DATE NOT NULL,
     end_date DATE NOT NULL,
     -- المقرر
-    unit TEXT CHECK (unit IN ('ayahs', 'pages', 'lines')) DEFAULT 'ayahs',
+    unit TEXT CHECK (unit IN ('ayahs', 'pages', 'lines', 'hizbs')) DEFAULT 'ayahs',
     new_amount INTEGER NOT NULL DEFAULT 5,       -- مقرر الحفظ الجديد
     review_amount INTEGER NOT NULL DEFAULT 10,   -- مقرر المراجعة
+    recitation_amount INTEGER NOT NULL DEFAULT 1 CHECK (recitation_amount > 0), -- السرد/التلاوة
     review_direction TEXT CHECK (review_direction IN ('asc', 'desc')) DEFAULT 'asc',
     auto_increase BOOLEAN DEFAULT FALSE,          -- زيادة المقرر تلقائياً مع التقدم
     auto_increase_step INTEGER DEFAULT 1,

@@ -16,7 +16,7 @@ const reports = read('lib/screens/reports/reports_screen.dart');
 const home = read('lib/screens/home/home_screen.dart');
 
 requireText(student, 'String get displayCode', 'student report code');
-requireText(student, "return 'HAL-$suffix';", 'safe code prefix');
+requireText(student, "return 'HAL-${chunks.join('-')}';", 'safe code prefix');
 
 requireText(pdf, 'generateAllStudentPeriodReports', 'batch PDF generator');
 requireText(pdf, 'textDirection: pw.TextDirection.rtl', 'RTL PDF direction');

@@ -13,7 +13,7 @@ class OperationalIncidentService {
 
   final AuditLogService _audit;
 
-  static String? _lastFingerprint;
+  static String? _lastDeduplicationKey;
   static DateTime? _lastRecordedAt;
 
   Future<String> capture({
@@ -21,17 +21,21 @@ class OperationalIncidentService {
     required StackTrace stackTrace,
     required String source,
     bool fatal = false,
+    String? operation,
     DateTime? now,
   }) async {
     final capturedAt = now ?? DateTime.now();
     final fingerprint = stackFingerprint(error, stackTrace);
-    final duplicateWindow = _lastFingerprint == fingerprint &&
+    final safeSource = _safeSource(source);
+    final safeOperation = operation == null ? null : _safeSource(operation);
+    final deduplicationKey = '$fingerprint|$safeSource|${safeOperation ?? ''}';
+    final duplicateWindow = _lastDeduplicationKey == deduplicationKey &&
         _lastRecordedAt != null &&
         capturedAt.difference(_lastRecordedAt!).abs() <
             const Duration(minutes: 5);
     if (duplicateWindow) return fingerprint;
 
-    _lastFingerprint = fingerprint;
+    _lastDeduplicationKey = deduplicationKey;
     _lastRecordedAt = capturedAt;
     try {
       await _audit.record(
@@ -39,10 +43,12 @@ class OperationalIncidentService {
         entityType: 'application',
         outcome: 'failure',
         details: <String, dynamic>{
-          'source': _safeSource(source),
+          'source': safeSource,
           'error_type': error.runtimeType.toString(),
           'fingerprint': fingerprint,
           'fatal': fatal,
+          if (safeOperation != null && safeOperation.isNotEmpty)
+            'operation': safeOperation,
         },
         now: capturedAt,
       );

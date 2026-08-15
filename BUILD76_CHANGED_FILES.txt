@@ -1,0 +1,90 @@
+# P1.27 Build 76 changed files
+
+Baseline: Build 75 Hotfix 3
+New: 11
+Modified: 67
+Deleted: 0
+
+## New files
++ BUILD76_VALIDATION_REPORT.md
++ P1.27_BUILD76_INSTALL_NOTE.md
++ docs/P1.27_BUILD76_COMPLETION.md
++ lib/services/local_sync_delete_outbox.dart
++ lib/services/monthly_exam_persistence_service.dart
++ test/theme_contrast_test.dart
++ website/scripts/validate-build76-completion.mjs
++ website/src/app/supervision/centers/[id]/page.tsx
++ website/supabase/P1.27_BUILD76_APPLY.sql
++ website/supabase/P1.27_BUILD76_VERIFY.sql
++ website/supabase/migrations/20260814000100_build76_p127_completion.sql
+
+## Modified files
+~ CHANGELOG.md
+~ P1.27_INSTALL_NOTE.md
+~ README.md
+~ docs/P1.27_FEATURE_AUDIT.md
+~ docs/P1.27_IMPLEMENTATION_LOG.md
+~ docs/P1.27_SQL_AND_SETUP.md
+~ docs/P1.27_SYNC_ARCHITECTURE.md
+~ docs/P1.27_VALIDATION.md
+~ docs/release_notes.md
+~ lib/app/build_info.dart
+~ lib/app/theme.dart
+~ lib/main.dart
+~ lib/models/exam.dart
+~ lib/models/settings.dart
+~ lib/screens/competition/competition_judge_screen.dart
+~ lib/screens/competition/peer_level_groups_screen.dart
+~ lib/screens/exam/monthly_plan_exam_screen.dart
+~ lib/screens/memorization/memorization_plan_screen.dart
+~ lib/screens/memorization/memorization_screen.dart
+~ lib/screens/memorization/recitation_screen.dart
+~ lib/screens/memorization/revision_screen.dart
+~ lib/screens/settings/diagnostics_screen.dart
+~ lib/screens/settings/settings_screen.dart
+~ lib/screens/settings/whats_new_screen.dart
+~ lib/screens/students/student_detail_screen.dart
+~ lib/services/cloud_auto_sync_coordinator.dart
+~ lib/services/cloud_tombstone_local_service.dart
+~ lib/services/database_service.dart
+~ lib/services/diagnostic_center_service.dart
+~ lib/services/local_database_schema.dart
+~ lib/services/monthly_plan_exam_service.dart
+~ lib/services/operational_incident_service.dart
+~ lib/services/peer_level_grouping_service.dart
+~ lib/services/recitation_points_policy.dart
+~ lib/services/supabase_service.dart
+~ lib/utils/constants.dart
+~ pubspec.yaml
+~ test/monthly_plan_exam_service_test.dart
+~ test/operational_incident_service_test.dart
+~ test/peer_level_grouping_service_test.dart
+~ test/recitation_points_policy_test.dart
+~ website/README.md
+~ website/scripts/run-all-validations.mjs
+~ website/scripts/test-build74-runtime.mjs
+~ website/scripts/validate-build74-hardening.mjs
+~ website/scripts/validate-build75-p127.mjs
+~ website/scripts/validate-data-privacy.mjs
+~ website/scripts/validate-operational-diagnostics.mjs
+~ website/scripts/validate-p1-16-plan-recitation.mjs
+~ website/scripts/validate-p1-17-1-qr-direct-entry.mjs
+~ website/scripts/validate-p1-17-2-settings-hub.mjs
+~ website/scripts/validate-p1-17-learning-workspace.mjs
+~ website/scripts/validate-p1-18-plan-qr-ui.mjs
+~ website/scripts/validate-p1-19-1-flutter-build-hotfix.mjs
+~ website/scripts/validate-p1-19-ui-refresh.mjs
+~ website/scripts/validate-p1-20-comprehensive.mjs
+~ website/scripts/validate-p1-21-completion.mjs
+~ website/scripts/validate-p1-22-daily-operations.mjs
+~ website/scripts/validate-p1-23-ui-pdf-modernization.mjs
+~ website/scripts/validate-p1-24-learning-reports-courses.mjs
+~ website/scripts/validate-p1-25-cloud-pdf-performance.mjs
+~ website/scripts/validate-p1-26-competition-contrast-bootstrap.mjs
+~ website/scripts/validate-security-migration.mjs
+~ website/scripts/validate-staged-release.mjs
+~ website/scripts/validate-unified-identity.mjs
+~ website/src/app/supervision/page.tsx
+~ website/src/services/supervisionService.ts
+
+## Deleted files

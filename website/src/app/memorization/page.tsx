@@ -1,6 +1,8 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { logOperationalError } from "@/lib/operationalLog";
+import { useState, useEffect, useMemo, useCallback } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { 
   BookOpen, 
   Plus, 
@@ -16,28 +18,61 @@ import {
   Pencil,
   Trash2,
   CalendarRange,
+  ChevronRight,
+  ChevronLeft,
+  Eye,
+  EyeOff,
+  Play,
+  Square,
+  Target,
 } from "lucide-react";
 import { useStore, HomeworkGrade, type Student } from "@/store/useStore";
 import { quranService, Surah } from "@/services/quranService";
-import { EmptyState, PageHeader, Surface } from "@/components/ui/AppDesign";
+import {
+  quranRangeService,
+  type QuranConnectedRange,
+} from "@/services/quranRangeService";
+import {
+  EmptyState,
+  MetricCard,
+  PageHeader,
+  PageStack,
+  Surface,
+} from "@/components/ui/AppDesign";
+import { localDateKey } from "@/utils/dateUtils";
 
 const DEFAULT_GRADING_TEMPLATE = "السلام عليكم ورحمة الله وبركاته، تسميع الطالب {اسم_الطالب} اليوم في سورة {السورة} من آية {من} إلى آية {إلى}:\n- التقييم: {التقييم}\n- الأخطاء: {الأخطاء}\n- ملاحظة: {الملاحظة}";
 
 export default function MemorizationPage() {
-  const { 
-    students, 
-    homeworkGrades, 
-    addHomeworkGrade, 
+  const {
+    students,
+    homeworkGrades,
+    addHomeworkGradeSession,
     updateHomeworkGrade,
     deleteHomeworkGrade,
-    fetchHomeworkGrades, 
-    fetchStudents, 
-    messageTemplates, 
+    fetchHomeworkGrades,
+    fetchStudents,
+    messageTemplates,
     fetchMessageTemplates,
     addPoints,
     pointsConfig,
-    fetchPointsConfig
-  } = useStore();
+    fetchPointsConfig,
+  } = useStore(
+    useShallow((state) => ({
+      students: state.students,
+      homeworkGrades: state.homeworkGrades,
+      addHomeworkGradeSession: state.addHomeworkGradeSession,
+      updateHomeworkGrade: state.updateHomeworkGrade,
+      deleteHomeworkGrade: state.deleteHomeworkGrade,
+      fetchHomeworkGrades: state.fetchHomeworkGrades,
+      fetchStudents: state.fetchStudents,
+      messageTemplates: state.messageTemplates,
+      fetchMessageTemplates: state.fetchMessageTemplates,
+      addPoints: state.addPoints,
+      pointsConfig: state.pointsConfig,
+      fetchPointsConfig: state.fetchPointsConfig,
+    })),
+  );
 
   const [surahs, setSurahs] = useState<Surah[]>([]);
   const [showForm, setShowForm] = useState(false);
@@ -48,6 +83,14 @@ export default function MemorizationPage() {
   const [editingGrade, setEditingGrade] = useState<HomeworkGrade | null>(null);
   const [saving, setSaving] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [rangeMode, setRangeMode] = useState<"open" | "plan" | "page" | "hizb" | "manual">("open");
+  const [sessionRange, setSessionRange] = useState<QuranConnectedRange | null>(null);
+  const [sessionAyahIndex, setSessionAyahIndex] = useState(0);
+  const [sessionRatings, setSessionRatings] = useState<Record<number, number>>({});
+  const [sessionStarted, setSessionStarted] = useState(false);
+  const [sessionCompleted, setSessionCompleted] = useState(false);
+  const [showAyahText, setShowAyahText] = useState(true);
+  const [entryMode, setEntryMode] = useState<"session" | "direct">("session");
 
   const [formData, setFormData] = useState({
     studentId: "",
@@ -58,7 +101,7 @@ export default function MemorizationPage() {
     mistakesCount: 0,
     isRevision: false,
     remark: "",
-    date: new Date().toISOString().slice(0, 10),
+    date: localDateKey(),
   });
 
   const sortedActiveStudents = useMemo(
@@ -90,37 +133,121 @@ export default function MemorizationPage() {
     return surahs.find(s => s.number === formData.surahNum);
   }, [formData.surahNum, surahs]);
 
+  const selectedStudent = useMemo(
+    () => students.find(student => student.id === formData.studentId),
+    [formData.studentId, students],
+  );
+
+  const preparedRange = useMemo<QuranConnectedRange | null>(() => {
+    if (!formData.surahNum || !selectedStudent || surahs.length === 0) return null;
+    const base = {
+      surahs,
+      startSurah: Number(formData.surahNum),
+      startAyah: formData.fromAyah,
+      direction: selectedStudent.memorizationDirection ?? "desc",
+    } as const;
+
+    if (rangeMode === "open") return quranRangeService.buildToEnd(base);
+    if (rangeMode === "page" || rangeMode === "hizb") {
+      return quranRangeService.buildToAmount({
+        ...base,
+        unit: rangeMode === "page" ? "pages" : "hizbs",
+        amount: 1,
+      });
+    }
+    if (rangeMode === "plan") {
+      return quranRangeService.buildToAmount({
+        ...base,
+        unit: selectedStudent.planType,
+        amount: formData.isRevision
+          ? selectedStudent.reviewPlanAmount
+          : selectedStudent.planAmount,
+      });
+    }
+    return quranRangeService.buildToAmount({
+      ...base,
+      unit: "ayahs",
+      amount: Math.max(1, formData.toAyah - formData.fromAyah + 1),
+    });
+  }, [
+    formData.fromAyah,
+    formData.isRevision,
+    formData.surahNum,
+    formData.toAyah,
+    rangeMode,
+    selectedStudent,
+    surahs,
+  ]);
+
   const setEndAtBoundary = (boundary: "page" | "hizb") => {
     if (!selectedSurah) return;
-    const start = selectedSurah.ayahs.find(
-      (ayah) => ayah.number === formData.fromAyah
-    );
-    if (!start) return;
-    const matching = selectedSurah.ayahs.filter(
-      (ayah) =>
-        ayah.number >= formData.fromAyah &&
-        (boundary === "page" ? ayah.page === start.page : ayah.hizb === start.hizb)
-    );
-    const end = matching.reduce(
-      (last, ayah) => Math.max(last, ayah.number),
-      formData.fromAyah
-    );
-    setFormData({ ...formData, toAyah: end });
+    setRangeMode(boundary);
   };
 
+  const startRecitationSession = () => {
+    if (!preparedRange) {
+      showToast("تعذر بناء نطاق التسميع من نقطة البداية المحددة");
+      return;
+    }
+    setSessionRange(preparedRange);
+    setSessionAyahIndex(0);
+    setSessionRatings({});
+    setSessionStarted(true);
+    setSessionCompleted(false);
+  };
+
+  const stopRecitationHere = () => {
+    if (!sessionRange) return;
+    const completed = quranRangeService.truncateAt(
+      sessionRange,
+      sessionAyahIndex,
+    );
+    if (!completed) return;
+    const keptRatings = Object.fromEntries(
+      Object.entries(sessionRatings).filter(
+        ([index]) => Number(index) <= sessionAyahIndex,
+      ),
+    );
+    const ratingValues = Object.values(keptRatings);
+    if (ratingValues.length > 0) {
+      const average = ratingValues.reduce((sum, value) => sum + value, 0) /
+        ratingValues.length;
+      const gradeMark: HomeworkGrade["gradeMark"] = average >= 4.5
+        ? "excellent"
+        : average >= 3.5
+          ? "very_good"
+          : average >= 2.5
+            ? "good"
+            : "needs_work";
+      setFormData(current => ({ ...current, gradeMark }));
+    }
+    setSessionRange(completed);
+    setSessionRatings(keptRatings);
+    setSessionStarted(false);
+    setSessionCompleted(true);
+  };
+
+  const resetSession = useCallback(() => {
+    setSessionRange(null);
+    setSessionAyahIndex(0);
+    setSessionRatings({});
+    setSessionStarted(false);
+    setSessionCompleted(false);
+  }, []);
+
   // إجمالي الآيات المحفوظة لطالب معيّن (من سجل الحفظ الجديد غير الغياب)
-  const getMemorizedAyahCount = (studentId: string) => {
+  const getMemorizedAyahCount = useCallback((studentId: string) => {
     return homeworkGrades
       .filter(g => g.studentId === studentId && !g.isRevision && g.gradeMark !== 'absent')
       .reduce((sum, g) => sum + Math.max(0, (g.toAyah - g.fromAyah + 1)), 0);
-  };
+  }, [homeworkGrades]);
 
   // الطالب الذي ختم القرآن (إجمالي محفوظه >= 6236 آية): يُغلق عليه الحفظ الجديد وتبقى المراجعة فقط
   const selectedStudentFinishedQuran = useMemo(() => {
     if (!formData.studentId) return false;
     const student = students.find(item => item.id === formData.studentId);
     return student?.status === "graduated" || getMemorizedAyahCount(formData.studentId) >= 6236;
-  }, [formData.studentId, homeworkGrades, students]);
+  }, [formData.studentId, getMemorizedAyahCount, students]);
 
   const getTemplateText = (type: "assignment" | "grading") => {
     const template = messageTemplates.find(t => t.type === type);
@@ -150,7 +277,7 @@ export default function MemorizationPage() {
       .replace(/{الملاحظة}/g, grade.remark || "لا يوجد");
   };
 
-  const getNextAyahForStudent = (student: Student, lastGrade?: HomeworkGrade) => {
+  const getNextAyahForStudent = useCallback((student: Student, lastGrade?: HomeworkGrade) => {
     const dir = student.memorizationDirection || 'desc';
     const defSurah = dir === 'desc' ? 114 : 1;
     const defAyah = 1;
@@ -199,25 +326,12 @@ export default function MemorizationPage() {
       surahNum: defSurah,
       ayahNum: defAyah
     };
-  };
-
-  const getGradeAmount = (surahNum: number, fromAyah: number, toAyah: number, planType: 'ayahs' | 'pages' | 'lines') => {
-    const surah = surahs.find(s => s.number === surahNum);
-    if (!surah) return 0;
-    if (planType === 'ayahs') {
-      return toAyah - fromAyah + 1;
-    } else if (planType === 'lines') {
-      const ayahsInRange = surah.ayahs.filter(a => a.number >= fromAyah && a.number <= toAyah);
-      const uniquePages = new Set(ayahsInRange.map(a => a.page));
-      return uniquePages.size * 15; // Approximate 15 lines per page
-    } else {
-      const ayahsInRange = surah.ayahs.filter(a => a.number >= fromAyah && a.number <= toAyah);
-      const uniquePages = new Set(ayahsInRange.map(a => a.page));
-      return uniquePages.size;
-    }
-  };
+  }, [surahs]);
 
   const resetForm = () => {
+    resetSession();
+    setEntryMode("session");
+    setRangeMode("open");
     setEditingGrade(null);
     setShowForm(false);
     setFormData({
@@ -229,11 +343,13 @@ export default function MemorizationPage() {
       mistakesCount: 0,
       isRevision: false,
       remark: "",
-      date: new Date().toISOString().slice(0, 10),
+      date: localDateKey(),
     });
   };
 
-  const selectStudentForNewRecord = (studentId: string) => {
+  const selectStudentForNewRecord = useCallback((studentId: string) => {
+    resetSession();
+    setRangeMode("open");
     if (!studentId) {
       setFormData(current => ({
         ...current,
@@ -267,17 +383,33 @@ export default function MemorizationPage() {
       toAyah: next.ayahNum,
       isRevision: finishedQuran ? true : current.isRevision,
     }));
-  };
+  }, [getMemorizedAyahCount, getNextAyahForStudent, homeworkGrades, resetSession, students]);
 
   useEffect(() => {
     if (surahs.length === 0 || students.length === 0) return;
     const studentId = localStorage.getItem("memorization_prefill_student_id");
     if (!studentId || !students.some(student => student.id === studentId)) return;
+    const requestedMode = localStorage.getItem("memorization_entry_mode");
     localStorage.removeItem("memorization_prefill_student_id");
-    setEditingGrade(null);
-    setShowForm(true);
-    selectStudentForNewRecord(studentId);
-  }, [students, surahs, homeworkGrades]);
+    localStorage.removeItem("memorization_entry_mode");
+    let active = true;
+    queueMicrotask(() => {
+      if (!active) return;
+      setEditingGrade(null);
+      setShowForm(true);
+      selectStudentForNewRecord(studentId);
+      if (requestedMode === "direct") {
+        setEntryMode("direct");
+        setRangeMode("plan");
+      } else {
+        setEntryMode("session");
+        setRangeMode("open");
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [selectStudentForNewRecord, students, surahs]);
 
   const openEditForm = (grade: HomeworkGrade) => {
     const surah = surahs.find(item => item.name === grade.surah);
@@ -286,6 +418,9 @@ export default function MemorizationPage() {
       return;
     }
     setEditingGrade(grade);
+    resetSession();
+    setEntryMode("session");
+    setRangeMode("manual");
     setFormData({
       studentId: grade.studentId,
       surahNum: surah.number,
@@ -312,26 +447,62 @@ export default function MemorizationPage() {
     if (!formData.studentId || !formData.surahNum || saving) return;
 
     const surah = surahs.find(s => s.number === formData.surahNum);
-    if (!surah || formData.fromAyah < 1 || formData.toAyah < formData.fromAyah || formData.toAyah > surah.totalAyahs) {
+    if (!surah || formData.fromAyah < 1 || formData.fromAyah > surah.totalAyahs) {
       showToast("نطاق الآيات غير صحيح للسورة المحددة");
       return;
     }
-    const newGrade = {
-      studentId: formData.studentId,
-      surah: surah?.name || "",
-      fromAyah: formData.fromAyah,
-      toAyah: formData.toAyah,
-      date: formData.date,
-      gradeMark: formData.gradeMark,
-      mistakesCount: formData.mistakesCount,
-      isRevision: formData.isRevision,
-      remark: formData.remark,
-    };
+
+    if (!editingGrade && entryMode === "session" && (!sessionCompleted || !sessionRange)) {
+      showToast("ابدأ جلسة التسميع ثم اضغط «التوقف هنا» قبل الحفظ");
+      return;
+    }
+
+    const recordRange = entryMode === "direct" ? preparedRange : sessionRange;
+    if (!editingGrade && (!recordRange || recordRange.segments.length === 0)) {
+      showToast("حدد نطاقًا صحيحًا قبل تسجيل الحفظ مباشرة");
+      return;
+    }
+
+    const sessionRecords: Array<Omit<HomeworkGrade, "id">> = recordRange
+      ? recordRange.segments.map((segment, index) => ({
+          studentId: formData.studentId,
+          surah: segment.surahName,
+          fromAyah: segment.fromAyah,
+          toAyah: segment.toAyah,
+          date: formData.date,
+          gradeMark: formData.gradeMark,
+          mistakesCount: index === 0 ? formData.mistakesCount : 0,
+          isRevision: formData.isRevision,
+          remark: index === 0 ? formData.remark : undefined,
+        }))
+      : [];
+    const firstSegment = recordRange?.segments[0];
+    const lastSegment = recordRange?.segments.at(-1);
+    const newGrade: Omit<HomeworkGrade, "id"> = editingGrade
+      ? {
+          studentId: formData.studentId,
+          surah: surah.name,
+          fromAyah: formData.fromAyah,
+          toAyah: formData.toAyah,
+          date: formData.date,
+          gradeMark: formData.gradeMark,
+          mistakesCount: formData.mistakesCount,
+          isRevision: formData.isRevision,
+          remark: formData.remark,
+        }
+      : {
+          ...sessionRecords[0],
+          surah: firstSegment?.surahName === lastSegment?.surahName
+            ? firstSegment?.surahName ?? surah.name
+            : `${firstSegment?.surahName} إلى ${lastSegment?.surahName}`,
+          fromAyah: firstSegment?.fromAyah ?? formData.fromAyah,
+          toAyah: lastSegment?.toAyah ?? formData.toAyah,
+        };
 
     setSaving(true);
     const saved = editingGrade
       ? await updateHomeworkGrade(editingGrade.id, newGrade)
-      : await addHomeworkGrade(newGrade);
+      : await addHomeworkGradeSession(sessionRecords);
     if (!saved) {
       setSaving(false);
       return;
@@ -341,8 +512,11 @@ export default function MemorizationPage() {
     const student = students.find(s => s.id === formData.studentId);
     let addedExtraPoints = false;
     let extraPoints = 0;
-    if (!editingGrade && student && !formData.isRevision && formData.gradeMark !== 'absent') {
-      const completedAmount = getGradeAmount(Number(formData.surahNum), formData.fromAyah, formData.toAyah, student.planType);
+    if (!editingGrade && student && recordRange && !formData.isRevision && formData.gradeMark !== 'absent') {
+      const completedAmount = quranRangeService.amountOf(
+        recordRange,
+        student.planType,
+      );
       if (completedAmount > student.planAmount) {
         extraPoints = pointsConfig['extra_memorization'] ?? 2;
         if (extraPoints > 0) {
@@ -351,7 +525,7 @@ export default function MemorizationPage() {
             type: 'positive',
             amount: extraPoints,
             reason: 'زيادة عن المقرر اليومي',
-            date: new Date().toISOString().split("T")[0]
+            date: localDateKey()
           });
           addedExtraPoints = true;
         }
@@ -556,7 +730,7 @@ export default function MemorizationPage() {
         }
       }, "image/png");
     } catch (e) {
-      console.error(e);
+      logOperationalError("memorization.share_report", e);
       showToast("فشلت المشاركة، جاري التحميل بدلاً من ذلك");
     }
   };
@@ -604,7 +778,7 @@ export default function MemorizationPage() {
   };
 
   return (
-    <div className="page-enter relative space-y-8 pb-20">
+    <PageStack className="page-enter relative pb-20">
       {/* Toast Alert */}
       {toastMessage && (
         <div className="fixed bottom-10 left-10 z-50 bg-gray-900 text-white px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-3 animate-in fade-in slide-in-from-left-4">
@@ -615,61 +789,60 @@ export default function MemorizationPage() {
 
       {/* Header */}
       <PageHeader
-        title="سجل التقييم والتسميع"
-        description="تقييم الحفظ والمراجعة، ومتابعة الأخطاء، ومشاركة النتائج مع أولياء الأمور."
+        title="الحفظ والمراجعة"
+        description="ابدأ جلسة تسميع أو سجّل الحفظ مباشرة، ثم راجع السجل والتقييمات."
         icon={BookOpen}
-      />
-
-      <div className="grid lg:grid-cols-3 gap-10">
-        {/* Sidebar Info */}
-        <div className="space-y-8 flex flex-col items-start order-2 lg:order-1">
-          <button 
+        actions={
+          <button
             onClick={() => {
               resetForm();
               setShowForm(true);
             }}
-            className="w-full bg-teal-600 text-white px-8 py-5 rounded-[2rem] font-black text-sm hover:bg-teal-700 shadow-xl shadow-teal-100 dark:shadow-none transition-all flex items-center justify-center gap-2 group"
+            className="flex items-center justify-center gap-2 rounded-xl bg-[var(--primary)] px-5 py-3 text-sm font-extrabold text-white transition hover:bg-[var(--primary-hover)] dark:text-[#00382d]"
           >
-            <Plus className="w-5 h-5 group-hover:rotate-90 transition-transform" />
-            تسجيل تقييم جديد
+            <Plus className="h-5 w-5" />
+            تسجيل جديد
           </button>
+        }
+      />
 
-          <div className="w-full bg-gradient-to-br from-teal-600 to-teal-400 rounded-[3rem] p-10 text-white shadow-xl relative overflow-hidden group">
-            <h3 className="text-xl font-black mb-8 relative z-10 flex items-center gap-2">
-              إحصائيات التقييم 📊
-            </h3>
-            <div className="grid grid-cols-2 gap-4 relative z-10">
-              <div className="bg-white/10 backdrop-blur-md rounded-[2rem] p-6 border border-white/10 flex flex-col items-center text-center">
-                <p className="text-3xl font-black">{stats.avg}</p>
-                <p className="text-[10px] font-bold text-teal-100 uppercase mt-1">معدل الدرجات</p>
-              </div>
-              <div className="bg-white/10 backdrop-blur-md rounded-[2rem] p-6 border border-white/10 flex flex-col items-center text-center">
-                <p className="text-3xl font-black">{stats.count}</p>
-                <p className="text-[10px] font-bold text-teal-100 uppercase mt-1">تسميع مسجل</p>
-              </div>
-            </div>
-            <Sparkles className="absolute -bottom-10 -right-10 w-40 h-40 text-white/10" />
+      <div className="grid gap-6 lg:grid-cols-[18rem_minmax(0,1fr)]">
+        {/* Sidebar Info */}
+        <div className="order-2 flex flex-col items-start gap-3 lg:order-1">
+          <div className="grid w-full grid-cols-2 gap-3 lg:grid-cols-1">
+            <MetricCard
+              label="معدل التقييم"
+              value={stats.avg}
+              icon={Sparkles}
+              tone="green"
+            />
+            <MetricCard
+              label="تسميع مسجل"
+              value={stats.count}
+              icon={Target}
+              tone="blue"
+            />
           </div>
 
-          <div className="w-full bg-cyan-50/50 dark:bg-cyan-900/10 border border-cyan-100 dark:border-cyan-800 rounded-[3rem] p-8 flex flex-col gap-4">
-            <div className="w-12 h-12 bg-white dark:bg-gray-800 rounded-2xl flex items-center justify-center shadow-sm">
+          <Surface className="flex w-full flex-col gap-3 p-4">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[var(--primary-soft)]">
               <Lightbulb className="w-6 h-6 text-teal-600" />
             </div>
             <div>
-              <h4 className="text-sm font-black text-gray-900 dark:text-white mb-2">مشاركة أولياء الأمور 💬</h4>
-              <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed font-medium">
-                بإمكانك إرسال التقرير اليومي لولي الأمر مباشرة عبر واتساب بضغطة زر. يمكنك تخصيص قالب الرسائل في صفحة الإعدادات لتغيير صيغة الخطاب.
+              <h4 className="mb-1 text-sm font-extrabold text-[var(--foreground)]">مشاركة ولي الأمر</h4>
+              <p className="text-xs font-medium leading-6 text-[var(--muted)]">
+                أرسل نتيجة اليوم كنص أو صورة بعد مراجعة النطاق والتقييم.
               </p>
             </div>
-          </div>
+          </Surface>
         </div>
 
         {/* Main Records List */}
         <div className="lg:col-span-2 space-y-6 order-1 lg:order-2">
           <div className="space-y-3">
             <div className="flex items-center justify-between gap-3">
-            <h2 className="text-xl font-black text-gray-900 dark:text-white">آخر التقييمات</h2>
-            <div className="flex items-center gap-3 bg-white dark:bg-gray-900 px-4 py-2 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm">
+            <h2 className="text-xl font-black text-[var(--foreground)]">آخر التقييمات</h2>
+            <div className="flex items-center gap-3 bg-[var(--surface)] px-4 py-2 rounded-2xl border border-[var(--border)] shadow-sm">
               <Filter className="w-4 h-4 text-gray-400" />
               <select 
                 value={studentFilter} 
@@ -685,17 +858,17 @@ export default function MemorizationPage() {
               <select
                 value={typeFilter}
                 onChange={event => setTypeFilter(event.target.value as typeof typeFilter)}
-                className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl px-4 py-3 text-xs font-bold"
+                className="bg-[var(--surface)] border border-gray-200 dark:border-gray-800 rounded-xl px-4 py-3 text-xs font-bold"
               >
                 <option value="all">الحفظ والمراجعة</option>
                 <option value="memorization">الحفظ الجديد فقط</option>
                 <option value="revision">المراجعة فقط</option>
               </select>
-              <label className="flex items-center gap-2 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl px-3">
+              <label className="flex items-center gap-2 bg-[var(--surface)] border border-gray-200 dark:border-gray-800 rounded-xl px-3">
                 <CalendarRange className="w-4 h-4 text-gray-400" />
                 <input type="date" value={dateFrom} onChange={event => setDateFrom(event.target.value)} className="w-full bg-transparent py-3 text-xs" aria-label="من تاريخ" />
               </label>
-              <label className="flex items-center gap-2 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl px-3">
+              <label className="flex items-center gap-2 bg-[var(--surface)] border border-gray-200 dark:border-gray-800 rounded-xl px-3">
                 <CalendarRange className="w-4 h-4 text-gray-400" />
                 <input type="date" value={dateTo} onChange={event => setDateTo(event.target.value)} className="w-full bg-transparent py-3 text-xs" aria-label="إلى تاريخ" />
               </label>
@@ -723,11 +896,11 @@ export default function MemorizationPage() {
                 return (
                   <div 
                     key={grade.id} 
-                    className="bg-white dark:bg-gray-900 rounded-3xl p-6 border border-gray-100 dark:border-gray-850 hover:border-teal-500/30 transition-all flex flex-col md:flex-row justify-between md:items-center gap-4 group"
+                    className="bg-[var(--surface)] rounded-3xl p-6 border border-[var(--border)] hover:border-teal-500/30 transition-all flex flex-col md:flex-row justify-between md:items-center gap-4 group"
                   >
                     <div className="space-y-3">
                       <div className="flex items-center gap-3">
-                        <span className="font-black text-base text-gray-900 dark:text-white">
+                        <span className="font-black text-base text-[var(--foreground)]">
                           {getStudentName(grade.studentId)}
                         </span>
                         <span className={`text-[10px] px-3 py-1 rounded-full font-black ${badge.style}`}>
@@ -742,7 +915,7 @@ export default function MemorizationPage() {
                         </span>
                       </div>
                       
-                      <div className="text-xs font-bold text-gray-500 dark:text-gray-400 flex flex-wrap items-center gap-x-4 gap-y-1">
+                      <div className="text-xs font-bold text-[var(--muted)] flex flex-wrap items-center gap-x-4 gap-y-1">
                         <span>📖 سورة {grade.surah} ({grade.fromAyah} - {grade.toAyah})</span>
                         {grade.gradeMark !== "absent" && (
                           <span className={grade.mistakesCount > 0 ? "text-rose-500 font-bold" : ""}>
@@ -804,14 +977,14 @@ export default function MemorizationPage() {
       {/* Entry Modal */}
       {showForm && (
         <div className="fixed inset-0 bg-gray-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-gray-900 rounded-[3rem] p-10 w-full max-w-xl shadow-2xl relative overflow-y-auto max-h-[90vh] border border-gray-100 dark:border-gray-800">
+          <div className="bg-[var(--surface)] rounded-[3rem] p-10 w-full max-w-xl shadow-2xl relative overflow-y-auto max-h-[90vh] border border-[var(--border)]">
             <button 
               onClick={resetForm}
               className="absolute top-8 left-8 p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors"
             >
               <X className="w-6 h-6 text-gray-400" />
             </button>
-            <h3 className="text-2xl font-black text-gray-900 dark:text-white mb-8 text-center">
+            <h3 className="text-2xl font-black text-[var(--foreground)] mb-8 text-center">
               {editingGrade ? "تعديل سجل التسميع" : "تسجيل تسميع جديد"}
             </h3>
             
@@ -836,12 +1009,55 @@ export default function MemorizationPage() {
                 <input
                   type="date"
                   value={formData.date}
-                  max={new Date().toISOString().slice(0, 10)}
+                  max={localDateKey()}
                   onChange={event => setFormData({ ...formData, date: event.target.value })}
                   required
                   className="w-full bg-gray-50 dark:bg-gray-800 border-none rounded-2xl px-6 py-4 text-sm font-bold outline-none"
                 />
               </div>
+
+              {!editingGrade && (
+                <div>
+                  <label className="block text-xs font-black text-gray-400 mb-2 mr-1 uppercase tracking-widest">طريقة التسجيل</label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        resetSession();
+                        setEntryMode("session");
+                        setRangeMode("open");
+                      }}
+                      className={`rounded-xl border px-3 py-3 text-xs font-black transition-all ${
+                        entryMode === "session"
+                          ? "border-teal-500 bg-teal-50 text-teal-800 dark:bg-teal-900/30 dark:text-teal-300"
+                          : "border-gray-200 text-gray-500 dark:border-gray-800"
+                      }`}
+                    >
+                      جلسة تسميع
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        resetSession();
+                        setEntryMode("direct");
+                        setRangeMode("plan");
+                      }}
+                      className={`rounded-xl border px-3 py-3 text-xs font-black transition-all ${
+                        entryMode === "direct"
+                          ? "border-emerald-500 bg-emerald-50 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300"
+                          : "border-gray-200 text-gray-500 dark:border-gray-800"
+                      }`}
+                    >
+                      تسجيل مباشر دون جلسة
+                    </button>
+                  </div>
+                  {entryMode === "direct" && (
+                    <p className="mt-2 rounded-xl bg-emerald-50 px-4 py-2 text-[11px] font-bold leading-5 text-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-300">
+                      سيُحفظ النطاق المحدد فورًا بعد المراجعة، دون تشغيل شاشة الآيات أو مؤقت جلسة التسميع.
+                    </p>
+                  )}
+                </div>
+              )}
 
               {/* Type Chip selector */}
               <div>
@@ -881,6 +1097,48 @@ export default function MemorizationPage() {
                 </div>
               </div>
 
+              {!editingGrade && !sessionStarted && !sessionCompleted && (
+                <div className="space-y-3">
+                  <label className="block text-xs font-black text-gray-400 mr-1 uppercase tracking-widest">
+                    طريقة تحديد النطاق
+                  </label>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    {(entryMode === "direct"
+                      ? ([
+                          ["plan", "حسب المقرر"],
+                          ["manual", "نطاق محدد"],
+                        ] as const)
+                      : ([
+                          ["open", "تسميع مفتوح"],
+                          ["plan", "حسب المقرر"],
+                          ["manual", "نطاق محدد"],
+                        ] as const)
+                    ).map(([mode, label]) => (
+                      <button
+                        key={mode}
+                        type="button"
+                        onClick={() => setRangeMode(mode)}
+                        className={`rounded-xl border px-3 py-3 text-xs font-black transition-all ${
+                          rangeMode === mode
+                            ? "border-teal-500 bg-teal-50 text-teal-800 dark:bg-teal-900/30 dark:text-teal-300"
+                            : "border-gray-200 text-gray-500 dark:border-gray-800"
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                  {entryMode === "session" && (
+                    <p className="text-[11px] leading-5 text-[var(--muted)]">
+                      التسميع المفتوح لا يثبت النهاية مسبقًا؛ تنقّل بين الآيات ثم اضغط
+                      «التوقف هنا» عند الموضع الذي وصل إليه الطالب فعليًا.
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {!sessionStarted && !sessionCompleted && (
+                <>
               {/* Surah and Ayah Selection */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
@@ -890,6 +1148,7 @@ export default function MemorizationPage() {
                     onChange={e => {
                       const num = parseInt(e.target.value);
                       const s = surahs.find(x => x.number === num);
+                      resetSession();
                       setFormData({...formData, surahNum: num, fromAyah: 1, toAyah: s?.totalAyahs || 1});
                     }} 
                     required 
@@ -906,8 +1165,9 @@ export default function MemorizationPage() {
                       value={formData.fromAyah} 
                       onChange={e => {
                         const val = parseInt(e.target.value);
+                        setRangeMode(rangeMode === "manual" ? "manual" : rangeMode);
                         setFormData({...formData, fromAyah: val, toAyah: Math.max(val, formData.toAyah)});
-                      }} 
+                      }}
                       required 
                       className="w-full bg-gray-50 dark:bg-gray-800 border-none rounded-2xl px-4 py-4 text-sm font-bold outline-none"
                     >
@@ -920,7 +1180,10 @@ export default function MemorizationPage() {
                     <label className="block text-xs font-black text-gray-400 mb-2 mr-1 uppercase tracking-widest">إلى آية</label>
                     <select 
                       value={formData.toAyah} 
-                      onChange={e => setFormData({...formData, toAyah: parseInt(e.target.value)})} 
+                      onChange={e => {
+                        setRangeMode("manual");
+                        setFormData({...formData, toAyah: parseInt(e.target.value)});
+                      }}
                       required 
                       className="w-full bg-gray-50 dark:bg-gray-800 border-none rounded-2xl px-4 py-4 text-sm font-bold outline-none"
                     >
@@ -953,7 +1216,147 @@ export default function MemorizationPage() {
                 </button>
               </div>
 
+              {!editingGrade && preparedRange && (
+                <div className="rounded-2xl border border-teal-100 bg-teal-50/70 p-4 dark:border-teal-900 dark:bg-teal-900/10">
+                  <div className="flex items-start gap-3">
+                    <Target className="mt-0.5 h-5 w-5 shrink-0 text-teal-600" />
+                    <div className="min-w-0 space-y-1 text-xs">
+                      <p className="font-black text-teal-900 dark:text-teal-200">
+                        البداية: {preparedRange.ayahs[0].surahName}، آية {preparedRange.ayahs[0].number}
+                      </p>
+                      <p className="font-bold text-teal-700 dark:text-teal-300">
+                        {rangeMode === "open"
+                          ? "النهاية يحددها المعلم أثناء التسميع"
+                          : `النهاية المتوقعة: ${preparedRange.ayahs.at(-1)?.surahName}، آية ${preparedRange.ayahs.at(-1)?.number}`}
+                      </p>
+                      <p className="text-teal-700/80 dark:text-teal-400">
+                        يمتد عبر {preparedRange.segments.length} {preparedRange.segments.length === 1 ? "سورة" : "سور"}.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {!editingGrade && entryMode === "session" && (
+                <button
+                  type="button"
+                  onClick={startRecitationSession}
+                  disabled={!preparedRange}
+                  className="flex w-full items-center justify-center gap-2 rounded-2xl bg-teal-600 px-6 py-4 text-sm font-black text-white transition-colors hover:bg-teal-700 disabled:opacity-40"
+                >
+                  <Play className="h-5 w-5" />
+                  بدء جلسة التسميع
+                </button>
+              )}
+                </>
+              )}
+
+              {sessionStarted && sessionRange && (() => {
+                const currentAyah = sessionRange.ayahs[sessionAyahIndex];
+                const rating = sessionRatings[sessionAyahIndex];
+                return (
+                  <div className="space-y-5 rounded-3xl border border-teal-200 bg-teal-50/60 p-6 dark:border-teal-900 dark:bg-teal-900/10">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-black text-teal-700 dark:text-teal-300">جلسة التسميع جارية</p>
+                        <h4 className="mt-1 text-xl font-black text-[var(--foreground)]">
+                          سورة {currentAyah.surahName} — الآية {currentAyah.number}
+                        </h4>
+                        <p className="mt-1 text-[11px] font-bold text-gray-500">
+                          الصفحة {currentAyah.page} · الحزب {currentAyah.hizb ?? "—"} · الموضع {sessionAyahIndex + 1}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setShowAyahText(value => !value)}
+                        className="flex items-center gap-2 rounded-xl bg-white px-3 py-2 text-xs font-black text-gray-600 shadow-sm dark:bg-gray-800 dark:text-gray-300"
+                      >
+                        {showAyahText ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        {showAyahText ? "إخفاء النص" : "إظهار النص"}
+                      </button>
+                    </div>
+
+                    {showAyahText && (
+                      <p className="rounded-2xl bg-white p-5 text-center text-xl font-bold leading-[2.1] text-gray-900 shadow-sm dark:bg-gray-900 dark:text-white">
+                        {currentAyah.text || "نص الآية غير متاح في ملف المصحف"}
+                      </p>
+                    )}
+
+                    <div>
+                      <p className="mb-2 text-center text-xs font-black text-gray-500">تقييم هذه الآية (اختياري)</p>
+                      <div className="grid grid-cols-5 gap-2" dir="ltr">
+                        {[1, 2, 3, 4, 5].map(value => (
+                          <button
+                            key={value}
+                            type="button"
+                            onClick={() => setSessionRatings(current => ({ ...current, [sessionAyahIndex]: value }))}
+                            className={`rounded-xl py-3 text-sm font-black ${
+                              rating === value
+                                ? "bg-teal-600 text-white"
+                                : "bg-white text-gray-500 dark:bg-gray-800 dark:text-gray-300"
+                            }`}
+                          >
+                            {value}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                      <button
+                        type="button"
+                        onClick={() => setSessionAyahIndex(index => Math.max(0, index - 1))}
+                        disabled={sessionAyahIndex === 0}
+                        className="flex items-center justify-center gap-2 rounded-xl bg-white py-3 text-xs font-black text-gray-700 disabled:opacity-35 dark:bg-gray-800 dark:text-gray-200"
+                      >
+                        <ChevronRight className="h-4 w-4" /> السابق
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSessionAyahIndex(index => Math.min(sessionRange.ayahs.length - 1, index + 1))}
+                        disabled={sessionAyahIndex === sessionRange.ayahs.length - 1}
+                        className="flex items-center justify-center gap-2 rounded-xl bg-white py-3 text-xs font-black text-gray-700 disabled:opacity-35 dark:bg-gray-800 dark:text-gray-200"
+                      >
+                        التالي <ChevronLeft className="h-4 w-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={stopRecitationHere}
+                        className="col-span-2 flex items-center justify-center gap-2 rounded-xl bg-rose-600 py-3 text-xs font-black text-white sm:col-span-1"
+                      >
+                        <Square className="h-4 w-4" /> التوقف هنا
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {sessionCompleted && sessionRange && (
+                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5 dark:border-emerald-900 dark:bg-emerald-900/10">
+                  <div className="flex items-start gap-3">
+                    <CheckCircle className="h-5 w-5 shrink-0 text-emerald-600" />
+                    <div className="min-w-0 flex-1">
+                      <p className="font-black text-emerald-900 dark:text-emerald-200">تم تحديد موضع التوقف الفعلي</p>
+                      <p className="mt-1 text-xs leading-6 text-emerald-700 dark:text-emerald-300">
+                        من {sessionRange.ayahs[0].surahName} آية {sessionRange.ayahs[0].number}
+                        {" "}إلى {sessionRange.ayahs.at(-1)?.surahName} آية {sessionRange.ayahs.at(-1)?.number}
+                        {" "}· {sessionRange.ayahs.length} آية · {sessionRange.segments.length} {sessionRange.segments.length === 1 ? "سورة" : "سور"}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={resetSession}
+                        className="mt-3 text-xs font-black text-emerald-700 underline underline-offset-4"
+                      >
+                        تعديل النطاق وإعادة الجلسة
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* 5-Level Grade Mark */}
+              {(editingGrade || sessionCompleted || entryMode === "direct") && (
+                <>
               <div>
                 <label className="block text-xs font-black text-gray-400 mb-2 mr-1 uppercase tracking-widest">التقييم</label>
                 <div className="grid grid-cols-5 gap-2">
@@ -977,7 +1380,7 @@ export default function MemorizationPage() {
                         className={`py-3 rounded-xl font-black text-[11px] transition-all border ${
                           isSelected 
                             ? `${item.style} border-transparent shadow-lg shadow-black/10 scale-[1.03]`
-                            : "bg-gray-50 dark:bg-gray-800 border-gray-100 dark:border-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-100"
+                            : "bg-gray-50 dark:bg-gray-800 border-[var(--border)] text-gray-600 dark:text-gray-400 hover:bg-gray-100"
                         }`}
                       >
                         {item.label}
@@ -999,7 +1402,7 @@ export default function MemorizationPage() {
                     >
                       <MinusCircle className="w-8 h-8" />
                     </button>
-                    <span className="text-lg font-black w-8 text-center text-gray-900 dark:text-white">
+                    <span className="text-lg font-black w-8 text-center text-[var(--foreground)]">
                       {formData.mistakesCount}
                     </span>
                     <button
@@ -1030,9 +1433,15 @@ export default function MemorizationPage() {
                 <button 
                   type="submit" 
                   disabled={saving}
-                  className="w-full bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-750 text-gray-800 dark:text-white py-5 rounded-[2rem] font-black text-xs transition-all flex items-center justify-center gap-2"
+                  className="w-full bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-800 dark:text-white py-5 rounded-[2rem] font-black text-xs transition-all flex items-center justify-center gap-2"
                 >
-                  {saving ? "جاري الحفظ…" : editingGrade ? "حفظ التعديل" : "حفظ التسميع"}
+                  {saving
+                    ? "جاري الحفظ…"
+                    : editingGrade
+                      ? "حفظ التعديل"
+                      : entryMode === "direct"
+                        ? "تسجيل الحفظ مباشرة"
+                        : "حفظ التسميع"}
                 </button>
                 <button 
                   type="button"
@@ -1044,10 +1453,12 @@ export default function MemorizationPage() {
                   {editingGrade ? "حفظ التعديل وإرساله" : "حفظ وإرسال لولي الأمر"}
                 </button>
               </div>
+                </>
+              )}
             </form>
           </div>
         </div>
       )}
-    </div>
+    </PageStack>
   );
 }

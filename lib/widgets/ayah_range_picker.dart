@@ -170,7 +170,7 @@ class _AyahRangePickerState extends State<AyahRangePicker> {
             'آية البداية',
             style: TextStyle(
               fontWeight: FontWeight.bold,
-              color: Colors.grey[700],
+              color: Theme.of(context).colorScheme.onSurface,
             ),
           ),
           const SizedBox(height: 8),
@@ -215,8 +215,8 @@ class _AyahRangePickerState extends State<AyahRangePicker> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('الآية $_safeMinAyah', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
-              Text('الآية $_safeMaxAyahs', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+              Text('الآية $_safeMinAyah', style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant)),
+              Text('الآية $_safeMaxAyahs', style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant)),
             ],
           ),
         ],
@@ -233,13 +233,13 @@ class _AyahRangePickerState extends State<AyahRangePicker> {
               'نطاق الآيات',
               style: TextStyle(
                 fontWeight: FontWeight.bold,
-                color: Colors.grey[700],
+                color: Theme.of(context).colorScheme.onSurface,
               ),
             ),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
               decoration: BoxDecoration(
-                color: Theme.of(context).primaryColor.withOpacity(0.1),
+                color: Theme.of(context).primaryColor.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Text(
@@ -292,8 +292,8 @@ class _AyahRangePickerState extends State<AyahRangePicker> {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text('الآية $_safeMinAyah', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
-            Text('الآية $_safeMaxAyahs', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+            Text('الآية $_safeMinAyah', style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant)),
+            Text('الآية $_safeMaxAyahs', style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant)),
           ],
         ),
       ],
@@ -308,7 +308,7 @@ class _AyahRangePickerState extends State<AyahRangePicker> {
   ) {
     return Column(
       children: [
-        Text(label, style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+        Text(label, style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant)),
         const SizedBox(height: 4),
         SizedBox(
           width: 60,
@@ -356,7 +356,7 @@ class AyahRangePickerCompact extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         decoration: BoxDecoration(
-          border: Border.all(color: Colors.grey[300]!),
+          border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
           borderRadius: BorderRadius.circular(8),
         ),
         child: Row(
@@ -365,7 +365,13 @@ class AyahRangePickerCompact extends StatelessWidget {
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('نطاق الآيات', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                Text(
+                  'نطاق الآيات',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
                 const SizedBox(height: 4),
                 Text(
                   'من $from إلى $to',
@@ -376,7 +382,7 @@ class AyahRangePickerCompact extends StatelessWidget {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               decoration: BoxDecoration(
-                color: Theme.of(context).primaryColor.withOpacity(0.1),
+                color: Theme.of(context).primaryColor.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Text(

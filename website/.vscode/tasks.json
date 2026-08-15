@@ -1,0 +1,17 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Halaqah: install and verify web",
+      "type": "shell",
+      "command": "npm ci && npm run quality:ci",
+      "windows": {
+        "command": "npm.cmd ci; if ($LASTEXITCODE -eq 0) { npm.cmd run quality:ci }"
+      },
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    }
+  ]
+}

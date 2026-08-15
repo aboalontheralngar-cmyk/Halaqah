@@ -4,6 +4,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'database_service.dart';
 import 'quran_service.dart';
+import 'share_file_name_service.dart';
 import '../models/student.dart';
 
 class ReportExportService {
@@ -18,7 +19,10 @@ class ReportExportService {
     final bytes = [0xEF, 0xBB, 0xBF, ...utf8.encode(content)];
     await file.writeAsBytes(bytes);
     
-    await Share.shareXFiles([XFile(file.path)], text: fileName);
+    await Share.shareXFiles(
+      [XFile(file.path)],
+      text: '${ShareFileNameService.appName} — $fileName',
+    );
   }
 
   // Export and share a single student's report
@@ -33,7 +37,7 @@ class ReportExportService {
     // Header Info
     csv.writeln('تقرير الطالب: ${student.name}');
     csv.writeln('تاريخ التصدير: ${DateTime.now().toIso8601String().split('T')[0]}');
-    csv.writeln('الهاتف: ${student.phone ?? "لا يوجد"} | هاتف ولي الأمر: ${student.guardianPhone ?? "لا يوجد"}');
+    csv.writeln('الهاتف: ${student.phone.isEmpty ? "لا يوجد" : student.phone} | هاتف ولي الأمر: ${student.guardianPhone.isEmpty ? "لا يوجد" : student.guardianPhone}');
     csv.writeln('إجمالي الحفظ: ${student.totalMemorized} آية');
     csv.writeln();
 
@@ -75,7 +79,7 @@ class ReportExportService {
     }
 
     final safeName = student.name.replaceAll(' ', '_');
-    await _shareFile('تقرير_$safeName.csv', csv.toString());
+    await _shareFile('${ShareFileNameService.appName}_تقرير_$safeName.csv', csv.toString());
   }
 
   // Export and share a summary report of the entire circle
@@ -88,10 +92,10 @@ class ReportExportService {
 
     for (final s in students) {
       final status = s.status == 'active' ? 'نشط' : 'غير نشط';
-      final plan = '${s.planAmount} ${s.planType == "ayahs" ? "آية" : (s.planType == "lines" ? "سطر" : "صفحة")}';
-      csv.writeln('"${s.name}","${s.phone ?? ""}","${s.guardianPhone ?? ""}",$status,${s.totalMemorized},"$plan",${s.joinDate.toIso8601String().split('T')[0]}');
+      final plan = '${s.planAmount} ${s.planType == "ayahs" ? "آية" : (s.planType == "lines" ? "سطر" : (s.planType == "hizbs" ? "حزب" : "صفحة"))}';
+      csv.writeln('"${s.name}","${s.phone}","${s.guardianPhone}",$status,${s.totalMemorized},"$plan",${s.joinDate.toIso8601String().split('T')[0]}');
     }
 
-    await _shareFile('تقرير_الحلقة_الكلي.csv', csv.toString());
+    await _shareFile('${ShareFileNameService.appName}_تقرير_الحلقة_الكلي.csv', csv.toString());
   }
 }

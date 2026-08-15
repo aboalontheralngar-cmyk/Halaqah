@@ -30,10 +30,13 @@ requireText(
   preflight,
   [
     "build\\release-artifacts",
-    "halaqah-rc2-$safeVersion.apk",
+    "halaqah-staging-$ApkMode-$safeVersion.apk",
     "$artifactPath.sha256",
     "Get-FileHash -LiteralPath $artifactPath -Algorithm SHA256",
-    "P6.5 RC2 staging preflight passed",
+    "apksigner",
+    "SupabaseReadinessCsv",
+    "halaqah-acceptance-$safeVersion.md",
+    "Halaqah staging preflight passed",
   ],
   "RC2 preflight artifacts",
 );

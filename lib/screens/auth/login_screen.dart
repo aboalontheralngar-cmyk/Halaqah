@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../services/supabase_service.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -21,6 +23,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final _confirmPasswordController = TextEditingController();
   
   final _supabase = SupabaseService.instance;
+  StreamSubscription<AuthState>? _googleAuthSubscription;
 
   int _activeTab = 0; // 0 = Email, 1 = Code
   bool _isObscure = true;
@@ -31,6 +34,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   void dispose() {
+    _googleAuthSubscription?.cancel();
     _emailController.dispose();
     _passwordController.dispose();
     _codeController.dispose();
@@ -75,6 +79,47 @@ class _LoginScreenState extends State<LoginScreen> {
       if (mounted) {
         setState(() => _isLoading = false);
       }
+    }
+  }
+
+  Future<void> _loginWithGoogle() async {
+    setState(() => _isLoading = true);
+    await _googleAuthSubscription?.cancel();
+    _googleAuthSubscription = _supabase.authStateChanges.listen((state) {
+      if (state.session == null || !mounted) return;
+      _googleAuthSubscription?.cancel();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('تم تسجيل الدخول باستخدام Google.'),
+          backgroundColor: Colors.green,
+        ),
+      );
+      Navigator.pop(context, true);
+    });
+
+    try {
+      final launched = await _supabase.signInWithGoogle();
+      if (!launched) {
+        throw Exception('تعذر فتح صفحة Google');
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('أكمل تسجيل الدخول في Google ثم عد إلى التطبيق.')),
+        );
+      }
+    } catch (e) {
+      await _googleAuthSubscription?.cancel();
+      _googleAuthSubscription = null;
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('تعذر تسجيل الدخول باستخدام Google: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -187,7 +232,8 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
 
     return Scaffold(
       appBar: AppBar(
@@ -197,24 +243,34 @@ class _LoginScreenState extends State<LoginScreen> {
         ),
       ),
       body: Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24.0),
-          child: Column(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 520),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(18, 24, 18, 32),
+            child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Icon(
-                Icons.cloud_queue_outlined,
-                size: 70,
-                color: Color(0xFF0D9488),
+              Container(
+                width: 52,
+                height: 52,
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.primaryContainer,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  Icons.cloud_outlined,
+                  size: 26,
+                  color: theme.colorScheme.primary,
+                ),
               ),
               const SizedBox(height: 12),
               Text(
-                'ربط السحابة والمزامنة ☁️',
+                'ربط السحابة والمزامنة',
                 style: TextStyle(
-                  fontSize: 22,
+                  fontSize: 18,
                   fontWeight: FontWeight.bold,
-                  color: isDark ? Colors.white : const Color(0xFF0F172A),
+                  color: theme.colorScheme.onSurface,
                 ),
                 textAlign: TextAlign.center,
               ),
@@ -223,7 +279,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 'سجل دخولك بحساب معلم المقرأة، ثم اختر اتجاه نقل البيانات بنفسك',
                 style: TextStyle(
                   fontSize: 13,
-                  color: Colors.grey[600],
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
                 textAlign: TextAlign.center,
               ),
@@ -232,7 +288,7 @@ class _LoginScreenState extends State<LoginScreen> {
               // Custom Tab Selector
               Container(
                 decoration: BoxDecoration(
-                  color: isDark ? Colors.grey[900] : Colors.grey[200],
+                  color: theme.colorScheme.surfaceContainerLow,
                   borderRadius: BorderRadius.circular(16),
                 ),
                 padding: const EdgeInsets.all(4),
@@ -244,20 +300,20 @@ class _LoginScreenState extends State<LoginScreen> {
                         child: Container(
                           decoration: BoxDecoration(
                             color: _activeTab == 0
-                                ? const Color(0xFF0D9488)
+                                ? theme.colorScheme.primary
                                 : Colors.transparent,
-                            borderRadius: BorderRadius.circular(12),
+                            borderRadius: BorderRadius.circular(10),
                           ),
-                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          padding: const EdgeInsets.symmetric(vertical: 10),
                           alignment: Alignment.center,
                           child: Text(
                             'تسجيل بالبريد',
                             style: TextStyle(
                               fontWeight: FontWeight.bold,
-                              fontSize: 14,
+                              fontSize: 12.5,
                               color: _activeTab == 0
                                   ? Colors.white
-                                  : (isDark ? Colors.grey[400] : Colors.grey[700]),
+                                  : (isDark ? Theme.of(context).colorScheme.onSurfaceVariant : Theme.of(context).colorScheme.onSurface),
                             ),
                           ),
                         ),
@@ -269,20 +325,20 @@ class _LoginScreenState extends State<LoginScreen> {
                         child: Container(
                           decoration: BoxDecoration(
                             color: _activeTab == 1
-                                ? const Color(0xFF0D9488)
+                                ? theme.colorScheme.primary
                                 : Colors.transparent,
-                            borderRadius: BorderRadius.circular(12),
+                            borderRadius: BorderRadius.circular(10),
                           ),
-                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          padding: const EdgeInsets.symmetric(vertical: 10),
                           alignment: Alignment.center,
                           child: Text(
                             'تفعيل كود المعلم',
                             style: TextStyle(
                               fontWeight: FontWeight.bold,
-                              fontSize: 14,
+                              fontSize: 12.5,
                               color: _activeTab == 1
                                   ? Colors.white
-                                  : (isDark ? Colors.grey[400] : Colors.grey[700]),
+                                  : (isDark ? Theme.of(context).colorScheme.onSurfaceVariant : Theme.of(context).colorScheme.onSurface),
                             ),
                           ),
                         ),
@@ -296,6 +352,7 @@ class _LoginScreenState extends State<LoginScreen> {
               // Form content according to the selected tab
               _activeTab == 0 ? _buildEmailLoginForm(isDark) : _buildCodeActivationForm(isDark),
             ],
+            ),
           ),
         ),
       ),
@@ -315,9 +372,6 @@ class _LoginScreenState extends State<LoginScreen> {
             decoration: InputDecoration(
               labelText: 'البريد الإلكتروني',
               prefixIcon: const Icon(Icons.email_outlined),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
             ),
             validator: (value) {
               if (value == null || value.trim().isEmpty) {
@@ -342,9 +396,6 @@ class _LoginScreenState extends State<LoginScreen> {
                 icon: Icon(_isObscure ? Icons.visibility_off : Icons.visibility),
                 onPressed: () => setState(() => _isObscure = !_isObscure),
               ),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
             ),
             validator: (value) {
               if (value == null || value.isEmpty) {
@@ -360,7 +411,7 @@ class _LoginScreenState extends State<LoginScreen> {
             onPressed: _isLoading ? null : _loginByEmail,
             style: ElevatedButton.styleFrom(
               padding: const EdgeInsets.symmetric(vertical: 14),
-              backgroundColor: const Color(0xFF0D9488),
+              backgroundColor: Theme.of(context).colorScheme.primary,
               foregroundColor: Colors.white,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(16),
@@ -378,10 +429,36 @@ class _LoginScreenState extends State<LoginScreen> {
                 : Text(
                     'تسجيل الدخول',
                     style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: const [
+              Expanded(child: Divider()),
+              Padding(
+                padding: EdgeInsets.symmetric(horizontal: 10),
+                child: Text('أو'),
+              ),
+              Expanded(child: Divider()),
+            ],
+          ),
+          const SizedBox(height: 12),
+          OutlinedButton.icon(
+            onPressed: _isLoading ? null : _loginWithGoogle,
+            style: OutlinedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+            ),
+            icon: const Icon(Icons.g_mobiledata_rounded, size: 22),
+            label: const Text(
+              'المتابعة باستخدام Google',
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+            ),
           ),
         ],
       ),
@@ -401,9 +478,6 @@ class _LoginScreenState extends State<LoginScreen> {
               decoration: InputDecoration(
                 labelText: 'البريد الإلكتروني الموجود في الدعوة',
                 prefixIcon: const Icon(Icons.email_outlined),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
               ),
               validator: (value) {
                 final email = value?.trim() ?? '';
@@ -422,9 +496,6 @@ class _LoginScreenState extends State<LoginScreen> {
               decoration: InputDecoration(
                 labelText: 'كود دعوة المعلم (مثال: HAL-SEC-XXXX)',
                 prefixIcon: const Icon(Icons.vpn_key_outlined),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
               ),
               validator: (value) {
                 if (value == null || value.trim().isEmpty) {
@@ -467,9 +538,9 @@ class _LoginScreenState extends State<LoginScreen> {
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: const Color(0xFF0F766E).withOpacity(0.08),
+                color: const Color(0xFF0F766E).withValues(alpha: 0.08),
                 borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: const Color(0xFF0D9488).withOpacity(0.3)),
+                border: Border.all(color: const Color(0xFF0D9488).withValues(alpha: 0.3)),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -516,9 +587,6 @@ class _LoginScreenState extends State<LoginScreen> {
                   icon: Icon(_isObscure ? Icons.visibility_off : Icons.visibility),
                   onPressed: () => setState(() => _isObscure = !_isObscure),
                 ),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
               ),
               validator: (value) {
                 if (value == null || value.isEmpty) {
@@ -538,9 +606,6 @@ class _LoginScreenState extends State<LoginScreen> {
                 decoration: InputDecoration(
                   labelText: 'تأكيد كلمة المرور',
                   prefixIcon: const Icon(Icons.lock_reset_outlined),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(16),
-                  ),
                 ),
                 validator: (value) {
                   if (value != _newPasswordController.text) {
@@ -586,7 +651,7 @@ class _LoginScreenState extends State<LoginScreen> {
               child: Text(
                 'العودة وتغيير الكود',
                 style: TextStyle(
-                  color: Colors.grey[600],
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
                   fontWeight: FontWeight.bold,
                 ),
               ),

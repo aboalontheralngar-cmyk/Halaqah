@@ -26,10 +26,11 @@ assertIncludes(
 );
 
 assertIncludes(
-  read("lib/services/supabase_service.dart"),
+  read("lib/services/supabase_service.dart") + read("lib/services/cloud_config.dart"),
   [
-    "String.fromEnvironment(\n    'SUPABASE_URL'",
-    "String.fromEnvironment(\n    'SUPABASE_PUBLISHABLE_KEY'",
+    "String.fromEnvironment('SUPABASE_URL')",
+    "'SUPABASE_PUBLISHABLE_KEY'",
+    "CloudConfig.validate()",
     "diagnoseConnection()",
     "cloud_connection_diagnostics.dart",
   ],
@@ -68,7 +69,7 @@ assertIncludes(
 
 assertIncludes(
   read("pubspec.yaml"),
-  ["version: 4.1.0-alpha.1+41"],
+  ["version: 4.3.0-alpha.22+76"],
   "Flutter staged-release version",
 );
 
@@ -99,7 +100,9 @@ assertIncludes(
   [
     "flutter' -Arguments @('analyze')",
     "flutter' -Arguments @('test')",
-    "flutter' -Arguments @('build', 'apk', '--release')",
+    "'build', 'apk', '--release'",
+    "--dart-define=HALAQAH_ENV=staging",
+    "SUPABASE_PUBLISHABLE_KEY",
     "Get-FileHash",
     "npm' -Arguments @('run', 'quality:ci')",
   ],

@@ -13,6 +13,7 @@ const homeScreen = read("lib/screens/home/home_screen.dart");
 const backupService = read("lib/services/backup_service.dart");
 const policyService = read("lib/services/backup_policy_service.dart");
 const policyTest = read("test/backup_policy_service_test.dart");
+const backgroundScheduler = read("lib/services/background_backup_scheduler.dart");
 
 for (const contract of [
   "backupReminderEnabled",
@@ -45,10 +46,12 @@ for (const contract of [
 }
 
 requireText(homeScreen, "_handleBackupMaintenance", "startup backup maintenance");
-requireText(homeScreen, "حماية بيانات الحلقة", "backup reminder dialog");
+requireText(homeScreen, "اعمل دون إنترنت واحم بياناتك", "backup reminder dialog");
+requireText(homeScreen, "انضم إلى الخدمة السحابية مجانًا", "optional cloud invitation");
 requireText(policyService, "isAutomaticBackupDue", "automatic backup policy");
 requireText(policyService, "isReminderDue", "backup reminder policy");
 requireText(policyTest, "runs once on the first launch after schedule", "schedule regression test");
 requireText(policyTest, "respects both backup and reminder intervals", "reminder regression test");
+requireText(backgroundScheduler, "registerPeriodicTask", "closed-app Android backup schedule");
 
-console.log("Backup/settings contract passed: organization, persistence, schedule, reminder, retention, and startup wiring.");
+console.log("Backup/settings contract passed: organization, persistence, background schedule, reminder, retention, and startup wiring.");

@@ -18,7 +18,7 @@ const pdf = readFileSync(resolve(root, 'lib/services/pdf_service.dart'), 'utf8')
 const database = readFileSync(
   resolve(root, 'lib/services/database_service.dart'),
   'utf8',
-);
+) + readFileSync(resolve(root, 'lib/services/local_database_schema.dart'), 'utf8');
 
 const requiredServiceFragments = [
   'day.isRecitationRequiredDay &&',

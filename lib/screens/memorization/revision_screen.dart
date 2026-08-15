@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import '../../services/database_service.dart';
-import '../../services/memorization_measure_service.dart';
 import '../../services/mushaf_service.dart';
 import '../../services/quran_service.dart';
-import '../../services/recitation_boundary_service.dart';
+import '../../services/quran_cross_surah_range_service.dart';
 import '../../services/revision_progression_service.dart';
-import '../../services/memorized_content_service.dart';
+import '../../services/revision_system_policy.dart';
+import '../../services/recitation_attendance_guard.dart';
+import '../../services/backdated_entry_policy.dart';
+import '../../services/mandatory_revision_schedule_service.dart';
 import '../../models/student.dart';
 import '../../models/memorization.dart';
 import '../../models/daily_record.dart';
@@ -18,8 +20,17 @@ import '../students/student_form_screen.dart';
 
 class RevisionScreen extends StatefulWidget {
   final Student student;
+  final String? reviewUnitOverride;
+  final int? reviewAmountOverride;
+  final String? courseTitle;
 
-  const RevisionScreen({super.key, required this.student});
+  const RevisionScreen({
+    super.key,
+    required this.student,
+    this.reviewUnitOverride,
+    this.reviewAmountOverride,
+    this.courseTitle,
+  });
 
   @override
   State<RevisionScreen> createState() => _RevisionScreenState();
@@ -37,8 +48,13 @@ class _RevisionScreenState extends State<RevisionScreen> {
   String _reviewUnit = 'pages';
   int _reviewAmount = 1;
   String? _resumeText;
+  int? _suggestedSurahId;
+  int? _suggestedFromAyah;
   Student? _resolvedStudent;
   bool _hasUnmappedMemorizedTotal = false;
+  String _surahQuery = '';
+  String _revisionSystem = RevisionSystemPolicy.defaultSystem;
+  DateTime _recordDate = BackdatedEntryPolicy.dateOnly(DateTime.now());
 
   @override
   void initState() {
@@ -49,8 +65,12 @@ class _RevisionScreenState extends State<RevisionScreen> {
   Future<void> _loadMemorizedSurahs() async {
     setState(() => _isLoading = true);
     try {
+      await _quran.initialize();
       final currentStudent =
           await _db.getStudent(widget.student.id) ?? widget.student;
+      final revisionSystem = RevisionSystemPolicy.resolve(
+        currentStudent.reviewSystem,
+      );
       final memorizedRanges =
           await _db.getStudentMemorizedRanges(widget.student.id);
       final surahIds = memorizedRanges.keys.toList()..sort();
@@ -58,8 +78,16 @@ class _RevisionScreenState extends State<RevisionScreen> {
       final settings = await _db.getSettings();
       final activePlan = await _db.getActiveStudentPlan(widget.student.id);
       _ascending = settings.revisionOrder != 'descending';
-      _reviewUnit = activePlan?.unit ?? 'pages';
-      _reviewAmount = activePlan?.reviewAmount ?? 1;
+      final configuredUnit = widget.reviewUnitOverride ??
+          activePlan?.reviewUnit ??
+          currentStudent.reviewPlanType;
+      _reviewUnit = const <String>{'ayahs', 'lines', 'pages', 'hizbs'}
+              .contains(configuredUnit)
+          ? configuredUnit
+          : 'pages';
+      _reviewAmount = widget.reviewAmountOverride ??
+          activePlan?.reviewAmount ??
+          currentStudent.reviewPlanAmount;
 
       final surahs = <MemorizedSurah>[];
       final requiredSurahs = <int>{};
@@ -77,11 +105,9 @@ class _RevisionScreenState extends State<RevisionScreen> {
             .toList();
 
         DateTime? lastRevision;
-        DateTime? lastRevisionAt;
         if (revisions.isNotEmpty) {
           revisions.sort((a, b) => b.createdAt.compareTo(a.createdAt));
           lastRevision = revisions.first.date;
-          lastRevisionAt = revisions.first.createdAt;
         }
 
         final completionDate = _getCompletionDate(
@@ -90,8 +116,37 @@ class _RevisionScreenState extends State<RevisionScreen> {
           allProgress,
           currentStudent,
         );
+        final revisionDaysAfterCompletion = completionDate == null
+            ? const <String>{}
+            : revisions
+                .where(
+                  (revision) =>
+                      revision.createdAt.isAfter(completionDate),
+                )
+                .map(
+                  (revision) =>
+                      '${revision.date.year}-'
+                      '${revision.date.month.toString().padLeft(2, '0')}-'
+                      '${revision.date.day.toString().padLeft(2, '0')}',
+                )
+                .toSet();
+        MandatoryRevisionChunk? mandatoryChunk;
+        if (completionDate != null &&
+            revisionSystem.id == 'five_day_stabilization') {
+          final quranSurah = _quran.getSurah(surahId);
+          if (quranSurah != null) {
+            mandatoryChunk = MandatoryRevisionScheduleService.chunkForDay(
+              surah: quranSurah,
+              fromAyah: memorizedRange.fromAyah,
+              toAyah: memorizedRange.toAyah,
+              completedDays: revisionDaysAfterCompletion.length,
+            );
+          }
+        }
         final requiresCompletionRevision = completionDate != null &&
-            (lastRevisionAt == null || lastRevisionAt.isBefore(completionDate));
+            (revisionSystem.id == 'five_day_stabilization'
+                ? mandatoryChunk != null
+                : revisionDaysAfterCompletion.isEmpty);
         if (requiresCompletionRevision) requiredSurahs.add(surahId);
 
         surahs.add(MemorizedSurah(
@@ -103,12 +158,21 @@ class _RevisionScreenState extends State<RevisionScreen> {
           requiresCompletionRevision: requiresCompletionRevision,
           minMemorizedAyah: memorizedRange.fromAyah,
           maxMemorizedAyah: memorizedRange.toAyah,
+          selectedFromAyah: mandatoryChunk?.fromAyah,
+          selectedToAyah: mandatoryChunk?.toAyah,
+          mandatoryDayNumber: mandatoryChunk?.dayNumber,
+          mandatoryTotalDays: mandatoryChunk?.totalDays,
+          mandatoryFromPage: mandatoryChunk?.fromPage,
+          mandatoryToPage: mandatoryChunk?.toPage,
         ));
       }
 
+      _revisionSystem = revisionSystem.id;
       _sortSurahs(surahs);
 
       String? resumeText;
+      int? suggestedSurahId;
+      int? suggestedFromAyah;
       if (requiredSurahs.isEmpty && surahs.isNotEmpty) {
         final next = RevisionProgressionService.nextStartingPoint(
           memorizedSurahIds: surahs.map((surah) => surah.id).toList(),
@@ -116,64 +180,140 @@ class _RevisionScreenState extends State<RevisionScreen> {
           ascending: _ascending,
           getSurah: _quran.getSurah,
           memorizedRanges: memorizedRanges,
+          preserveInputOrder: revisionSystem.id == 'adaptive_spaced',
         );
         if (next != null) {
           final suggested = surahs.firstWhere(
             (surah) => surah.id == next['surahId'],
           );
-          _applyDefaultRange(
-            suggested,
-            fromAyah: next['fromAyah']!,
+          final connectedRange = _connectedRange(
+            availableSurahs: surahs,
+            startSurahId: suggested.id,
+            startAyah: next['fromAyah']!,
+            unit: _reviewUnit,
+            amount: _reviewAmount,
           );
-          requiredSurahs.add(suggested.id);
+          _applyConnectedRange(
+            range: connectedRange,
+            availableSurahs: surahs,
+            selectedSurahs: requiredSurahs,
+          );
           final hasPreviousRevision =
               allProgress.any((progress) => progress.isRevision);
-          resumeText = hasPreviousRevision
-              ? 'استئناف المراجعة: ${suggested.name} من الآية ${suggested.selectedFromAyah}'
-              : 'بداية دورة المراجعة: ${suggested.name} من الآية ${suggested.selectedFromAyah}';
+          resumeText = _connectedRangeLabel(
+            connectedRange,
+            availableSurahs: surahs,
+            prefix: hasPreviousRevision
+                ? 'استئناف المراجعة'
+                : 'بداية دورة المراجعة',
+          );
+          suggestedSurahId = suggested.id;
+          suggestedFromAyah = next['fromAyah'];
         }
       }
 
+      if (!mounted) return;
       setState(() {
         _memorizedSurahs = surahs;
         _selectedSurahs = requiredSurahs;
         _resumeText = resumeText;
+        _suggestedSurahId = suggestedSurahId;
+        _suggestedFromAyah = suggestedFromAyah;
         _resolvedStudent = currentStudent;
         _hasUnmappedMemorizedTotal =
             memorizedRanges.isEmpty && currentStudent.totalMemorized > 0;
+        _revisionSystem = revisionSystem.id;
         _isLoading = false;
       });
     } catch (e) {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  void _applyDefaultRange(
-    MemorizedSurah surah, {
-    required int fromAyah,
+  QuranCrossSurahRange? _connectedRange({
+    required List<MemorizedSurah> availableSurahs,
+    required int startSurahId,
+    required int startAyah,
+    required String unit,
+    required int amount,
   }) {
-    final detailed = _quran.getSurah(surah.id);
-    final safeFrom = fromAyah
-        .clamp(surah.minMemorizedAyah, surah.maxMemorizedAyah)
+    final start = availableSurahs.where((item) => item.id == startSurahId);
+    if (start.isEmpty) return null;
+    final startSurah = start.first;
+    final safeStart = startAyah
+        .clamp(startSurah.minMemorizedAyah, startSurah.maxMemorizedAyah)
         .toInt();
-    surah.selectedFromAyah = safeFrom;
-    if (detailed == null) {
-      surah.selectedToAyah = safeFrom;
-    } else {
-      surah.selectedToAyah = MemorizationMeasureService.calculateToAyah(
-        surah: detailed,
-        fromAyah: safeFrom,
-        planType: _reviewUnit,
-        planAmount: _reviewAmount,
-      ).clamp(safeFrom, surah.maxMemorizedAyah).toInt();
+    final allowedRanges = <int, QuranRangeSegment>{
+      for (final surah in availableSurahs)
+        surah.id: QuranRangeSegment(
+          surahId: surah.id,
+          fromAyah: surah.minMemorizedAyah,
+          toAyah: surah.maxMemorizedAyah,
+        ),
+    };
+    return QuranCrossSurahRangeService.toAmount(
+      surahs: _quran.surahs,
+      startSurahId: startSurahId,
+      startAyah: safeStart,
+      unit: QuranCrossSurahRangeService.unitFromPlanType(unit),
+      amount: amount,
+      allowedRanges: allowedRanges,
+      ascendingSurahs: _ascending,
+    );
+  }
+
+  void _applyConnectedRange({
+    required QuranCrossSurahRange? range,
+    required List<MemorizedSurah> availableSurahs,
+    required Set<int> selectedSurahs,
+  }) {
+    if (range == null) return;
+    for (final segment in range.segments) {
+      final matches = availableSurahs.where((item) => item.id == segment.surahId);
+      if (matches.isEmpty) break;
+      final surah = matches.first;
+      if (!surah.requiresCompletionRevision) {
+        surah.selectedFromAyah = segment.fromAyah;
+        surah.selectedToAyah = segment.toAyah;
+        surah.rangeVersion++;
+      }
+      selectedSurahs.add(surah.id);
     }
-    surah.rangeVersion++;
+  }
+
+  String _connectedRangeLabel(
+    QuranCrossSurahRange? range, {
+    required List<MemorizedSurah> availableSurahs,
+    required String prefix,
+  }) {
+    if (range == null || range.segments.isEmpty) return prefix;
+    String name(int id) {
+      for (final item in availableSurahs) {
+        if (item.id == id) return item.name;
+      }
+      return _quran.getSurahName(id);
+    }
+    final first = range.segments.first;
+    final last = range.segments.last;
+    if (first.surahId == last.surahId) {
+      return '$prefix: ${name(first.surahId)} من ${first.fromAyah} إلى ${last.toAyah}';
+    }
+    return '$prefix: ${name(first.surahId)} ${first.fromAyah} — '
+        '${name(last.surahId)} ${last.toAyah}';
   }
 
   void _sortSurahs(List<MemorizedSurah> surahs) {
     surahs.sort((a, b) {
       if (a.requiresCompletionRevision != b.requiresCompletionRevision) {
         return a.requiresCompletionRevision ? -1 : 1;
+      }
+      if (_revisionSystem == 'adaptive_spaced') {
+        if (a.lastRevision == null && b.lastRevision != null) return -1;
+        if (a.lastRevision != null && b.lastRevision == null) return 1;
+        if (a.lastRevision != null && b.lastRevision != null) {
+          final oldestFirst = a.lastRevision!.compareTo(b.lastRevision!);
+          if (oldestFirst != 0) return oldestFirst;
+        }
       }
       return _ascending ? a.id.compareTo(b.id) : b.id.compareTo(a.id);
     });
@@ -234,6 +374,15 @@ class _RevisionScreenState extends State<RevisionScreen> {
         title: Text('مراجعة ${widget.student.name}'),
         actions: [
           IconButton(
+            onPressed: _pickRecordDate,
+            tooltip: 'تاريخ التسجيل: ${Helpers.formatPlanDate(_recordDate)}',
+            icon: Badge(
+              isLabelVisible: BackdatedEntryPolicy.daysAgo(_recordDate) > 0,
+              label: Text('${BackdatedEntryPolicy.daysAgo(_recordDate)}'),
+              child: const Icon(Icons.calendar_month_outlined),
+            ),
+          ),
+          IconButton(
             icon: Icon(_ascending ? Icons.arrow_downward : Icons.arrow_upward),
             onPressed: () {
               setState(() {
@@ -245,6 +394,11 @@ class _RevisionScreenState extends State<RevisionScreen> {
           ),
         ],
       ),
+      bottomNavigationBar: !_isLoading &&
+              _memorizedSurahs.isNotEmpty &&
+              _selectedSurahs.isNotEmpty
+          ? SafeArea(top: false, child: _buildBottomSheet())
+          : null,
       body: SafeArea(
         child: _isLoading
             ? const Center(child: CircularProgressIndicator())
@@ -252,49 +406,27 @@ class _RevisionScreenState extends State<RevisionScreen> {
                 ? _buildEmptyState()
                 : Column(
                     children: [
-                      _buildSortingInfo(),
-                      if (_resumeText != null) _buildResumeInfo(),
-                      _buildSelectionInfo(),
+                      _buildWorkspaceHeader(),
                       Expanded(child: _buildSurahList()),
-                      if (_selectedSurahs.isNotEmpty) _buildBottomSheet(),
                     ],
                   ),
       ),
     );
   }
 
-  Widget _buildResumeInfo() {
-    return Container(
-      width: double.infinity,
-      margin: const EdgeInsets.fromLTRB(12, 10, 12, 0),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.teal.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.teal.withOpacity(0.35)),
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.play_circle_outline, color: Colors.teal),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  _resumeText!,
-                  style: const TextStyle(fontWeight: FontWeight.bold),
-                ),
-                Text(
-                  'المقرر المقترح: $_reviewAmount ${_unitLabel(_reviewUnit)}',
-                  style: const TextStyle(fontSize: 11),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
+
+  Future<void> _pickRecordDate() async {
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _recordDate,
+      firstDate: BackdatedEntryPolicy.earliestAllowed(now),
+      lastDate: BackdatedEntryPolicy.dateOnly(now),
+      helpText: 'تاريخ المراجعة (حتى 3 أيام سابقة)',
+      confirmText: 'اعتماد',
     );
+    if (picked == null || !mounted) return;
+    setState(() => _recordDate = BackdatedEntryPolicy.dateOnly(picked));
   }
 
   Widget _buildEmptyState() {
@@ -304,14 +436,14 @@ class _RevisionScreenState extends State<RevisionScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.menu_book, size: 60, color: Colors.grey[400]),
+            Icon(Icons.menu_book, size: 60, color: Theme.of(context).colorScheme.onSurfaceVariant),
             const SizedBox(height: 16),
             Text(
               _hasUnmappedMemorizedTotal
                   ? 'يوجد إجمالي محفوظ دون نطاق سور وآيات'
                   : 'لا يوجد حفظ مسجل لهذا الطالب',
               textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.grey[700]),
+              style: TextStyle(color: Theme.of(context).colorScheme.onSurface),
             ),
             const SizedBox(height: 8),
             Text(
@@ -319,7 +451,7 @@ class _RevisionScreenState extends State<RevisionScreen> {
                   ? 'حدّث ملف الطالب وحدد بداية المحفوظ ونهايته مرة واحدة، ثم سيظهر كامل النطاق هنا وفي الاختبارات.'
                   : 'سجّل محفوظ الطالب في ملفه أو أضف تسميع حفظ جديدًا أولاً.',
               textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.grey[500], fontSize: 12),
+              style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 12),
             ),
             if (_hasUnmappedMemorizedTotal && _resolvedStudent != null) ...[
               const SizedBox(height: 16),
@@ -347,66 +479,316 @@ class _RevisionScreenState extends State<RevisionScreen> {
     if (changed == true && mounted) await _loadMemorizedSurahs();
   }
 
-  Widget _buildSortingInfo() {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      color: Theme.of(context).primaryColor.withOpacity(0.1),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            _ascending ? Icons.arrow_downward : Icons.arrow_upward,
-            size: 16,
-            color: Theme.of(context).primaryColor,
-          ),
-          const SizedBox(width: 8),
-          Text(
-            _ascending
-                ? 'مراجعة تصاعدية (من الفاتحة)'
-                : 'مراجعة تنازلية (من آخر ما حفظ)',
-            style: TextStyle(
-              color: Theme.of(context).primaryColor,
-              fontWeight: FontWeight.w500,
+  Widget _buildWorkspaceHeader() {
+    final scheme = Theme.of(context).colorScheme;
+    return Card(
+      margin: const EdgeInsets.fromLTRB(12, 10, 12, 8),
+      child: Padding(
+        padding: const EdgeInsets.all(10),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                Icon(Icons.menu_book_outlined, color: scheme.primary),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    'اختر السورة ونطاق الآيات',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: scheme.primaryContainer,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text('${_selectedSurahs.length} محددة'),
+                ),
+                IconButton(
+                  onPressed: _showReviewSettings,
+                  tooltip: 'إعداد مقدار المراجعة',
+                  icon: const Icon(Icons.tune),
+                ),
+              ],
             ),
-          ),
-        ],
+            const SizedBox(height: 6),
+            InkWell(
+              borderRadius: BorderRadius.circular(10),
+              onTap: _showRevisionSystemInfo,
+              child: Container(
+                width: double.infinity,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                decoration: BoxDecoration(
+                  color: scheme.surfaceContainerLow,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.repeat_on_outlined,
+                        size: 18, color: scheme.primary),
+                    const SizedBox(width: 7),
+                    Expanded(
+                      child: Text(
+                        'النظام: ${RevisionSystemPolicy.resolve(_revisionSystem).title}',
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                    const Icon(Icons.info_outline, size: 18),
+                  ],
+                ),
+              ),
+            ),
+            if (_resumeText != null) ...[
+              Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: Text(
+                  _resumeText!,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: scheme.primary,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 6),
+            ],
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    onChanged: (value) => setState(() => _surahQuery = value),
+                    textInputAction: TextInputAction.search,
+                    decoration: const InputDecoration(
+                      isDense: true,
+                      hintText: 'ابحث باسم السورة أو رقمها',
+                      prefixIcon: Icon(Icons.search),
+                    ),
+                  ),
+                ),
+                if (_suggestedSurahId != null && _suggestedFromAyah != null) ...[
+                  const SizedBox(width: 6),
+                  IconButton.filledTonal(
+                    onPressed: _reapplySuggestedRange,
+                    tooltip:
+                        'تطبيق المقرر على موضع الاستئناف: $_reviewAmount ${_unitLabel(_reviewUnit)}'
+                        '${widget.courseTitle == null ? '' : ' · دورة ${widget.courseTitle}'}',
+                    icon: const Icon(Icons.auto_fix_high_outlined),
+                  ),
+                ],
+                if (_selectedSurahs.isNotEmpty) ...[
+                  const SizedBox(width: 4),
+                  IconButton(
+                    onPressed: _clearOptionalSelection,
+                    tooltip: 'إلغاء التحديد الاختياري',
+                    icon: const Icon(Icons.deselect_outlined),
+                  ),
+                ],
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildSelectionInfo() {
-    return Padding(
-      padding: const EdgeInsets.all(12),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(
-            'السور المحفوظة: ${_memorizedSurahs.length}',
-            style: TextStyle(color: Colors.grey[600]),
+  void _showRevisionSystemInfo() {
+    final system = RevisionSystemPolicy.resolve(_revisionSystem);
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(system.title,
+                  style: Theme.of(context).textTheme.titleLarge),
+              const SizedBox(height: 8),
+              Text(system.summary),
+              const SizedBox(height: 8),
+              Text(
+                system.workflow,
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () {
+                    Navigator.pop(context);
+                    _repairStudentMemorizedRange();
+                  },
+                  icon: const Icon(Icons.edit_outlined),
+                  label: const Text('تغيير النظام من ملف الطالب'),
+                ),
+              ),
+            ],
           ),
-          if (_selectedSurahs.isNotEmpty)
-            TextButton(
-              onPressed: () => setState(() {
-                _selectedSurahs.removeWhere((surahId) {
-                  final surah = _memorizedSurahs.firstWhere(
-                    (item) => item.id == surahId,
-                  );
-                  return !surah.requiresCompletionRevision;
-                });
-              }),
-              child: Text('إلغاء التحديد (${_selectedSurahs.length})'),
-            ),
-        ],
+        ),
       ),
     );
+  }
+
+  void _clearOptionalSelection() {
+    setState(() {
+      _selectedSurahs.removeWhere((surahId) {
+        final surah = _memorizedSurahs.firstWhere(
+          (item) => item.id == surahId,
+        );
+        return !surah.requiresCompletionRevision;
+      });
+    });
+  }
+
+  Future<void> _showReviewSettings() async {
+    var unit = _reviewUnit;
+    var amount = _reviewAmount;
+    final apply = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, setSheetState) => Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Row(
+                children: [
+                  Icon(Icons.tune),
+                  SizedBox(width: 8),
+                  Text(
+                    'إعداد مقرر جلسة المراجعة',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              DropdownButtonFormField<String>(
+                initialValue: unit,
+                isExpanded: true,
+                decoration: const InputDecoration(
+                  labelText: 'طريقة القياس',
+                  prefixIcon: Icon(Icons.straighten),
+                ),
+                items: const [
+                  DropdownMenuItem(value: 'ayahs', child: Text('آيات')),
+                  DropdownMenuItem(value: 'lines', child: Text('أسطر المصحف')),
+                  DropdownMenuItem(value: 'pages', child: Text('صفحات')),
+                  DropdownMenuItem(value: 'hizbs', child: Text('أحزاب')),
+                ],
+                onChanged: (value) {
+                  if (value != null) setSheetState(() => unit = value);
+                },
+              ),
+              const SizedBox(height: 14),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'المقدار: $amount ${_unitLabel(unit)}',
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                  IconButton.filledTonal(
+                    onPressed: amount <= 1
+                        ? null
+                        : () => setSheetState(() => amount--),
+                    icon: const Icon(Icons.remove),
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton.filledTonal(
+                    onPressed: () => setSheetState(() => amount++),
+                    icon: const Icon(Icons.add),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              const Text(
+                'يحوّل التطبيق المقدار إلى نطاق سورة وآيات، ويكمل إلى السورة التالية عند الحاجة دون تجاوز محفوظ الطالب.',
+                style: TextStyle(fontSize: 12),
+              ),
+              const SizedBox(height: 18),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: () => Navigator.pop(sheetContext, true),
+                  icon: const Icon(Icons.check),
+                  label: const Text('اعتماد وتطبيق على موضع الاستئناف'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (apply != true || !mounted) return;
+    setState(() {
+      _reviewUnit = unit;
+      _reviewAmount = amount;
+    });
+    _reapplySuggestedRange();
+  }
+
+  void _reapplySuggestedRange() {
+    final surahId = _suggestedSurahId;
+    final fromAyah = _suggestedFromAyah;
+    if (surahId == null || fromAyah == null) return;
+    setState(() {
+      _selectedSurahs.removeWhere((id) {
+        for (final item in _memorizedSurahs) {
+          if (item.id == id) return !item.requiresCompletionRevision;
+        }
+        return true;
+      });
+      final range = _connectedRange(
+        availableSurahs: _memorizedSurahs,
+        startSurahId: surahId,
+        startAyah: fromAyah,
+        unit: _reviewUnit,
+        amount: _reviewAmount,
+      );
+      _applyConnectedRange(
+        range: range,
+        availableSurahs: _memorizedSurahs,
+        selectedSurahs: _selectedSurahs,
+      );
+      _resumeText = _connectedRangeLabel(
+        range,
+        availableSurahs: _memorizedSurahs,
+        prefix: 'مقرر المراجعة المقترح',
+      );
+    });
   }
 
   Widget _buildSurahList() {
+    final query = _surahQuery.trim();
+    final visible = query.isEmpty
+        ? _memorizedSurahs
+        : _memorizedSurahs
+            .where(
+              (surah) =>
+                  surah.name.contains(query) || '${surah.id}' == query,
+            )
+            .toList();
+    if (visible.isEmpty) {
+      return const Center(child: Text('لا توجد سورة محفوظة تطابق البحث'));
+    }
     return ListView.builder(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      itemCount: _memorizedSurahs.length,
+      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+      padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
+      itemCount: visible.length,
       itemBuilder: (context, index) {
-        final surah = _memorizedSurahs[index];
+        final surah = visible[index];
         final isSelected = _selectedSurahs.contains(surah.id);
         return _buildSurahCard(surah, isSelected);
       },
@@ -419,7 +801,7 @@ class _RevisionScreenState extends State<RevisionScreen> {
 
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
-      color: isSelected ? Theme.of(context).primaryColor.withOpacity(0.1) : null,
+      color: isSelected ? Theme.of(context).primaryColor.withValues(alpha: 0.1) : null,
       child: Column(
         children: [
           InkWell(
@@ -430,8 +812,10 @@ class _RevisionScreenState extends State<RevisionScreen> {
                     _selectedSurahs.remove(surah.id);
                   }
                 } else {
-                  _selectedSurahs.add(surah.id);
-                  _applyDefaultRange(surah, fromAyah: 1);
+                  _selectPlanFrom(
+                    surah,
+                    fromAyah: surah.minMemorizedAyah,
+                  );
                 }
               });
             },
@@ -445,8 +829,10 @@ class _RevisionScreenState extends State<RevisionScreen> {
                     onChanged: surah.requiresCompletionRevision ? null : (value) {
                       setState(() {
                         if (value == true) {
-                          _selectedSurahs.add(surah.id);
-                          _applyDefaultRange(surah, fromAyah: 1);
+                          _selectPlanFrom(
+                            surah,
+                            fromAyah: surah.minMemorizedAyah,
+                          );
                         } else {
                           _selectedSurahs.remove(surah.id);
                         }
@@ -456,11 +842,11 @@ class _RevisionScreenState extends State<RevisionScreen> {
                   CircleAvatar(
                     backgroundColor: isSelected
                         ? Theme.of(context).primaryColor
-                        : Theme.of(context).primaryColor.withOpacity(0.1),
+                        : Theme.of(context).primaryColor.withValues(alpha: 0.1),
                     child: Text(
                       '${surah.id}',
                       style: TextStyle(
-                        color: isSelected ? Colors.white : Theme.of(context).primaryColor,
+                        color: isSelected ? Theme.of(context).colorScheme.onPrimary : Theme.of(context).colorScheme.primary,
                         fontWeight: FontWeight.bold,
                         fontSize: 12,
                       ),
@@ -477,7 +863,7 @@ class _RevisionScreenState extends State<RevisionScreen> {
                         ),
                         Text(
                           '${surah.ayahs} آية - الجزء ${surah.juz}',
-                          style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                          style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant),
                         ),
                         if (surah.minMemorizedAyah != 1 ||
                             surah.maxMemorizedAyah != surah.ayahs)
@@ -488,49 +874,50 @@ class _RevisionScreenState extends State<RevisionScreen> {
                               color: Theme.of(context).colorScheme.primary,
                             ),
                           ),
+                        if (surah.requiresCompletionRevision &&
+                            surah.mandatoryFromPage != null)
+                          Text(
+                            surah.mandatoryFromPage == surah.mandatoryToPage
+                                ? 'مقرر اليوم: الصفحة ${surah.mandatoryFromPage}'
+                                : 'مقرر اليوم: الصفحات ${surah.mandatoryFromPage}–${surah.mandatoryToPage}',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: Theme.of(context).colorScheme.error,
+                            ),
+                          ),
+                        const SizedBox(height: 3),
+                        Wrap(
+                          spacing: 5,
+                          runSpacing: 3,
+                          children: [
+                            _revisionStatusTag(
+                              surah.requiresCompletionRevision
+                                  ? surah.mandatoryDayNumber != null
+                                      ? 'تثبيت إلزامي — اليوم ${surah.mandatoryDayNumber}/${surah.mandatoryTotalDays}'
+                                      : 'مراجعة إلزامية بعد الإتمام'
+                                  : needsRevision
+                                      ? 'تحتاج مراجعة'
+                                      : 'مراجعة حديثة',
+                              surah.requiresCompletionRevision
+                                  ? Colors.red
+                                  : needsRevision
+                                      ? Colors.orange
+                                      : Colors.green,
+                            ),
+                            Text(
+                              surah.lastRevision != null
+                                  ? 'آخر مراجعة: ${Helpers.formatHijriDate(surah.lastRevision!)}'
+                                  : 'لم تراجع سابقًا',
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                        ),
                       ],
                     ),
-                  ),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Container(
-                        constraints: const BoxConstraints(maxWidth: 140),
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: surah.requiresCompletionRevision
-                              ? Colors.red.withOpacity(0.1)
-                              : needsRevision
-                                  ? Colors.orange.withOpacity(0.1)
-                                  : Colors.green.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Text(
-                          surah.requiresCompletionRevision
-                              ? 'مراجعة إلزامية بعد إتمام السورة'
-                              : needsRevision
-                                  ? 'تحتاج مراجعة'
-                                  : 'مراجعة حديثة',
-                          style: TextStyle(
-                            fontSize: 10,
-                            color: surah.requiresCompletionRevision
-                                ? Colors.red
-                                : needsRevision
-                                    ? Colors.orange
-                                    : Colors.green,
-                          ),
-                          maxLines: 2,
-                          textAlign: TextAlign.center,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        surah.lastRevision != null
-                            ? Helpers.formatHijriDate(surah.lastRevision!)
-                            : 'لم تراجع',
-                        style: TextStyle(fontSize: 10, color: Colors.grey[500]),
-                      ),
-                    ],
                   ),
                 ],
               ),
@@ -594,29 +981,66 @@ class _RevisionScreenState extends State<RevisionScreen> {
     );
   }
 
+  Widget _revisionStatusTag(String text, Color color) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.10),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Text(
+          text,
+          style: TextStyle(
+            fontSize: 9.5,
+            color: color,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      );
+
+  void _selectPlanFrom(
+    MemorizedSurah surah, {
+    required int fromAyah,
+  }) {
+    final range = _connectedRange(
+      availableSurahs: _memorizedSurahs,
+      startSurahId: surah.id,
+      startAyah: fromAyah,
+      unit: _reviewUnit,
+      amount: _reviewAmount,
+    );
+    _applyConnectedRange(
+      range: range,
+      availableSurahs: _memorizedSurahs,
+      selectedSurahs: _selectedSurahs,
+    );
+  }
+
   void _setRevisionBoundary(MemorizedSurah surah, String boundary) {
-    final detailed = _quran.getSurah(surah.id);
-    if (detailed == null) return;
     setState(() {
-      final boundaryAyah = boundary == 'page'
-          ? RecitationBoundaryService.endOfPage(
-              detailed,
-              surah.selectedFromAyah,
-            )
-          : RecitationBoundaryService.endOfHizb(
-              detailed,
-              surah.selectedFromAyah,
-            );
-      surah.selectedToAyah = boundaryAyah
-          .clamp(surah.selectedFromAyah, surah.maxMemorizedAyah)
-          .toInt();
-      surah.rangeVersion++;
+      final range = _connectedRange(
+        availableSurahs: _memorizedSurahs,
+        startSurahId: surah.id,
+        startAyah: surah.selectedFromAyah,
+        unit: boundary == 'page' ? 'pages' : 'hizbs',
+        amount: 1,
+      );
+      _applyConnectedRange(
+        range: range,
+        availableSurahs: _memorizedSurahs,
+        selectedSurahs: _selectedSurahs,
+      );
+      _resumeText = _connectedRangeLabel(
+        range,
+        availableSurahs: _memorizedSurahs,
+        prefix: boundary == 'page' ? 'إلى نهاية الصفحة' : 'إلى نهاية الحزب',
+      );
     });
   }
 
   String _unitLabel(String unit) {
     if (unit == 'ayahs') return 'آية';
     if (unit == 'lines') return 'سطر';
+    if (unit == 'hizbs') return 'حزب';
     return 'صفحة';
   }
 
@@ -628,22 +1052,21 @@ class _RevisionScreenState extends State<RevisionScreen> {
     }
 
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
       decoration: BoxDecoration(
-        color: Theme.of(context).cardColor,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 10,
-            offset: const Offset(0, -2),
-          ),
-        ],
+        color: Theme.of(context).colorScheme.surface,
+        border: Border(
+          top: BorderSide(color: Theme.of(context).colorScheme.outlineVariant),
+        ),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          Wrap(
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: 12,
+            runSpacing: 8,
             children: [
               Text(
                 'السور المحددة: ${_selectedSurahs.length} (إجمالي $totalSelectedAyahs آية)',
@@ -665,9 +1088,17 @@ class _RevisionScreenState extends State<RevisionScreen> {
             child: ElevatedButton(
               onPressed: _isSaving ? null : _saveRevision,
               child: _isSaving
-                  ? const CircularProgressIndicator(color: Colors.white)
+                  ? const CircularProgressIndicator(strokeWidth: 2)
                   : const Text('تسجيل المراجعة'),
             ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'يُحفظ نطاق المراجعة في سجل الطالب ويمكن استئنافه من آخر موضع.',
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
           ),
         ],
       ),
@@ -675,6 +1106,13 @@ class _RevisionScreenState extends State<RevisionScreen> {
   }
 
   Future<void> _saveRevision() async {
+    final canRecord = await RecitationAttendanceGuard.confirmPresentIfAbsent(
+      context,
+      database: _db,
+      student: widget.student,
+      date: _recordDate,
+    );
+    if (!canRecord || !mounted) return;
     setState(() => _isSaving = true);
 
     try {
@@ -684,6 +1122,7 @@ class _RevisionScreenState extends State<RevisionScreen> {
       final selectedIds = _selectedSurahs.toList()
         ..sort((a, b) => _ascending ? a.compareTo(b) : b.compareTo(a));
       final sessionStartedAt = DateTime.now();
+      final recordDate = _recordDate;
 
       for (var index = 0; index < selectedIds.length; index++) {
         final surahId = selectedIds[index];
@@ -707,7 +1146,7 @@ class _RevisionScreenState extends State<RevisionScreen> {
           surahId: surahId,
           fromAyah: surah.selectedFromAyah,
           toAyah: surah.selectedToAyah,
-          date: DateTime.now(),
+          date: recordDate,
           qualityRating: _qualityRating,
           isRevision: true,
           createdAt: createdAt,
@@ -719,7 +1158,7 @@ class _RevisionScreenState extends State<RevisionScreen> {
           surahId: surahId,
           fromAyah: surah.selectedFromAyah,
           toAyah: surah.selectedToAyah,
-          date: DateTime.now(),
+          date: recordDate,
           gradeMark: _qualityToGrade(_qualityRating),
           isRevision: true,
           createdAt: createdAt,
@@ -729,15 +1168,16 @@ class _RevisionScreenState extends State<RevisionScreen> {
 
       final existingRecord = await _db.getDailyRecord(
         widget.student.id,
-        DateTime.now(),
+        recordDate,
       );
 
       final record = (existingRecord ?? DailyRecord(
         studentId: widget.student.id,
-        date: DateTime.now(),
+        date: recordDate,
       )).copyWith(
         attendance: 'present',
-        arrivalTime: existingRecord?.arrivalTime ?? DateTime.now(),
+        arrivalTime: existingRecord?.arrivalTime ??
+            (BackdatedEntryPolicy.daysAgo(recordDate) == 0 ? sessionStartedAt : null),
         revisionDone: true,
         revisionAmount: (existingRecord?.revisionAmount ?? 0) + totalAyahs,
       );
@@ -794,6 +1234,10 @@ class MemorizedSurah {
   final int maxMemorizedAyah;
   final DateTime? lastRevision;
   final bool requiresCompletionRevision;
+  final int? mandatoryDayNumber;
+  final int? mandatoryTotalDays;
+  final int? mandatoryFromPage;
+  final int? mandatoryToPage;
   int selectedFromAyah;
   int selectedToAyah;
   int rangeVersion;
@@ -807,6 +1251,10 @@ class MemorizedSurah {
     required this.maxMemorizedAyah,
     this.lastRevision,
     this.requiresCompletionRevision = false,
+    this.mandatoryDayNumber,
+    this.mandatoryTotalDays,
+    this.mandatoryFromPage,
+    this.mandatoryToPage,
     int? selectedFromAyah,
     int? selectedToAyah,
     this.rangeVersion = 0,

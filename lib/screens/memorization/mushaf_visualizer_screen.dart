@@ -191,7 +191,7 @@ class _MushafVisualizerScreenState extends State<MushafVisualizerScreen> {
                     children: [
                       Text(
                         'إجمالي المحفوظ',
-                        style: TextStyle(color: Colors.grey[600], fontSize: 13),
+                        style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 13),
                       ),
                       const SizedBox(height: 4),
                       Text(
@@ -204,7 +204,7 @@ class _MushafVisualizerScreenState extends State<MushafVisualizerScreen> {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   decoration: BoxDecoration(
-                    color: Theme.of(context).primaryColor.withOpacity(0.1),
+                    color: Theme.of(context).primaryColor.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Text(
@@ -221,7 +221,7 @@ class _MushafVisualizerScreenState extends State<MushafVisualizerScreen> {
             const SizedBox(height: 16),
             LinearProgressIndicator(
               value: count / 480,
-              backgroundColor: Colors.grey[200],
+              backgroundColor: Theme.of(context).colorScheme.surfaceContainer,
               minHeight: 8,
               borderRadius: BorderRadius.circular(4),
             ),
@@ -255,13 +255,17 @@ class _MushafVisualizerScreenState extends State<MushafVisualizerScreen> {
   }
 
   Widget _buildLegend() {
+    final scheme = Theme.of(context).colorScheme;
     return Container(
-      color: Colors.grey.shade50,
+      color: scheme.surfaceContainerLow,
       padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
-      child: const Row(
+      child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
-          Text('1 → 8 أثمان الحزب (من اليمين لليسار)', style: TextStyle(fontSize: 11, color: Colors.grey)),
+          Text(
+            '1 → 8 أثمان الحزب (من اليمين لليسار)',
+            style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant),
+          ),
         ],
       ),
     );
@@ -271,7 +275,11 @@ class _MushafVisualizerScreenState extends State<MushafVisualizerScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 16),
       decoration: BoxDecoration(
-        border: Border(bottom: BorderSide(color: Colors.grey.shade100)),
+        border: Border(
+          bottom: BorderSide(
+            color: Theme.of(context).colorScheme.outlineVariant,
+          ),
+        ),
       ),
       child: Row(
         children: [
@@ -300,7 +308,9 @@ class _MushafVisualizerScreenState extends State<MushafVisualizerScreen> {
                         color: cellColor,
                         borderRadius: BorderRadius.circular(4),
                         border: Border.all(
-                          color: p != null ? Colors.transparent : Colors.grey.shade200,
+                          color: p != null
+                              ? Colors.transparent
+                              : Theme.of(context).colorScheme.outlineVariant,
                           width: 1,
                         ),
                       ),
@@ -310,7 +320,7 @@ class _MushafVisualizerScreenState extends State<MushafVisualizerScreen> {
                           style: TextStyle(
                             fontSize: 10,
                             fontWeight: FontWeight.bold,
-                            color: p != null ? Colors.white : Colors.grey[500],
+                            color: p != null ? Colors.white : Theme.of(context).colorScheme.onSurfaceVariant,
                           ),
                         ),
                       ),
@@ -336,7 +346,6 @@ class _MushafVisualizerScreenState extends State<MushafVisualizerScreen> {
         return StatefulBuilder(
           builder: (context, setModalState) {
             final currentP = p;
-            final isSaved = currentP != null && (currentP.lastGradedDate != null || currentP.isPreMemorized);
             final displayColor = _getCellColor(currentP);
             
             return Padding(
@@ -362,7 +371,13 @@ class _MushafVisualizerScreenState extends State<MushafVisualizerScreen> {
                     ],
                   ),
                   const SizedBox(height: 16),
-                  const Text('الآيات التي يغطيها الثمن:', style: TextStyle(color: Colors.grey, fontSize: 13)),
+                  Text(
+                    'الآيات التي يغطيها الثمن:',
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      fontSize: 13,
+                    ),
+                  ),
                   const SizedBox(height: 4),
                   Text(
                     rangeInfo['text'],
@@ -397,10 +412,15 @@ class _MushafVisualizerScreenState extends State<MushafVisualizerScreen> {
                       ],
                     ),
                   ] else ...[
-                    const Center(
+                    Center(
                       child: Padding(
-                        padding: EdgeInsets.symmetric(vertical: 8),
-                        child: Text('لم يتم تسميعه وتقييمه في الحلقة بعد', style: TextStyle(color: Colors.grey)),
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        child: Text(
+                          'لم يتم تسميعه وتقييمه في الحلقة بعد',
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.onSurfaceVariant,
+                          ),
+                        ),
                       ),
                     ),
                   ],

@@ -3,17 +3,21 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../../services/database_service.dart';
 import '../../services/qr_service.dart';
+import '../../services/student_learning_policy.dart';
 import '../../models/settings.dart';
 import '../../models/student.dart';
 import '../../models/daily_record.dart';
 import '../../models/vacation.dart';
+import '../../models/student_hold.dart';
 import '../../app/design_tokens.dart';
 import '../../utils/helpers.dart';
 import '../../utils/prayer_time_helper.dart';
 import '../../widgets/app_design_widgets.dart';
+import '../memorization/add_memorization_screen.dart';
 import '../memorization/recitation_screen.dart';
 import '../memorization/revision_screen.dart';
 import '../settings/add_vacation_screen.dart';
+import 'daily_closing_screen.dart';
 
 class AttendanceScreen extends StatefulWidget {
   final VoidCallback? onOpenMenu;
@@ -33,6 +37,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   bool _isLoading = true;
   String _filter = 'all'; // 'all', 'present', 'absent', 'excused', 'remaining'
   List<Vacation> _vacations = [];
+  Map<String, StudentHold> _activeHolds = {};
   bool _isSuspended = false;
   String? _suspensionReason;
 
@@ -43,66 +48,76 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   }
 
   Future<void> _loadData({bool silent = false}) async {
-    if (!silent) {
+    if (!silent && mounted) {
       setState(() => _isLoading = true);
     }
     try {
-      final students = await _db.getStudents(status: 'active');
-      final records = await _db.getDailyRecordsForDate(_selectedDate);
-      final settings = await _db.getSettings();
-      final vacations = await _db.getAllVacations();
-      final isSuspended = await _db.isDateSuspended(_selectedDate);
       final dateKey = _selectedDate.toIso8601String().split('T')[0];
-      final reasons = await _db.getSuspensionReasons();
+      final results = await Future.wait<dynamic>([
+        _db.getStudents(status: 'active'),
+        _db.getDailyRecordsForDate(_selectedDate),
+        _db.getSettings(),
+        _db.getAllVacations(),
+        _db.getActiveStudentHolds(date: _selectedDate),
+        _db.isDateSuspended(_selectedDate),
+        _db.getSuspensionReasons(),
+      ]);
+      final students = results[0] as List<Student>;
+      final records = results[1] as List<DailyRecord>;
+      final settings = results[2] as HalaqahSettings;
+      final vacations = results[3] as List<Vacation>;
+      final holds = results[4] as List<StudentHold>;
+      final isSuspended = results[5] as bool;
+      final reasons = results[6] as Map<String, String>;
       final suspensionReason = reasons[dateKey] ??
           (settings.isHolidayWeekday(_selectedDate) ? 'إجازة أسبوعية' : null);
-      
-      final recordsMap = <String, DailyRecord>{};
-      for (final record in records) {
-        recordsMap[record.studentId] = record;
+
+      final recordsMap = <String, DailyRecord>{
+        for (final record in records) record.studentId: record,
+      };
+      final approvedVacationByStudent = <String, Vacation>{};
+      for (final vacation in vacations) {
+        if (vacation.approved && vacation.isDateInVacation(_selectedDate)) {
+          approvedVacationByStudent.putIfAbsent(vacation.studentId, () => vacation);
+        }
       }
-      
-      // Auto-mark students on approved vacation as 'excused' if they have no record yet or are marked as 'absent'
+
+      final automaticExcusedRecords = <DailyRecord>[];
       for (final student in students) {
-        Vacation? activeVac;
-        for (final v in vacations) {
-          if (v.studentId == student.id && v.approved && v.isDateInVacation(_selectedDate)) {
-            activeVac = v;
-            break;
-          }
+        final activeVacation = approvedVacationByStudent[student.id];
+        if (activeVacation == null) continue;
+        final existing = recordsMap[student.id];
+        if (existing != null &&
+            existing.attendance.isNotEmpty &&
+            existing.attendance != 'absent') {
+          continue;
         }
-        
-        if (activeVac != null) {
-          final existing = recordsMap[student.id];
-          if (existing == null || 
-              existing.attendance == null || 
-              existing.attendance!.isEmpty || 
-              existing.attendance == 'absent') {
-            final reasonLabel = VacationReason.getLabel(activeVac.reason);
-            final newRecord = (existing ?? DailyRecord(
-              studentId: student.id,
-              date: _selectedDate,
-            )).copyWith(
-              attendance: 'excused',
-              notes: 'إجازة تلقائية: $reasonLabel',
-            );
-            await _db.saveDailyRecord(newRecord);
-            recordsMap[student.id] = newRecord;
-          }
-        }
+        final reasonLabel = VacationReason.getLabel(activeVacation.reason);
+        final newRecord = (existing ?? DailyRecord(
+          studentId: student.id,
+          date: _selectedDate,
+        )).copyWith(
+          attendance: 'excused',
+          notes: 'إجازة تلقائية: $reasonLabel',
+        );
+        automaticExcusedRecords.add(newRecord);
+        recordsMap[student.id] = newRecord;
       }
-      
+      await _db.saveDailyRecords(automaticExcusedRecords);
+
+      if (!mounted) return;
       setState(() {
         _students = students;
         _todayRecords = recordsMap;
         _settings = settings;
         _vacations = vacations;
+        _activeHolds = {for (final hold in holds) hold.studentId: hold};
         _isSuspended = isSuspended;
         _suspensionReason = suspensionReason;
         _isLoading = false;
       });
-    } catch (e) {
-      setState(() => _isLoading = false);
+    } catch (_) {
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -136,14 +151,170 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     }
 
     final record = _getOrCreateRecord(studentId);
+    final now = DateTime.now();
+    final arrival = DateTime(
+      _selectedDate.year,
+      _selectedDate.month,
+      _selectedDate.day,
+      now.hour,
+      now.minute,
+      now.second,
+    );
+    final classStart =
+        PrayerTimeHelper.calculateClassTimes(_settings, _selectedDate).start;
+    final isToday = Helpers.isSameDay(_selectedDate, DateTime.now());
+    final effectiveAttendance = attendance == 'present' &&
+            isToday &&
+            arrival.isAfter(classStart)
+        ? 'late'
+        : attendance;
+    final isPresent =
+        effectiveAttendance == 'present' || effectiveAttendance == 'late';
     final updated = record.copyWith(
-      attendance: attendance,
-      arrivalTime: attendance == 'present'
-          ? (record.arrivalTime ?? DateTime.now())
-          : null,
+      attendance: effectiveAttendance,
+      arrivalTime:
+          isPresent ? (record.arrivalTime ?? (isToday ? arrival : null)) : null,
+      clearArrivalTime: !isPresent,
+      clearAbsenceReason: isPresent,
+      clearAbsenceNote: isPresent,
+      clearActivityType: !isPresent,
+      clearActivityNote: !isPresent,
+      recitationExempt: !isPresent ? false : record.recitationExempt,
     );
     await _db.saveDailyRecord(updated);
-    _loadData(silent: true);
+    if (!mounted) return;
+    setState(() => _todayRecords[studentId] = updated);
+  }
+
+  Future<void> _clearPresentAttendance(String studentId) async {
+    final record = _todayRecords[studentId];
+    if (record == null ||
+        (record.attendance != 'present' && record.attendance != 'late')) {
+      return;
+    }
+
+    // Undo only the attendance mark itself. Learning, activity and exemption
+    // data may have been entered independently, so never erase them here.
+    final updated = record.copyWith(
+      attendance: 'unmarked',
+      clearArrivalTime: true,
+      clearAbsenceReason: true,
+      clearAbsenceNote: true,
+    );
+    await _db.saveDailyRecord(updated);
+    if (!mounted) return;
+    setState(() => _todayRecords[studentId] = updated);
+  }
+
+  Future<void> _showActivityDialog(
+    Student student,
+    DailyRecord? existing,
+  ) async {
+    var selectedType = existing?.activityType ?? DailyActivityType.activity;
+    final notesController = TextEditingController(text: existing?.activityNote ?? '');
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text('نشاط ${student.name}'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'يُحسب الطالب حاضرًا، ويُعفى من متطلب التسميع لهذا اليوم ما لم يُسجل له تسميع فعلي.',
+                ),
+                const SizedBox(height: 14),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: DailyActivityType.labels.entries.map((entry) {
+                    return ChoiceChip(
+                      label: Text(entry.value),
+                      selected: selectedType == entry.key,
+                      onSelected: (_) =>
+                          setDialogState(() => selectedType = entry.key),
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 14),
+                TextField(
+                  controller: notesController,
+                  maxLines: 2,
+                  decoration: const InputDecoration(
+                    labelText: 'تفاصيل النشاط (اختياري)',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            if (existing?.hasActivity == true)
+              TextButton(
+                onPressed: () => Navigator.pop(context, 'remove'),
+                child: const Text('إزالة النشاط'),
+              ),
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('إلغاء'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, 'save'),
+              child: const Text('تحضير ضمن النشاط'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (result == null) {
+      notesController.dispose();
+      return;
+    }
+
+    final record = existing ?? _getOrCreateRecord(student.id);
+    late final DailyRecord savedRecord;
+    if (result == 'remove') {
+      savedRecord = record.copyWith(
+        clearActivityType: true,
+        clearActivityNote: true,
+        recitationExempt: false,
+      );
+      await _db.saveDailyRecord(savedRecord);
+    } else {
+      final now = DateTime.now();
+      final isToday = Helpers.isSameDay(_selectedDate, now);
+      final arrival = DateTime(
+        _selectedDate.year,
+        _selectedDate.month,
+        _selectedDate.day,
+        now.hour,
+        now.minute,
+        now.second,
+      );
+      final classStart =
+          PrayerTimeHelper.calculateClassTimes(_settings, _selectedDate).start;
+      final attendance = isToday && arrival.isAfter(classStart)
+          ? 'late'
+          : 'present';
+      savedRecord = record.copyWith(
+        attendance: attendance,
+        arrivalTime: record.arrivalTime ?? (isToday ? arrival : null),
+        clearAbsenceReason: true,
+        clearAbsenceNote: true,
+        activityType: selectedType,
+        activityNote: notesController.text.trim().isEmpty
+            ? null
+            : notesController.text.trim(),
+        clearActivityNote: notesController.text.trim().isEmpty,
+        recitationExempt: true,
+      );
+      await _db.saveDailyRecord(savedRecord);
+    }
+    notesController.dispose();
+    if (!mounted) return;
+    setState(() => _todayRecords[student.id] = savedRecord);
   }
 
   Future<void> _showQuickVacationDialog(Student student) async {
@@ -240,7 +411,11 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
         notes: 'إجازة: ${VacationReason.getLabel(selectedReason)}',
       );
       await _db.saveDailyRecord(updated);
-      _loadData(silent: true);
+      if (!mounted) return;
+      setState(() {
+        _vacations = [vacation, ..._vacations];
+        _todayRecords[student.id] = updated;
+      });
     }
   }
 
@@ -286,15 +461,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                 await _db.getStudent(qrToken);
             if (student != null && mounted) {
               Navigator.pop(context);
-              await _updateAttendance(student.id, 'present');
-              if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('تم تحضير ${student.name}'),
-                    backgroundColor: Colors.green,
-                  ),
-                );
-              }
+              await _showQrQuickActions(student);
             }
           },
         ),
@@ -302,18 +469,157 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     );
   }
 
+  Future<void> _showQrQuickActions(Student student) async {
+    if (!mounted) return;
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const CircleAvatar(child: Icon(Icons.person_outline)),
+                title: Text(student.name, style: const TextStyle(fontWeight: FontWeight.bold)),
+                subtitle: Text('وصول سريع عبر رمز الطالب · ${student.displayCode}'),
+              ),
+              const SizedBox(height: 4),
+              GridView.count(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                crossAxisCount: 3,
+                childAspectRatio: 1.15,
+                mainAxisSpacing: 8,
+                crossAxisSpacing: 8,
+                children: [
+                  _qrAction(context, 'present', 'تحضير', Icons.how_to_reg, Colors.green),
+                  _qrAction(context, 'absent', 'غياب', Icons.person_off_outlined, Colors.red),
+                  _qrAction(context, 'excused', 'استئذان', Icons.event_busy_outlined, Colors.blue),
+                  _qrAction(context, 'memorization_session', 'جلسة تسميع', Icons.record_voice_over_outlined, Colors.teal),
+                  _qrAction(context, 'memorization_direct', 'حفظ مباشر', Icons.fact_check_outlined, Colors.green),
+                  _qrAction(context, 'revision', 'تسجيل مراجعة', Icons.replay, Colors.indigo),
+                  _qrAction(context, 'vacation', 'إجازة', Icons.beach_access_outlined, Colors.orange),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (action == null || !mounted) return;
+    if (const {'present', 'absent', 'excused'}.contains(action)) {
+      await _updateAttendance(student.id, action);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('تم تحديث حالة ${student.name}')),
+        );
+      }
+      return;
+    }
+    if (const {
+      'memorization_session',
+      'memorization_direct',
+      'revision',
+    }.contains(action)) {
+      if (!await _canOpenRecitation(student) || !mounted) return;
+    }
+    if (const {
+      'memorization_session',
+      'memorization_direct',
+    }.contains(action) &&
+        !StudentLearningPolicy.canReceiveNewMemorization(student)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '${student.name} أتم حفظ القرآن؛ المتاح له من رمز QR هو المراجعة فقط.',
+          ),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+    if (action == 'memorization_session') {
+      await Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => RecitationScreen(student: student)),
+      );
+    } else if (action == 'memorization_direct') {
+      await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => AddMemorizationScreen(student: student),
+        ),
+      );
+    } else if (action == 'revision') {
+      await Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => RevisionScreen(student: student)),
+      );
+    } else if (action == 'vacation') {
+      await Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => AddVacationScreen(student: student)),
+      );
+    }
+    await _loadData(silent: true);
+  }
+
+  Widget _qrAction(
+    BuildContext sheetContext,
+    String value,
+    String label,
+    IconData icon,
+    Color color,
+  ) => InkWell(
+        onTap: () => Navigator.pop(sheetContext, value),
+        borderRadius: BorderRadius.circular(14),
+        child: Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.08),
+            border: Border.all(color: color.withValues(alpha: 0.28)),
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, color: color),
+              const SizedBox(height: 6),
+              Text(label, textAlign: TextAlign.center, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+            ],
+          ),
+        ),
+      );
+
   @override
   Widget build(BuildContext context) {
-    final presentCount = _todayRecords.values
-        .where((r) => r.attendance == 'present' || r.attendance == 'late')
-        .length;
-    final absentCount = _todayRecords.values
-        .where((r) => r.attendance == 'absent')
-        .length;
-    final excusedCount = _todayRecords.values
-        .where((r) => r.attendance == 'excused')
-        .length;
-    final remainingCount = _students.length - presentCount - absentCount - excusedCount;
+    bool isPaused(Student student) =>
+        _activeHolds[student.id]?.exemptsAttendance == true;
+    final presentCount = _students.where((student) {
+      if (isPaused(student)) return false;
+      final attendance = _todayRecords[student.id]?.attendance;
+      return attendance == 'present' || attendance == 'late';
+    }).length;
+    final absentCount = _students.where((student) {
+      if (isPaused(student)) return false;
+      return _todayRecords[student.id]?.attendance == 'absent';
+    }).length;
+    final excusedCount = _students.where((student) {
+      if (isPaused(student)) return false;
+      return _todayRecords[student.id]?.attendance == 'excused';
+    }).length;
+    final pausedCount = _students.where(isPaused).length;
+    final remainingCount = (_students.length -
+            pausedCount -
+            presentCount -
+            absentCount -
+            excusedCount)
+        .clamp(0, _students.length)
+        .toInt();
 
     return Scaffold(
       appBar: AppBar(
@@ -326,6 +632,16 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
               ),
         title: const Text('الحضور اليومي'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.fact_check_outlined),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => DailyClosingScreen(initialDate: _selectedDate),
+              ),
+            ).then((_) => _loadData(silent: true)),
+            tooltip: 'مراجعة وإغلاق اليوم',
+          ),
           IconButton(
             icon: Icon(_isSuspended ? Icons.play_circle_fill : Icons.pause_circle_filled, color: _isSuspended ? Colors.green : Colors.orange),
             onPressed: _toggleSuspension,
@@ -369,7 +685,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
 
     return Container(
       padding: const EdgeInsets.all(AppSpacing.sm),
-      color: scheme.primaryContainer.withOpacity(0.45),
+      color: scheme.primaryContainer.withValues(alpha: 0.45),
       child: Column(
         children: [
           Row(
@@ -391,12 +707,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                   decoration: BoxDecoration(
                     color: scheme.surface,
                     borderRadius: BorderRadius.circular(AppRadii.sm),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.1),
-                        blurRadius: 4,
-                      ),
-                    ],
+                    border: Border.all(color: scheme.outlineVariant),
                   ),
                   child: Column(
                     children: [
@@ -471,7 +782,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
           margin: const EdgeInsets.symmetric(horizontal: 2),
           padding: const EdgeInsets.symmetric(vertical: 6),
           decoration: BoxDecoration(
-            color: isSelected ? color.withOpacity(0.15) : Colors.transparent,
+            color: isSelected ? color.withValues(alpha: 0.15) : Colors.transparent,
             borderRadius: BorderRadius.circular(10),
             border: Border.all(
               color: isSelected ? color : Colors.transparent,
@@ -483,7 +794,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                 decoration: BoxDecoration(
-                  color: color.withOpacity(isSelected ? 0.35 : 0.1),
+                  color: color.withValues(alpha: isSelected ? 0.35 : 0.1),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text(
@@ -500,7 +811,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                 label,
                 style: TextStyle(
                   fontSize: 10,
-                  color: Colors.grey[600],
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
                   fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
                 ),
               ),
@@ -523,23 +834,27 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     switch (_filter) {
       case 'present':
         return _students.where((s) {
+          if (_activeHolds[s.id]?.exemptsAttendance == true) return false;
           final r = _todayRecords[s.id];
           return r?.attendance == 'present' || r?.attendance == 'late';
         }).toList();
       case 'absent':
         return _students.where((s) {
+          if (_activeHolds[s.id]?.exemptsAttendance == true) return false;
           final r = _todayRecords[s.id];
           return r?.attendance == 'absent';
         }).toList();
       case 'excused':
         return _students.where((s) {
+          if (_activeHolds[s.id]?.exemptsAttendance == true) return false;
           final r = _todayRecords[s.id];
           return r?.attendance == 'excused';
         }).toList();
       case 'remaining':
         return _students.where((s) {
+          if (_activeHolds[s.id]?.exemptsAttendance == true) return false;
           final r = _todayRecords[s.id];
-          return r == null || r.attendance == null || r.attendance!.isEmpty;
+          return r == null || r.attendance.isEmpty || r.attendance == 'unmarked';
         }).toList();
       case 'all':
       default:
@@ -556,11 +871,11 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(Icons.filter_list_off, size: 48, color: Colors.grey[400]),
+              Icon(Icons.filter_list_off, size: 48, color: Theme.of(context).colorScheme.onSurfaceVariant),
               const SizedBox(height: 8),
               Text(
                 'لا يوجد طلاب في هذا التصنيف',
-                style: TextStyle(color: Colors.grey[600]),
+                style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
               ),
             ],
           ),
@@ -583,6 +898,8 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
 
   Widget _buildStudentCard(Student student, DailyRecord? record) {
     final attendance = record?.attendance ?? '';
+    final activeHold = _activeHolds[student.id];
+    final isFullPause = activeHold?.exemptsAttendance == true;
     
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -595,7 +912,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
               children: [
                 CircleAvatar(
                   radius: 20,
-                  backgroundColor: Theme.of(context).primaryColor.withOpacity(0.1),
+                  backgroundColor: Theme.of(context).primaryColor.withValues(alpha: 0.1),
                   child: Text(
                     student.name.isNotEmpty ? student.name[0] : '؟',
                     style: TextStyle(color: Theme.of(context).primaryColor),
@@ -615,7 +932,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                           '${GenderHelper.arrivalWord(_settings.gender)}: ${Helpers.formatTime(record!.arrivalTime!, format: _settings.timeFormat, context: context)}' + (isLate(record) ? ' (${GenderHelper.lateWord(_settings.gender)})' : ''),
                           style: TextStyle(
                             fontSize: 12, 
-                            color: isLate(record) ? Colors.orange : Colors.grey[600],
+                            color: isLate(record) ? Colors.orange : Theme.of(context).colorScheme.onSurfaceVariant,
                             fontWeight: isLate(record) ? FontWeight.bold : FontWeight.normal,
                           ),
                         ),
@@ -648,12 +965,56 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                         }
                         return const SizedBox.shrink();
                       })(),
+                      if (isFullPause)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.pause_circle_outline,
+                                  size: 14, color: Colors.blueGrey),
+                              const SizedBox(width: 4),
+                              Expanded(
+                                child: Text(
+                                  'متوقف مؤقتًا: ${activeHold!.reason}',
+                                  style: const TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.blueGrey,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      if (record?.hasActivity == true)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.celebration_outlined,
+                                  size: 14, color: Colors.purple),
+                              const SizedBox(width: 4),
+                              Expanded(
+                                child: Text(
+                                  '${DailyActivityType.label(record!.activityType)} — معفى من التسميع اليوم',
+                                  style: const TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.purple,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                     ],
                   ),
                 ),
                 IconButton(
                   icon: const Icon(Icons.more_vert),
-                  onPressed: _isSuspended ? null : () => _showStudentOptions(student, record),
+                  onPressed: _isSuspended || isFullPause
+                      ? null
+                      : () => _showStudentOptions(student, record),
                 ),
               ],
             ),
@@ -666,6 +1027,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                   attendance,
                   Colors.green,
                   student.id,
+                  disabled: isFullPause,
                 ),
                 const SizedBox(width: 8),
                 _buildAttendanceButton(
@@ -674,6 +1036,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                   attendance,
                   Colors.red,
                   student.id,
+                  disabled: isFullPause,
                 ),
                 const SizedBox(width: 8),
                 _buildAttendanceButton(
@@ -682,10 +1045,29 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                   attendance,
                   Colors.orange,
                   student.id,
+                  disabled: isFullPause,
                 ),
               ],
             ),
-            if (attendance == 'present' || attendance == 'late') ...[
+            if (!isFullPause) ...[
+              const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: _isSuspended
+                      ? null
+                      : () => _showActivityDialog(student, record),
+                  icon: Icon(record?.hasActivity == true
+                      ? Icons.celebration
+                      : Icons.celebration_outlined),
+                  label: Text(record?.hasActivity == true
+                      ? 'تعديل نشاط: ${DailyActivityType.label(record!.activityType)}'
+                      : 'تحضير ضمن نشاط / فعالية'),
+                ),
+              ),
+            ],
+            if (!isFullPause &&
+                (attendance == 'present' || attendance == 'late')) ...[
               const SizedBox(height: 8),
               Row(
                 children: [
@@ -733,24 +1115,34 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     String value,
     String current,
     Color color,
-    String studentId,
-  ) {
-    final isSelected = current == value;
+    String studentId, {
+    bool disabled = false,
+  }) {
+    final isSelected = current == value ||
+        (value == 'present' && current == 'late');
     return Expanded(
       child: InkWell(
-        onTap: _isSuspended ? null : () => _updateAttendance(studentId, value),
+        onTap: _isSuspended || disabled
+            ? null
+            : () {
+                if (value == 'present' && isSelected) {
+                  _clearPresentAttendance(studentId);
+                } else {
+                  _updateAttendance(studentId, value);
+                }
+              },
         borderRadius: BorderRadius.circular(8),
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 10),
           decoration: BoxDecoration(
-            color: isSelected ? color : Colors.grey[200],
+            color: isSelected ? color : Theme.of(context).colorScheme.surfaceContainer,
             borderRadius: BorderRadius.circular(8),
           ),
           child: Center(
             child: Text(
               label,
               style: TextStyle(
-                color: isSelected ? Colors.white : Colors.grey[700],
+                color: isSelected ? Colors.white : Theme.of(context).colorScheme.onSurface,
                 fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
               ),
             ),
@@ -768,11 +1160,11 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
         padding: const EdgeInsets.symmetric(vertical: 8),
         decoration: BoxDecoration(
           color: isActive
-              ? Theme.of(context).primaryColor.withOpacity(0.1)
-              : Colors.grey[100],
+              ? Theme.of(context).primaryColor.withValues(alpha: 0.1)
+              : Theme.of(context).colorScheme.surfaceContainerLow,
           borderRadius: BorderRadius.circular(8),
           border: Border.all(
-            color: isActive ? Theme.of(context).primaryColor : Colors.grey[300]!,
+            color: isActive ? Theme.of(context).primaryColor : Theme.of(context).colorScheme.outlineVariant,
           ),
         ),
         child: Row(
@@ -789,7 +1181,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
               style: TextStyle(
                 color: isActive
                     ? Theme.of(context).primaryColor
-                    : Colors.grey[600],
+                    : Theme.of(context).colorScheme.onSurfaceVariant,
               ),
             ),
           ],
@@ -798,10 +1190,8 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     );
   }
 
-  // الطالب الذي ختم القرآن: إجمالي محفوظه يساوي أو يتجاوز آيات المصحف (6236)
-  bool _hasFinishedQuran(Student student) {
-    return student.totalMemorized >= 6236;
-  }
+  bool _hasFinishedQuran(Student student) =>
+      StudentLearningPolicy.hasCompletedQuran(student);
 
   Future<void> _openMemorization(Student student) async {
     if (!await _canOpenRecitation(student)) return;
@@ -932,34 +1322,30 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
       builder: (context) => StatefulBuilder(
         builder: (context, setState) => AlertDialog(
           title: const Text('سبب الغياب'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              RadioListTile<String>(
-                title: const Text('مرض'),
-                value: 'sick',
-                groupValue: selectedReason,
-                onChanged: (v) => setState(() => selectedReason = v),
-              ),
-              RadioListTile<String>(
-                title: const Text('عمل/ظرف'),
-                value: 'work',
-                groupValue: selectedReason,
-                onChanged: (v) => setState(() => selectedReason = v),
-              ),
-              RadioListTile<String>(
-                title: const Text('بدون عذر'),
-                value: 'no_excuse',
-                groupValue: selectedReason,
-                onChanged: (v) => setState(() => selectedReason = v),
-              ),
-              RadioListTile<String>(
-                title: const Text('أخرى'),
-                value: 'other',
-                groupValue: selectedReason,
-                onChanged: (v) => setState(() => selectedReason = v),
-              ),
-            ],
+          content: RadioGroup<String>(
+            groupValue: selectedReason,
+            onChanged: (value) => setState(() => selectedReason = value),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: const [
+                RadioListTile<String>(
+                  title: Text('مرض'),
+                  value: 'sick',
+                ),
+                RadioListTile<String>(
+                  title: Text('عمل/ظرف'),
+                  value: 'work',
+                ),
+                RadioListTile<String>(
+                  title: Text('بدون عذر'),
+                  value: 'no_excuse',
+                ),
+                RadioListTile<String>(
+                  title: Text('أخرى'),
+                  value: 'other',
+                ),
+              ],
+            ),
           ),
           actions: [
             TextButton(
@@ -990,8 +1376,8 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
-        color: Colors.orange.withOpacity(0.15),
-        border: Border(bottom: BorderSide(color: Colors.orange.withOpacity(0.3))),
+        color: Colors.orange.withValues(alpha: 0.15),
+        border: Border(bottom: BorderSide(color: Colors.orange.withValues(alpha: 0.3))),
       ),
       child: Row(
         children: [
@@ -1026,36 +1412,45 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   }
 
   Future<void> _toggleSuspension() async {
-    final dateStr = _selectedDate.toIso8601String().split('T')[0];
-    final suspendedDates = await _db.getSuspendedDates();
     if (_isSuspended) {
-      suspendedDates.remove(dateStr);
-      await _db.saveSuspendedDates(suspendedDates);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تم إلغاء تعليق الحلقة لهذا اليوم')),
+      await _db.setStudySuspension(
+        date: _selectedDate,
+        suspended: false,
       );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('تم إلغاء تعليق الحلقة لهذا اليوم')),
+        );
+      }
     } else {
       final result = await _showSuspensionDialog();
       if (result == null) return;
 
       final reason = result['reason'] as String;
       final days = result['days'] as int;
-
-      final db = await _db.database;
+      var removedAttendance = 0;
+      var removedPoints = 0;
       for (int i = 0; i < days; i++) {
         final d = _selectedDate.add(Duration(days: i));
-        final dStr = d.toIso8601String().split('T')[0];
-        if (!suspendedDates.contains(dStr)) {
-          suspendedDates.add(dStr);
-        }
-        await _db.setSuspensionReason(dStr, reason);
-        await db.delete('daily_records', where: 'date = ?', whereArgs: [dStr]);
+        final cleanup = await _db.setStudySuspension(
+          date: d,
+          suspended: true,
+          reason: reason,
+        );
+        removedAttendance += cleanup['deleted_attendance'] ?? 0;
+        removedPoints += cleanup['deleted_points'] ?? 0;
       }
-      await _db.saveSuspendedDates(suspendedDates);
 
       if (mounted) {
+        final cleanupText = removedAttendance + removedPoints == 0
+            ? ''
+            : ' وتم التراجع عن $removedAttendance غياب تلقائي و$removedPoints عقوبة تلقائية.';
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('تم تعليق الدراسة ${days > 1 ? 'لـ $days أيام' : 'لهذا اليوم'} بنجاح 🗓️')),
+          SnackBar(
+            content: Text(
+              'تم تعليق الدراسة ${days > 1 ? 'لـ $days أيام' : 'لهذا اليوم'} بنجاح 🗓️$cleanupText',
+            ),
+          ),
         );
       }
     }
@@ -1113,7 +1508,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                 const SizedBox(height: 4),
                 Text(
                   'لن يُحتسب حضور أو غياب أو نقاط سلبية خلال أيام التعليق.',
-                  style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                  style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.onSurfaceVariant),
                 ),
               ],
             ),
@@ -1205,6 +1600,7 @@ class _QrScannerSheetState extends State<_QrScannerSheet> {
               final qrToken = QrService.decodeQrData(code);
               if (qrToken != null) {
                 setState(() => _isProcessing = true);
+                _controller?.stop();
                 widget.onStudentScanned(qrToken);
               }
             },
@@ -1214,7 +1610,7 @@ class _QrScannerSheetState extends State<_QrScannerSheet> {
           padding: const EdgeInsets.all(16),
           child: Text(
             'وجه الكاميرا نحو QR Code الخاص بالطالب',
-            style: TextStyle(color: Colors.grey[600]),
+            style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
           ),
         ),
       ],

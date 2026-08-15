@@ -44,6 +44,7 @@ class HalaqahSettings {
   String ramadanFixedEndTime; // e.g. '22:30'
 
   Map<String, int> pointsConfig;
+  String recitationPointsRounding; // nearest, floor, ceil
 
   // أيام العطلة الأسبوعية (تُعتبر معطّلة تلقائياً). تستخدم ترقيم DateTime.weekday: الإثنين=1 ... الأحد=7، الجمعة=5.
   List<int> holidayWeekdays;
@@ -92,6 +93,7 @@ class HalaqahSettings {
     this.ramadanFixedStartTime = '21:00',
     this.ramadanFixedEndTime = '22:30',
     Map<String, int>? pointsConfig,
+    this.recitationPointsRounding = 'nearest',
     List<int>? holidayWeekdays,
     this.backupReminderEnabled = true,
     this.backupReminderIntervalDays = 3,
@@ -101,7 +103,7 @@ class HalaqahSettings {
     this.cloudBackupEnabled = false,
     this.cloudBackupRetentionCount = 30,
     this.auditLogRetentionDays = 730,
-  })  : pointsConfig = pointsConfig ?? Map<String, int>.from(defaultPointsConfig),
+  })  : pointsConfig = _balancedPointsConfig(pointsConfig),
         holidayWeekdays = holidayWeekdays ?? [5];
 
   static Map<String, int> defaultPointsConfig = {
@@ -111,12 +113,30 @@ class HalaqahSettings {
     'revision_complete': 3,
     'monthly_exam_pass': 10,
     'good_appearance': 1,
-    'late_penalty': -2,
+    'late_penalty': -1,
     'incomplete_penalty': -3,
-    'unexcused_absence': -5,
-    'appearance_violation': -3,
-    'no_thobe': -3,
+    'unexcused_absence': -10,
+    'appearance_violation': -2,
+    'no_thobe': -2,
   };
+
+  static Map<String, int> _balancedPointsConfig(Map<String, int>? value) {
+    final config = Map<String, int>.from(defaultPointsConfig)
+      ..addAll(value ?? const {});
+    int penaltyMagnitude(String key) =>
+        (config[key] ?? defaultPointsConfig[key] ?? 0).abs();
+    // الغياب بلا عذر يجب أن يبقى أشد من اجتماع المخالفات اليومية المعتادة.
+    final ordinaryDailyMaximum = penaltyMagnitude('late_penalty') +
+        penaltyMagnitude('incomplete_penalty') +
+        penaltyMagnitude('no_thobe') +
+        1;
+    final currentAbsence = penaltyMagnitude('unexcused_absence');
+    config['unexcused_absence'] =
+        -(currentAbsence < ordinaryDailyMaximum
+            ? ordinaryDailyMaximum
+            : currentAbsence);
+    return config;
+  }
 
   Map<String, dynamic> toMap() => {
         'halaqah_name': halaqahName,
@@ -156,6 +176,7 @@ class HalaqahSettings {
         'points_config': pointsConfig.entries
             .map((e) => '${e.key}:${e.value}')
             .join(','),
+        'recitation_points_rounding': recitationPointsRounding,
         'holiday_weekdays': holidayWeekdays.join(','),
         'backup_reminder_enabled': backupReminderEnabled ? 1 : 0,
         'backup_reminder_interval_days': backupReminderIntervalDays,
@@ -246,6 +267,10 @@ class HalaqahSettings {
       ramadanFixedStartTime: map['ramadan_fixed_start_time'] ?? '21:00',
       ramadanFixedEndTime: map['ramadan_fixed_end_time'] ?? '22:30',
       pointsConfig: points.isEmpty ? null : points,
+      recitationPointsRounding: const {'nearest', 'floor', 'ceil'}
+              .contains(map['recitation_points_rounding'])
+          ? map['recitation_points_rounding'].toString()
+          : 'nearest',
       holidayWeekdays: holidayDays,
       backupReminderEnabled:
           parseBool(map['backup_reminder_enabled'], true),
@@ -299,6 +324,7 @@ class HalaqahSettings {
     String? ramadanFixedStartTime,
     String? ramadanFixedEndTime,
     Map<String, int>? pointsConfig,
+    String? recitationPointsRounding,
     List<int>? holidayWeekdays,
     bool? backupReminderEnabled,
     int? backupReminderIntervalDays,
@@ -347,6 +373,8 @@ class HalaqahSettings {
       ramadanFixedStartTime: ramadanFixedStartTime ?? this.ramadanFixedStartTime,
       ramadanFixedEndTime: ramadanFixedEndTime ?? this.ramadanFixedEndTime,
       pointsConfig: pointsConfig ?? this.pointsConfig,
+      recitationPointsRounding:
+          recitationPointsRounding ?? this.recitationPointsRounding,
       holidayWeekdays: holidayWeekdays ?? this.holidayWeekdays,
       backupReminderEnabled:
           backupReminderEnabled ?? this.backupReminderEnabled,

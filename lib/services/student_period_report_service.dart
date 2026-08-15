@@ -1,13 +1,17 @@
 import '../models/behavior_point.dart';
 import '../models/daily_record.dart';
+import '../models/exam.dart';
 import '../models/memorization.dart';
 import '../models/student.dart';
 import '../models/student_period_report.dart';
 import '../models/student_hold.dart';
 import '../models/settings.dart';
 import '../models/vacation.dart';
+import '../models/fund_transaction.dart';
 import 'database_service.dart';
 import 'quran_service.dart';
+import 'daily_excellence_service.dart';
+import '../utils/prayer_time_helper.dart';
 
 class StudentPeriodReportService {
   final DatabaseService _db;
@@ -38,6 +42,8 @@ class StudentPeriodReportService {
       _db.getStudentHoldsInRange(student.id, start, end),
       _db.getSuspendedDates(),
       _db.getSuspensionReasons(),
+      _db.getStudentFundTransactionsInRange(student.id, start, end),
+      _db.getStudentExamsInRange(student.id, start, end),
       _db.getSettings(),
     ]);
 
@@ -52,7 +58,10 @@ class StudentPeriodReportService {
       holds: results[4] as List<StudentHold>,
       suspendedDates: (results[5] as List<String>).toSet(),
       suspensionReasons: results[6] as Map<String, String>,
-      holidayWeekdays: (results[7] as HalaqahSettings).holidayWeekdays,
+      fundTransactions: results[7] as List<FundTransaction>,
+      exams: results[8] as List<Exam>,
+      settings: results[9] as HalaqahSettings,
+      holidayWeekdays: (results[9] as HalaqahSettings).holidayWeekdays,
       quran: _quran,
     );
   }
@@ -71,44 +80,91 @@ class StudentPeriodReportService {
     }
     if (students.isEmpty) return const [];
 
-    final common = await Future.wait<dynamic>([
+    // Bulk-load the period once. The previous implementation issued seven
+    // student-specific queries for every student, which made monthly/all-student
+    // reports progressively slower as a halaqah grew.
+    final data = await Future.wait<dynamic>([
       _db.getSuspendedDates(),
       _db.getSuspensionReasons(),
       _db.getSettings(),
+      _db.getDailyRecordsInRange(start, end),
+      _db.getMemorizationInRange(start, end),
+      _db.getBehaviorPointsInRange(start, end),
+      _db.getVacationsInRange(start, end),
+      _db.getAllStudentHoldsInRange(start, end),
+      _db.getFundTransactionsInRange(start, end),
+      _db.getExamsInRange(start, end),
     ]);
-    final suspendedDates = (common[0] as List<String>).toSet();
-    final suspensionReasons = common[1] as Map<String, String>;
-    final holidayWeekdays = (common[2] as HalaqahSettings).holidayWeekdays;
-    final reports = <StudentPeriodReport>[];
+    final suspendedDates = (data[0] as List<String>).toSet();
+    final suspensionReasons = data[1] as Map<String, String>;
+    final settings = data[2] as HalaqahSettings;
+    final recordsByStudent = _groupByStudent<DailyRecord>(
+      data[3] as List<DailyRecord>,
+      (item) => item.studentId,
+    );
+    final progressByStudent = _groupByStudent<MemorizationProgress>(
+      data[4] as List<MemorizationProgress>,
+      (item) => item.studentId,
+    );
+    final pointsByStudent = _groupByStudent<BehaviorPoint>(
+      data[5] as List<BehaviorPoint>,
+      (item) => item.studentId,
+    );
+    final vacationsByStudent = _groupByStudent<Vacation>(
+      data[6] as List<Vacation>,
+      (item) => item.studentId,
+    );
+    final holdsByStudent = _groupByStudent<StudentHold>(
+      data[7] as List<StudentHold>,
+      (item) => item.studentId,
+    );
+    final fundByStudent = _groupByStudent<FundTransaction>(
+      data[8] as List<FundTransaction>,
+      (item) => item.studentId ?? '',
+    );
+    final examsByStudent = _groupByStudent<Exam>(
+      data[9] as List<Exam>,
+      (item) => item.studentId,
+    );
 
+    final reports = <StudentPeriodReport>[];
     for (var index = 0; index < students.length; index++) {
       final student = students[index];
-      final data = await Future.wait<dynamic>([
-        _db.getStudentRecordsInRange(student.id, start, end),
-        _db.getStudentMemorizationInRange(student.id, start, end),
-        _db.getStudentBehaviorPointsInRange(student.id, start, end),
-        _db.getStudentVacationsInRange(student.id, start, end),
-        _db.getStudentHoldsInRange(student.id, start, end),
-      ]);
       reports.add(
         calculate(
           student: student,
           startDate: start,
           endDate: end,
-          records: data[0] as List<DailyRecord>,
-          progress: data[1] as List<MemorizationProgress>,
-          points: data[2] as List<BehaviorPoint>,
-          vacations: data[3] as List<Vacation>,
-          holds: data[4] as List<StudentHold>,
+          records: recordsByStudent[student.id] ?? const <DailyRecord>[],
+          progress: progressByStudent[student.id] ?? const <MemorizationProgress>[],
+          points: pointsByStudent[student.id] ?? const <BehaviorPoint>[],
+          vacations: vacationsByStudent[student.id] ?? const <Vacation>[],
+          holds: holdsByStudent[student.id] ?? const <StudentHold>[],
+          fundTransactions: fundByStudent[student.id] ?? const <FundTransaction>[],
+          exams: examsByStudent[student.id] ?? const <Exam>[],
           suspendedDates: suspendedDates,
           suspensionReasons: suspensionReasons,
-          holidayWeekdays: holidayWeekdays,
+          holidayWeekdays: settings.holidayWeekdays,
+          settings: settings,
           quran: _quran,
         ),
       );
       onProgress?.call(index + 1, students.length);
     }
-    return reports;
+    return _withTopThreeRanks(reports);
+  }
+
+  static Map<String, List<T>> _groupByStudent<T>(
+    Iterable<T> items,
+    String Function(T item) studentIdOf,
+  ) {
+    final result = <String, List<T>>{};
+    for (final item in items) {
+      final studentId = studentIdOf(item);
+      if (studentId.isEmpty) continue;
+      result.putIfAbsent(studentId, () => <T>[]).add(item);
+    }
+    return result;
   }
 
   static StudentPeriodReport calculate({
@@ -120,11 +176,15 @@ class StudentPeriodReportService {
     required List<BehaviorPoint> points,
     required List<Vacation> vacations,
     List<StudentHold> holds = const [],
+    List<FundTransaction> fundTransactions = const [],
+    List<Exam> exams = const [],
     required Set<String> suspendedDates,
     required Map<String, String> suspensionReasons,
     required List<int> holidayWeekdays,
+    HalaqahSettings? settings,
     required QuranService quran,
   }) {
+    final surahsById = {for (final surah in quran.surahs) surah.number: surah};
     final recordsByDate = {for (final item in records) _key(item.date): item};
     final progressByDate = <String, List<MemorizationProgress>>{};
     for (final item in progress) {
@@ -161,6 +221,7 @@ class StudentPeriodReportService {
       final dailyPoints = pointsByDate[key] ?? const [];
       final suspended = suspendedDates.contains(key);
       final weeklyHoliday = holidayWeekdays.contains(date.weekday);
+      final lateMinutes = _lateMinutes(record, settings);
       final qualityItems = [...memorization, ...revision];
       final quality = qualityItems.isEmpty
           ? 0.0
@@ -173,16 +234,27 @@ class StudentPeriodReportService {
       var score = 0;
       if (!suspended && !weeklyHoliday && record != null && hold == null) {
         score += record.attendance == 'present'
-            ? 30
+            ? 25
             : record.attendance == 'late'
-                ? 24
+                ? 20
                 : record.attendance == 'excused'
-                    ? 18
+                    ? 10
                     : 0;
-        if (attended && heard) score += 35;
-        if (attended && reviewed) score += 15;
-        if (qualityItems.isNotEmpty) score += ((quality / 5) * 15).round();
-        score += pointBalance.clamp(-5, 5).toInt();
+        if (attended && heard) {
+          var actual = DailyExcellenceService.calculateActualAmount(
+            progress: memorization,
+            surahs: surahsById,
+            unit: student.planType,
+          );
+          if (actual <= 0 && record.memorizationDone) {
+            actual = record.memorizationAmount.toDouble();
+          }
+          final ratio = actual / (student.planAmount <= 0 ? 1 : student.planAmount);
+          score += (ratio.clamp(0, 1) * 40).round();
+        }
+        if (attended && reviewed) score += 10;
+        if (qualityItems.isNotEmpty) score += ((quality / 5) * 25).round();
+        score += pointBalance.clamp(-10, 10).toInt();
       }
       days.add(StudentPeriodDay(
         date: date,
@@ -196,6 +268,7 @@ class StudentPeriodReportService {
         isWeeklyHoliday: weeklyHoliday,
         suspensionReason: suspensionReasons[key],
         performanceScore: score.clamp(0, 100).toInt(),
+        lateMinutes: lateMinutes,
       ));
     }
 
@@ -205,6 +278,14 @@ class StudentPeriodReportService {
     final scoredDays = days
         .where((day) => day.isRecitationRequiredDay && day.record != null)
         .toList();
+    final violations = points
+        .where((item) =>
+            item.points < 0 &&
+            !BehaviorReason.isAttendancePenalty(item.reason))
+        .toList();
+    final settledNegativePoints = fundTransactions
+        .where((item) => item.type == 'penalty')
+        .fold<int>(0, (sum, item) => sum + item.settledNegativePoints);
 
     return StudentPeriodReport(
       student: student,
@@ -216,16 +297,16 @@ class StudentPeriodReportService {
       memorizedLines: _sumLines(memorization, quran),
       revisedLines: _sumLines(revision, quran),
       presentDays: days
-          .where((day) => day.isStudyDay && day.record?.attendance == 'present')
+          .where((day) => day.isAttendanceRequiredDay && day.record?.attendance == 'present')
           .length,
       lateDays: days
-          .where((day) => day.isStudyDay && day.record?.attendance == 'late')
+          .where((day) => day.isAttendanceRequiredDay && day.record?.attendance == 'late')
           .length,
       absentDays: days
-          .where((day) => day.isStudyDay && day.record?.attendance == 'absent')
+          .where((day) => day.isAttendanceRequiredDay && day.record?.attendance == 'absent')
           .length,
       excusedDays: days
-          .where((day) => day.isStudyDay && day.record?.attendance == 'excused')
+          .where((day) => day.isAttendanceRequiredDay && day.record?.attendance == 'excused')
           .length,
       noRecitationDays: days
           .where((day) =>
@@ -252,7 +333,44 @@ class StudentPeriodReportService {
                   ) /
                   scoredDays.length)
               .round(),
+      totalLateMinutes:
+          days.fold<int>(0, (sum, day) => sum + day.lateMinutes),
+      violationEvents: violations.length,
+      violationPoints:
+          violations.fold<int>(0, (sum, item) => sum + item.points.abs()),
+      settledNegativePoints: settledNegativePoints,
+      exams: List<Exam>.from(exams),
     );
+  }
+
+  static int _lateMinutes(DailyRecord? record, HalaqahSettings? settings) {
+    if (record?.attendance != 'late' || record?.arrivalTime == null || settings == null) {
+      return 0;
+    }
+    final start = PrayerTimeHelper.calculateClassTimes(settings, record!.date).start;
+    return record.arrivalTime!.difference(start).inMinutes.clamp(0, 24 * 60).toInt();
+  }
+
+  static List<StudentPeriodReport> _withTopThreeRanks(
+    List<StudentPeriodReport> reports,
+  ) {
+    final ordered = List<StudentPeriodReport>.from(reports)
+      ..sort((left, right) {
+        final byScore = right.performanceScore.compareTo(left.performanceScore);
+        if (byScore != 0) return byScore;
+        final byAttendance = right.attendanceRate.compareTo(left.attendanceRate);
+        if (byAttendance != 0) return byAttendance;
+        final byMemorization = right.memorizedAyahs.compareTo(left.memorizedAyahs);
+        if (byMemorization != 0) return byMemorization;
+        return left.student.name.compareTo(right.student.name);
+      });
+    final rankByStudent = <String, int>{};
+    for (var index = 0; index < ordered.length && index < 3; index++) {
+      rankByStudent[ordered[index].student.id] = index + 1;
+    }
+    return reports
+        .map((report) => report.copyWithRank(rankByStudent[report.student.id]))
+        .toList();
   }
 
   static double _sumLines(

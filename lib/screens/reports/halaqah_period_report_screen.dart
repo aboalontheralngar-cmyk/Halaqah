@@ -10,11 +10,17 @@ import 'package:share_plus/share_plus.dart';
 
 import '../../models/halaqah_period_report.dart';
 import '../../services/database_service.dart';
+import '../../services/share_file_name_service.dart';
 import '../../services/halaqah_period_report_service.dart';
 import '../../services/pdf_service.dart';
 
 class HalaqahPeriodReportScreen extends StatefulWidget {
-  const HalaqahPeriodReportScreen({super.key});
+  final String initialPeriod;
+
+  const HalaqahPeriodReportScreen({
+    super.key,
+    this.initialPeriod = 'month',
+  });
 
   @override
   State<HalaqahPeriodReportScreen> createState() =>
@@ -32,6 +38,7 @@ class _HalaqahPeriodReportScreenState
   HalaqahPeriodReport? _report;
   String _halaqahName = 'حلقتي';
   String _mosqueName = '';
+  bool _useHijriCalendar = false;
   bool _loading = true;
   bool _exportingImage = false;
   int _completed = 0;
@@ -42,8 +49,17 @@ class _HalaqahPeriodReportScreenState
     super.initState();
     _reports = HalaqahPeriodReportService(database: _db);
     final today = _dateOnly(DateTime.now());
-    _startDate = DateTime(today.year, today.month, 1);
     _endDate = today;
+    switch (widget.initialPeriod) {
+      case 'day':
+        _startDate = today;
+        break;
+      case 'week':
+        _startDate = today.subtract(const Duration(days: 6));
+        break;
+      default:
+        _startDate = DateTime(today.year, today.month, 1);
+    }
     _generate();
   }
 
@@ -71,6 +87,7 @@ class _HalaqahPeriodReportScreenState
         _report = report;
         _halaqahName = settings.halaqahName;
         _mosqueName = settings.mosqueName;
+        _useHijriCalendar = settings.useHijriCalendar;
         _loading = false;
       });
     } catch (error) {
@@ -200,12 +217,8 @@ class _HalaqahPeriodReportScreenState
           Container(
             padding: const EdgeInsets.all(22),
             decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [Color(0xFF0F766E), Color(0xFF115E59)],
-                begin: Alignment.topRight,
-                end: Alignment.bottomLeft,
-              ),
-              borderRadius: BorderRadius.circular(24),
+              color: Theme.of(context).colorScheme.primary,
+              borderRadius: BorderRadius.circular(18),
             ),
             child: Row(
               children: [
@@ -337,7 +350,7 @@ class _HalaqahPeriodReportScreenState
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: color.withOpacity(0.25)),
+          border: Border.all(color: color.withValues(alpha: 0.25)),
         ),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -364,7 +377,7 @@ class _HalaqahPeriodReportScreenState
                     children: [
                       CircleAvatar(
                         radius: 12,
-                        backgroundColor: entry.key == 0 ? Colors.amber[100] : Colors.grey[200],
+                        backgroundColor: entry.key == 0 ? Colors.amber[100] : Theme.of(context).colorScheme.surfaceContainer,
                         child: Text('${entry.key + 1}', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
                       ),
                       const SizedBox(width: 8),
@@ -428,23 +441,36 @@ class _HalaqahPeriodReportScreenState
         ),
       );
 
-  Widget _actions(HalaqahPeriodReport report) => Row(
+  Widget _actions(HalaqahPeriodReport report) => Column(
         children: [
-          Expanded(
-            child: FilledButton.icon(
-              onPressed: _exportingImage ? null : _shareImage,
-              icon: _exportingImage
-                  ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                  : const Icon(Icons.image_outlined),
-              label: const Text('مشاركة كصورة'),
-            ),
+          Row(
+            children: [
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: _exportingImage ? null : _shareImage,
+                  icon: _exportingImage
+                      ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.image_outlined),
+                  label: const Text('مشاركة كصورة'),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () => _printPdf(report),
+                  icon: const Icon(Icons.picture_as_pdf_outlined),
+                  label: const Text('تقرير مفصل'),
+                ),
+              ),
+            ],
           ),
-          const SizedBox(width: 8),
-          Expanded(
+          const SizedBox(height: 8),
+          SizedBox(
+            width: double.infinity,
             child: OutlinedButton.icon(
-              onPressed: () => _printPdf(report),
-              icon: const Icon(Icons.picture_as_pdf_outlined),
-              label: const Text('طباعة PDF'),
+              onPressed: () => _printManagementSummary(report),
+              icon: const Icon(Icons.table_chart_outlined),
+              label: const Text('ملخص الإدارة — جميع الطلاب في صفحة واحدة'),
             ),
           ),
         ],
@@ -458,7 +484,7 @@ class _HalaqahPeriodReportScreenState
           children: report.students.map((item) {
             return ListTile(
               leading: CircleAvatar(
-                backgroundColor: _scoreColor(item.performanceScore).withOpacity(0.12),
+                backgroundColor: _scoreColor(item.performanceScore).withValues(alpha: 0.12),
                 child: Text('${item.performanceScore}%', style: TextStyle(fontSize: 11, color: _scoreColor(item.performanceScore))),
               ),
               title: Text(item.student.name),
@@ -503,12 +529,12 @@ class _HalaqahPeriodReportScreenState
       if (data == null) throw StateError('تعذر تحويل التقرير إلى صورة');
       final directory = await getTemporaryDirectory();
       final file = File(
-        '${directory.path}/halaqah_report_${_fileDate(_startDate)}_${_fileDate(_endDate)}.png',
+        '${directory.path}/${ShareFileNameService.appName}_تقرير_الحلقة_${_fileDate(_startDate)}_${_fileDate(_endDate)}.png',
       );
       await file.writeAsBytes(data.buffer.asUint8List());
       await Share.shareXFiles(
         [XFile(file.path)],
-        text: 'تقرير حلقة $_halaqahName من ${_formatDate(_startDate)} إلى ${_formatDate(_endDate)}',
+        text: '${ShareFileNameService.appName} — تقرير حلقة $_halaqahName من ${_formatDate(_startDate)} إلى ${_formatDate(_endDate)}',
       );
     } catch (error) {
       if (mounted) {
@@ -527,6 +553,17 @@ class _HalaqahPeriodReportScreenState
       halaqahName: _halaqahName,
       mosqueName: _mosqueName,
       pageFormat: PdfPageFormat.a4,
+      useHijriCalendar: _useHijriCalendar,
+    );
+    await Printing.layoutPdf(onLayout: (_) async => bytes);
+  }
+
+  Future<void> _printManagementSummary(HalaqahPeriodReport report) async {
+    final bytes = await _pdf.generateHalaqahManagementSummary(
+      report: report,
+      halaqahName: _halaqahName,
+      mosqueName: _mosqueName,
+      useHijriCalendar: _useHijriCalendar,
     );
     await Printing.layoutPdf(onLayout: (_) async => bytes);
   }

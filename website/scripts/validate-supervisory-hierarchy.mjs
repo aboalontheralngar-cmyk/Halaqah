@@ -49,12 +49,12 @@ if (centerAdminHelper.includes("'analyst'")) {
   throw new Error("Analyst must not inherit center administrator write access.");
 }
 
-const store = read("website/src/store/useStore.ts");
+const store = read("website/src/store/useStore.ts") + read("website/src/services/supervisionService.ts");
 requireAll(store, [
-  ".rpc('get_my_supervisors')",
-  ".rpc('create_supervisor_organization'",
-  "'accept_supervisor_center_invitation'",
-  "'accept_supervisor_member_invitation'",
+  "get_my_supervisors",
+  "create_supervisor_organization",
+  "accept_supervisor_center_invitation",
+  "accept_supervisor_member_invitation",
 ], "Web store");
 if (/Math\.random\(\).*HAL-|\.eq\(['"]code['"],\s*code\)/s.test(store)) {
   throw new Error("Legacy permanent or weak supervisory joining code is still active.");

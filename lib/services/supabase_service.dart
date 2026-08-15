@@ -6,20 +6,29 @@ import '../models/homework_grade.dart';
 import '../models/daily_record.dart';
 import '../models/mushaf_progress.dart';
 import '../models/memorization.dart';
-import '../models/behavior_point.dart';
-import '../models/vacation.dart';
-import '../models/exam.dart';
-import '../models/fund_transaction.dart';
 import '../models/plan.dart';
-import '../models/notification_log.dart';
+import '../models/quran_course.dart';
+import '../models/plan_recitation_record.dart';
 import '../models/daily_achievement.dart';
+import '../models/behavior_point.dart';
+import '../models/fund_transaction.dart';
 import '../models/family.dart';
 import '../models/family_guardian.dart';
+import '../models/talaqqin_record.dart';
+import '../models/student_admin_action.dart';
+import '../models/student_hold.dart';
+import '../models/vacation.dart';
+import '../models/exam.dart';
+import '../models/exam_template.dart';
+import '../models/notification_log.dart';
+import 'app_logger.dart';
 import 'backup_service.dart';
 import 'cloud_connection_diagnostics.dart';
+import 'cloud_config.dart';
 import 'database_service.dart';
 import 'mushaf_service.dart';
 import 'quran_service.dart';
+import 'local_sync_delete_outbox.dart';
 
 enum CloudSyncDirection { uploadOnly, downloadOnly, bidirectional }
 
@@ -54,14 +63,9 @@ class CloudSyncResult {
 }
 
 class SupabaseService {
-  static const projectUrl = String.fromEnvironment(
-    'SUPABASE_URL',
-    defaultValue: 'https://mcckekgvwtqtpwtslwqf.supabase.co',
-  );
-  static const publishableKey = String.fromEnvironment(
-    'SUPABASE_PUBLISHABLE_KEY',
-    defaultValue: 'sb_publishable_TksdkEVcn6VvNGVVjXNEpg_PkRZTdxz',
-  );
+  static String get projectUrl => CloudConfig.projectUrl;
+  static String get publishableKey => CloudConfig.publishableKey;
+  static String get authRedirectUrl => CloudConfig.authRedirectUrl;
 
   static final SupabaseService instance = SupabaseService._internal();
   factory SupabaseService() => instance;
@@ -72,9 +76,10 @@ class SupabaseService {
   final MushafService _mushaf = MushafService();
 
   static Future<void> initialize() async {
+    CloudConfig.validate();
     await Supabase.initialize(
       url: projectUrl,
-      anonKey: publishableKey,
+      publishableKey: publishableKey,
     );
   }
 
@@ -89,6 +94,15 @@ class SupabaseService {
   Future<AuthResponse> signIn(String email, String password) async {
     return await client.auth.signInWithPassword(email: email, password: password);
   }
+
+  Future<bool> signInWithGoogle() {
+    return client.auth.signInWithOAuth(
+      OAuthProvider.google,
+      redirectTo: authRedirectUrl,
+    );
+  }
+
+  Stream<AuthState> get authStateChanges => client.auth.onAuthStateChange;
 
   // Verify invitation code
   Future<Map<String, dynamic>?> verifyInvitationCode(
@@ -111,7 +125,7 @@ class SupabaseService {
       }
       return null;
     } catch (e) {
-      print('Error verifying invitation code: $e');
+      AppLogger.error(e, source: 'supabase.invitation.verify');
       throw Exception('فشل التحقق من الكود: $e');
     }
   }
@@ -140,7 +154,7 @@ class SupabaseService {
 
       await activateInvitationCode(code);
     } catch (e) {
-      print('Error in sign up & link: $e');
+      AppLogger.error(e, source: 'supabase.auth.signup_link');
       throw Exception(e.toString().replaceAll('Exception: ', ''));
     }
   }
@@ -313,7 +327,7 @@ class SupabaseService {
       
       return null;
     } catch (e) {
-      print('Error getting teacher info: $e');
+      AppLogger.error(e, source: 'supabase.teacher_info');
       return null;
     }
   }
@@ -379,26 +393,44 @@ class SupabaseService {
       }
       await _db.saveSetting('setup_completed', 'true');
 
+      // Build 75: consume hard-delete events before uploading anything. If a
+      // record was deleted on another device while this device was offline,
+      // removing it locally first prevents the later upload from resurrecting
+      // it in Supabase.
+      if (direction.shouldDownload) {
+        await _syncCloudTombstones(centerId, halaqahId);
+      }
+      if (direction.shouldUpload) {
+        // SQLite v25 captures every hard delete from a synced local table in a
+        // durable outbox. Flush it before normal upserts so an actual delete
+        // wins, while INSERT OR REPLACE false-positives are discarded when
+        // the local row still exists.
+        await _syncDeleteOutbox();
+      }
+
       await _syncFamilies(centerId, halaqahId, direction);
       await _syncStudents(centerId, halaqahId, direction);
       await _syncHomeworkGrades(centerId, halaqahId, direction);
       await _syncAttendance(centerId, halaqahId, direction);
+      await _syncStudySuspensions(centerId, halaqahId, direction);
       await _syncMemorizationProgress(centerId, halaqahId, direction);
       await _syncMushafProgress(centerId, halaqahId, direction);
+      await _syncBehaviorPoints(centerId, halaqahId, direction);
       if (direction.shouldUpload) {
-        await _syncBehaviorPoints(centerId, halaqahId);
         await _syncBehaviorPointCorrections(centerId, halaqahId);
       }
       await _syncDailyAchievements(centerId, halaqahId, direction);
-      if (direction.shouldUpload) {
-        await _syncVacations(centerId);
-        await _syncStudentHolds(centerId, halaqahId);
-        await _syncExams(centerId);
-        await _syncExamTemplates(centerId, halaqahId);
-        await _syncFundTransactions(centerId);
-        await _syncNotifications(centerId);
-      }
+      await _syncVacations(centerId, halaqahId, direction);
+      await _syncExams(centerId, halaqahId, direction);
+      await _syncExamTemplates(centerId, halaqahId, direction);
+      await _syncNotifications(centerId, halaqahId, direction);
+      await _syncFundTransactions(centerId, halaqahId, direction);
+      await _syncStudentHolds(centerId, halaqahId, direction);
+      await _syncTalaqqinRecords(centerId, halaqahId, direction);
+      await _syncStudentAdminActions(centerId, halaqahId, direction);
       await _syncPlans(centerId, halaqahId, direction);
+      await _syncQuranCourses(centerId, halaqahId, direction);
+      await _syncPlanRecitationRecords(centerId, halaqahId, direction);
 
       final completedAt = DateTime.now();
       if (direction.shouldUpload) {
@@ -422,7 +454,7 @@ class SupabaseService {
         direction.settingSuffix,
       );
 
-      print('Supabase synchronization completed successfully!');
+      AppLogger.info('sync_completed', source: 'supabase.sync');
       return CloudSyncResult(
         direction: direction,
         completedAt: completedAt,
@@ -435,7 +467,9 @@ class SupabaseService {
                 'خريطة المصحف',
                 'النقاط والإنجازات',
                 'الإجازات والإيقافات',
-                'الاختبارات والخطط',
+                'التلقين والإداريات',
+                'الاختبارات والخطط والدورات',
+                'سجل السرد المرتبط بالخطط',
                 'الصندوق والإشعارات',
               ]
             : const [],
@@ -447,12 +481,16 @@ class SupabaseService {
                 'التسميع والمراجعة',
                 'خريطة المصحف',
                 'متميزو اليوم',
-                'الخطط',
+                'النقاط والصندوق',
+                'الإجازات والاختبارات والإشعارات',
+                'الإيقافات والتلقين والإداريات',
+                'الخطط والدورات',
+                'سجل السرد المرتبط بالخطط',
               ]
             : const [],
       );
     } catch (e) {
-      print('Error during Supabase synchronization: $e');
+      AppLogger.error(e, source: 'supabase.sync');
       rethrow;
     }
   }
@@ -469,6 +507,134 @@ class SupabaseService {
       throw Exception(
         'تعذر إنشاء نسخة احتياطية قبل المزامنة. تم إيقاف المزامنة لحماية بيانات الطلاب: $error',
       );
+    }
+  }
+
+  Future<void> _syncDeleteOutbox() async {
+    const pageSize = 250;
+    while (true) {
+      final pending = await _db.getPendingSyncDeletes(limit: pageSize);
+      if (pending.isEmpty) return;
+      var acknowledged = 0;
+      for (final operation in pending) {
+        // A SQLite REPLACE fires DELETE internally. If the row exists again,
+        // there is no user deletion to propagate.
+        if (!await _db.isSyncDeleteStillPending(operation)) {
+          await _db.acknowledgeSyncDelete(operation.id);
+          acknowledged++;
+          continue;
+        }
+        try {
+          await _deleteRemoteOutboxOperation(operation);
+          await _db.acknowledgeSyncDelete(operation.id);
+          acknowledged++;
+        } catch (error) {
+          AppLogger.error(
+            error,
+            source: 'supabase.sync.delete_outbox.${operation.remoteTable}',
+          );
+        }
+      }
+      if (pending.length < pageSize || acknowledged == 0) return;
+    }
+  }
+
+  Future<void> _deleteRemoteOutboxOperation(
+    LocalSyncDeleteOperation operation,
+  ) async {
+    final remoteId = operation.remoteId;
+
+    // Parent tables with restrictive cloud foreign keys need their dependent
+    // rows removed first. All calls remain scoped by RLS/RPC authorization.
+    if (operation.remoteTable == 'exams' && remoteId != null) {
+      await client.from('exam_scores').delete().eq('exam_id', remoteId);
+    } else if (operation.remoteTable == 'exam_templates' && remoteId != null) {
+      await client.from('exam_questions').delete().eq('template_id', remoteId);
+    } else if (operation.remoteTable == 'quran_courses' && remoteId != null) {
+      await client
+          .from('quran_course_enrollments')
+          .delete()
+          .eq('course_id', remoteId);
+    } else if (operation.remoteTable == 'students' && remoteId != null) {
+      await client.rpc('delete_student_for_sync', params: {
+        'p_student_id': remoteId,
+      });
+      return;
+    }
+
+    var deletion = client.from(operation.remoteTable).delete();
+    if (remoteId != null && remoteId.isNotEmpty) {
+      await deletion.eq('id', remoteId);
+      return;
+    }
+    if (operation.remoteFilters.isEmpty) {
+      throw StateError('عملية حذف سحابية بلا محدد');
+    }
+
+    dynamic filtered = deletion;
+    for (final entry in operation.remoteFilters.entries) {
+      filtered = filtered.eq(entry.key, entry.value);
+    }
+    await filtered;
+  }
+
+  Future<void> _syncCloudTombstones(
+    String centerId,
+    String halaqahId,
+  ) async {
+    final cursorKey = 'cloud_tombstone_cursor_${centerId}_$halaqahId';
+    var cursor = int.tryParse(await _db.getSetting(cursorKey) ?? '') ?? 0;
+    const pageSize = 500;
+
+    while (true) {
+      dynamic response;
+      try {
+        response = await client.rpc('get_sync_tombstones', params: {
+          'p_center_id': centerId,
+          'p_halaqa_id': halaqahId,
+          'p_after_id': cursor,
+          'p_limit': pageSize,
+        });
+      } on PostgrestException catch (error) {
+        // Build 74 remains usable until the owner applies the P1.27 SQL. The
+        // durable remote-delete guarantee activates as soon as the RPC exists.
+        if (error.code == 'PGRST202' ||
+            error.code == '42883' ||
+            error.message.toLowerCase().contains('get_sync_tombstones')) {
+          AppLogger.warning(
+            'cloud_tombstone_contract_missing',
+            source: 'supabase.sync.tombstones',
+          );
+          return;
+        }
+        rethrow;
+      }
+
+      final rawRows = response is List ? response : const <dynamic>[];
+      if (rawRows.isEmpty) return;
+      final rows = rawRows
+          .whereType<Map>()
+          .map((row) => Map<String, dynamic>.from(row))
+          .toList(growable: false);
+      if (rows.isEmpty) return;
+
+      final affectedStudents = await _db.applyCloudTombstones(rows);
+      for (final studentId in affectedStudents) {
+        await _mushaf.rebuildStudentProgress(studentId);
+      }
+
+      var maxId = cursor;
+      for (final row in rows) {
+        final rawId = row['id'];
+        final id = rawId is num
+            ? rawId.toInt()
+            : int.tryParse(rawId?.toString() ?? '') ?? cursor;
+        if (id > maxId) maxId = id;
+      }
+      if (maxId <= cursor) return;
+      cursor = maxId;
+      await _db.saveSetting(cursorKey, cursor.toString());
+      if (rows.length < pageSize) return;
     }
   }
 
@@ -508,33 +674,33 @@ class SupabaseService {
               );
         }
 
-        for (final family in localFamilies) {
-          final guardians = await _db.getFamilyGuardians(family.id);
-          if (guardians.isEmpty) continue;
-          final nonPrimary = guardians.where((item) => !item.isPrimary).toList();
-          final primary = guardians.where((item) => item.isPrimary).toList();
-          for (final group in [nonPrimary, primary]) {
-            if (group.isEmpty) continue;
-            await client.from('family_guardians').upsert(
-              group
-                  .map(
-                    (guardian) => {
-                        'id': guardian.id,
-                        'family_id': guardian.familyId,
-                        'center_id': centerId,
-                        'halaqa_id': halaqId,
-                        'name': guardian.name,
-                        'phone': guardian.phone,
-                        'email': guardian.email,
-                        'relationship': guardian.relationship,
-                        'is_primary': guardian.isPrimary,
-                        'notes': guardian.notes,
-                        'created_at': guardian.createdAt.toIso8601String(),
-                        'updated_at': guardian.updatedAt.toIso8601String(),
-                      },
-                  )
-                  .toList(),
-            );
+        final allGuardians = await _db.getAllFamilyGuardians();
+        final guardianPayload = allGuardians
+            .map(
+              (guardian) => {
+                'id': guardian.id,
+                'family_id': guardian.familyId,
+                'center_id': centerId,
+                'halaqa_id': halaqId,
+                'name': guardian.name,
+                'phone': guardian.phone,
+                'email': guardian.email,
+                'relationship': guardian.relationship,
+                'is_primary': guardian.isPrimary,
+                'notes': guardian.notes,
+                'created_at': guardian.createdAt.toIso8601String(),
+                'updated_at': guardian.updatedAt.toIso8601String(),
+              },
+            )
+            .toList();
+        // Upload non-primary rows first, then primary rows, but do it in only two
+        // network requests regardless of the number of families.
+        for (final primaryState in const [false, true]) {
+          final group = guardianPayload
+              .where((row) => row['is_primary'] == primaryState)
+              .toList();
+          if (group.isNotEmpty) {
+            await client.from('family_guardians').upsert(group);
           }
         }
       }
@@ -544,27 +710,28 @@ class SupabaseService {
             .from('families')
             .select()
             .eq('halaqa_id', halaqId);
-        for (final remote in remoteFamilies as List<dynamic>) {
-          await _db.saveFamily(
-            Family.fromMap(Map<String, dynamic>.from(remote)),
-          );
-        }
+        await _db.upsertFamiliesFromSync(
+          (remoteFamilies as List<dynamic>).map(
+            (remote) => Family.fromMap(Map<String, dynamic>.from(remote)),
+          ),
+        );
 
         final remoteGuardians = await client
             .from('family_guardians')
             .select()
             .eq('halaqa_id', halaqId);
-        for (final remote in remoteGuardians as List<dynamic>) {
-          await _db.saveFamilyGuardian(
-            FamilyGuardian.fromMap(Map<String, dynamic>.from(remote)),
-          );
-        }
+        await _db.upsertFamilyGuardiansFromSync(
+          (remoteGuardians as List<dynamic>).map(
+            (remote) =>
+                FamilyGuardian.fromMap(Map<String, dynamic>.from(remote)),
+          ),
+        );
       }
     } on PostgrestException catch (error) {
       if (error.code == 'PGRST205' ||
           error.code == '42P01' ||
           error.code == '42703') {
-        print('Family sync skipped until P5.4 migration is applied.');
+        AppLogger.warning('family_schema_missing', source: 'supabase.sync.families');
         return;
       }
       rethrow;
@@ -594,6 +761,9 @@ class SupabaseService {
           'plan_type': student.planType,
           'plan_amount': student.planAmount,
           'review_plan_amount': student.reviewPlanAmount,
+          'review_plan_type': student.reviewPlanType,
+          'review_system': student.reviewSystem,
+          'talaqqin_enabled': student.talaqqinEnabled,
           'total_memorized': student.totalMemorized,
           'status': student.status,
           'notes': student.notes,
@@ -623,9 +793,12 @@ class SupabaseService {
         .eq('halaqa_id', halaqahId);
 
     final List<dynamic> remoteStudents = response as List<dynamic>;
+    final localStudents = await _db.getStudents();
+    final localById = {for (final student in localStudents) student.id: student};
+    final mergedStudents = <Student>[];
 
     for (final remote in remoteStudents) {
-      final existing = await _db.getStudent(remote['id']);
+      final existing = localById[remote['id']?.toString()];
       final remoteTotalMemorized =
           (remote['total_memorized'] as num?)?.toInt();
       final protectedTotalMemorized = existing != null &&
@@ -649,6 +822,15 @@ class SupabaseService {
             (remote['review_plan_amount'] as num?)?.toInt() ??
                 existing?.reviewPlanAmount ??
                 10,
+        reviewPlanType: remote['review_plan_type'] ??
+            existing?.reviewPlanType ??
+            remote['plan_type'] ??
+            'ayahs',
+        reviewSystem:
+            remote['review_system'] ?? existing?.reviewSystem ?? 'adaptive_spaced',
+        talaqqinEnabled: remote['talaqqin_enabled'] == null
+            ? (existing?.talaqqinEnabled ?? false)
+            : remote['talaqqin_enabled'] == true,
         // A zero introduced by a schema migration must not erase a larger
         // local total. Explicit progress resets will use a dedicated workflow.
         totalMemorized: protectedTotalMemorized,
@@ -682,12 +864,9 @@ class SupabaseService {
             : existing?.updatedAt ?? DateTime.now(),
       );
 
-      if (existing == null) {
-        await _db.insertStudent(localStudent);
-      } else {
-        await _db.updateStudent(localStudent);
-      }
+      mergedStudents.add(localStudent);
     }
+    await _db.upsertStudentsFromSync(mergedStudents);
   }
 
   Future<void> _upsertStudentsWithSchemaCompatibility(
@@ -699,6 +878,9 @@ class SupabaseService {
       'student_code',
       'total_memorized',
       'review_plan_amount',
+      'review_plan_type',
+      'review_system',
+      'talaqqin_enabled',
       'notes',
       'updated_at',
       'pre_memorized_start_surah',
@@ -848,6 +1030,28 @@ class SupabaseService {
     CloudSyncDirection direction,
   ) async {
     if (direction.shouldUpload) {
+      final deletedRaw = await _db.getSetting('deleted_attendance_keys');
+      if (deletedRaw != null && deletedRaw.trim().isNotEmpty) {
+        final deletedKeys = <String>[];
+        try {
+          final decoded = jsonDecode(deletedRaw);
+          if (decoded is List) deletedKeys.addAll(decoded.map((item) => item.toString()));
+        } catch (_) {}
+        for (final key in deletedKeys) {
+          final separator = key.lastIndexOf('|');
+          if (separator <= 0) continue;
+          final studentId = key.substring(0, separator);
+          final date = key.substring(separator + 1);
+          await client
+              .from('attendance')
+              .delete()
+              .eq('center_id', centerId)
+              .eq('student_id', studentId)
+              .eq('date', date);
+        }
+        await _db.saveSetting('deleted_attendance_keys', '[]');
+      }
+
       final localRecords = await _db.getAllDailyRecords();
       final List<Map<String, dynamic>> attendancePayload = [];
       for (final record in localRecords) {
@@ -863,6 +1067,12 @@ class SupabaseService {
           'arrival_time': record.arrivalTime?.toIso8601String().split('T')[1],
           'absence_reason': record.absenceReason,
           'notes': record.notes,
+          'activity_type': record.activityType,
+          'activity_note': record.activityNote,
+          'recitation_exempt': record.recitationExempt,
+          'talaqqin_done': record.talaqqinDone,
+          'talaqqin_amount': record.talaqqinAmount,
+          'talaqqin_note': record.talaqqinNote,
         });
       }
       for (var i = 0; i < attendancePayload.length; i += 500) {
@@ -884,46 +1094,144 @@ class SupabaseService {
         .select()
         .eq('center_id', centerId);
 
-    final List<dynamic> remoteAttendance = response as List<dynamic>;
+    final remoteAttendance = (response as List<dynamic>)
+        .map((raw) => Map<String, dynamic>.from(raw as Map))
+        .where(
+          (row) => scopedStudentIds.contains(row['student_id']?.toString()),
+        )
+        .toList(growable: false);
+    if (remoteAttendance.isEmpty) return;
+
+    final remoteDates = remoteAttendance
+        .map((row) => DateTime.parse(row['date'].toString()))
+        .toList(growable: false);
+    var minDate = remoteDates.first;
+    var maxDate = remoteDates.first;
+    for (final date in remoteDates.skip(1)) {
+      if (date.isBefore(minDate)) minDate = date;
+      if (date.isAfter(maxDate)) maxDate = date;
+    }
+
+    // One indexed local read + one SQLite batch replaces a query/write pair for
+    // every remote attendance row. This is especially noticeable on long-lived
+    // halaqah databases during a full cloud pull.
+    final existingRows = await _db.getDailyRecordsInRange(minDate, maxDate);
+    final existingByStudentDate = <String, DailyRecord>{
+      for (final record in existingRows)
+        '${record.studentId}|${record.date.toIso8601String().split('T').first}':
+            record,
+    };
+    final pending = <DailyRecord>[];
 
     for (final remote in remoteAttendance) {
-      if (!scopedStudentIds.contains(remote['student_id']?.toString())) {
-        continue;
-      }
-      final localRecord = DailyRecord(
-        studentId: remote['student_id'],
-        date: DateTime.parse(remote['date']),
-        attendance: remote['status'] ?? 'absent',
-        arrivalTime: remote['arrival_time'] != null
-            ? DateTime.parse('${remote['date']}T${remote['arrival_time']}')
-            : null,
-        absenceReason: remote['absence_reason'],
-        notes: remote['notes'] ?? '',
+      final remoteDate = DateTime.parse(remote['date'].toString());
+      final studentId = remote['student_id'].toString();
+      final key =
+          '$studentId|${remoteDate.toIso8601String().split('T').first}';
+      final existing = existingByStudentDate[key];
+      final hasActivityFields = remote.containsKey('activity_type') ||
+          remote.containsKey('activity_note') ||
+          remote.containsKey('recitation_exempt');
+      final hasTalaqqinFields = remote.containsKey('talaqqin_done') ||
+          remote.containsKey('talaqqin_amount') ||
+          remote.containsKey('talaqqin_note');
+      pending.add(
+        DailyRecord(
+          id: existing?.id,
+          studentId: studentId,
+          date: remoteDate,
+          attendance: remote['status'] ?? 'absent',
+          arrivalTime: remote['arrival_time'] != null
+              ? DateTime.parse(
+                  '${remote['date']}T${remote['arrival_time']}',
+                )
+              : null,
+          absenceReason: remote['absence_reason'],
+          absenceNote: existing?.absenceNote,
+          memorizationDone: existing?.memorizationDone ?? false,
+          revisionDone: existing?.revisionDone ?? false,
+          memorizationAmount: existing?.memorizationAmount ?? 0,
+          revisionAmount: existing?.revisionAmount ?? 0,
+          memorizationNote: existing?.memorizationNote,
+          revisionNote: existing?.revisionNote,
+          notes: remote['notes'] ?? '',
+          activityType: hasActivityFields
+              ? remote['activity_type']
+              : existing?.activityType,
+          activityNote: hasActivityFields
+              ? remote['activity_note']
+              : existing?.activityNote,
+          recitationExempt: hasActivityFields
+              ? remote['recitation_exempt'] == true
+              : existing?.recitationExempt ?? false,
+          talaqqinDone: hasTalaqqinFields
+              ? remote['talaqqin_done'] == true
+              : existing?.talaqqinDone ?? false,
+          talaqqinAmount: hasTalaqqinFields
+              ? (remote['talaqqin_amount'] as num?)?.toInt() ?? 0
+              : existing?.talaqqinAmount ?? 0,
+          talaqqinNote: hasTalaqqinFields
+              ? remote['talaqqin_note']
+              : existing?.talaqqinNote,
+          createdAt: existing?.createdAt,
+        ),
       );
-
-      await _db.saveDailyRecord(localRecord);
     }
+
+    await _db.saveDailyRecords(pending);
   }
 
   Future<void> _upsertAttendanceWithSchemaCompatibility(
     List<Map<String, dynamic>> chunk,
   ) async {
-    try {
-      await client.from('attendance').upsert(chunk);
-    } on PostgrestException catch (error) {
-      final description = [error.message, error.details, error.hint]
-          .whereType<Object>()
-          .join(' ')
-          .toLowerCase();
-      final missingHalaqaColumn =
-          (error.code == 'PGRST204' || error.code == '42703') &&
-              description.contains('halaqa_id');
-      if (!missingHalaqaColumn) rethrow;
-      final compatibleChunk = chunk
-          .map((row) => Map<String, dynamic>.from(row)..remove('halaqa_id'))
-          .toList();
-      await client.from('attendance').upsert(compatibleChunk);
+    Future<void> upsertRows(List<Map<String, dynamic>> rows) async {
+      await client.from('attendance').upsert(rows);
     }
+
+    try {
+      await upsertRows(chunk);
+      return;
+    } on PostgrestException catch (error) {
+      if (!_isMissingSchemaColumn(error)) rethrow;
+    }
+
+    // يسمح للتطبيق بالاستمرار مع Supabase P1.21 إلى أن ينفذ المسؤول
+    // migration P1.22. الحقول الجديدة تبقى محفوظة محلياً ولا تضيع.
+    final withoutP122 = chunk
+        .map(
+          (row) => Map<String, dynamic>.from(row)
+            ..remove('activity_type')
+            ..remove('activity_note')
+            ..remove('recitation_exempt')
+            ..remove('talaqqin_done')
+            ..remove('talaqqin_amount')
+            ..remove('talaqqin_note'),
+        )
+        .toList();
+    try {
+      await upsertRows(withoutP122);
+      return;
+    } on PostgrestException catch (error) {
+      if (!_isMissingSchemaColumn(error)) rethrow;
+    }
+
+    final legacyRows = withoutP122
+        .map((row) => Map<String, dynamic>.from(row)..remove('halaqa_id'))
+        .toList();
+    await upsertRows(legacyRows);
+  }
+
+  bool _isMissingSchemaColumn(PostgrestException error) {
+    final description = [error.message, error.details, error.hint]
+        .whereType<Object>()
+        .join(' ')
+        .toLowerCase();
+    return (error.code == 'PGRST204' || error.code == '42703') &&
+        (description.contains('column') || description.contains('schema'));
+  }
+
+  bool _isMissingSchemaTable(PostgrestException error) {
+    return error.code == '42P01' || error.code == 'PGRST205';
   }
 
   Future<Set<String>> _fetchHalaqahStudentIds(String halaqahId) async {
@@ -1051,7 +1359,7 @@ class SupabaseService {
 
       return centersList;
     } catch (e) {
-      print('Error fetching user centers: $e');
+      AppLogger.error(e, source: 'supabase.centers.fetch');
       return [];
     }
   }
@@ -1066,7 +1374,7 @@ class SupabaseService {
       
       return List<Map<String, dynamic>>.from(response as List<dynamic>);
     } catch (e) {
-      print('Error fetching halaqas: $e');
+      AppLogger.error(e, source: 'supabase.halaqat.fetch');
       return [];
     }
   }
@@ -1086,7 +1394,7 @@ class SupabaseService {
       
       return response as Map<String, dynamic>?;
     } catch (e) {
-      print('Error creating halaqah: $e');
+      AppLogger.error(e, source: 'supabase.halaqat.create');
       throw Exception('فشل إنشاء الحلقة: $e');
     }
   }
@@ -1099,6 +1407,60 @@ class SupabaseService {
     final digest = md5.convert(bytes);
     final hex = digest.toString();
     return '${hex.substring(0, 8)}-${hex.substring(8, 12)}-${hex.substring(12, 16)}-${hex.substring(16, 20)}-${hex.substring(20, 32)}';
+  }
+
+  Future<void> _syncStudySuspensions(
+    String centerId,
+    String halaqahId,
+    CloudSyncDirection direction,
+  ) async {
+    if (direction.shouldUpload) {
+      final deletedRaw = await _db.getSetting('deleted_suspension_dates');
+      if (deletedRaw != null && deletedRaw.trim().isNotEmpty) {
+        final dates = <String>[];
+        try {
+          final decoded = jsonDecode(deletedRaw);
+          if (decoded is List) dates.addAll(decoded.map((item) => item.toString()));
+        } catch (_) {}
+        for (final date in dates) {
+          await client.rpc('set_study_suspension', params: {
+            'p_center_id': centerId,
+            'p_halaqa_id': halaqahId,
+            'p_date': date,
+            'p_suspended': false,
+            'p_reason': null,
+          });
+        }
+        await _db.saveSetting('deleted_suspension_dates', '[]');
+      }
+
+      final reasons = await _db.getSuspensionReasons();
+      for (final date in await _db.getSuspendedDates()) {
+        final reason = reasons[date]?.trim();
+        await client.rpc('set_study_suspension', params: {
+          'p_center_id': centerId,
+          'p_halaqa_id': halaqahId,
+          'p_date': date,
+          'p_suspended': true,
+          'p_reason': reason == null || reason.length < 3 ? 'إجازة عارضة' : reason,
+        });
+      }
+    }
+
+    if (!direction.shouldDownload) return;
+    final response = await client
+        .from('study_suspensions')
+        .select('date, reason')
+        .eq('center_id', centerId)
+        .eq('halaqa_id', halaqahId);
+    final byDate = <String, String>{};
+    for (final raw in response as List<dynamic>) {
+      final row = Map<String, dynamic>.from(raw as Map);
+      final date = row['date']?.toString();
+      if (date == null || date.isEmpty) continue;
+      byDate[date] = row['reason']?.toString() ?? 'إجازة عارضة';
+    }
+    await _db.replaceStudySuspensions(byDate);
   }
 
   Future<void> _syncMemorizationProgress(
@@ -1234,37 +1596,97 @@ class SupabaseService {
         await client.from(table).delete().eq('id', id);
         remaining.remove(id);
       } catch (error) {
-        print('Error syncing deletion $table/$id: $error');
+        AppLogger.error(error, source: 'supabase.sync.delete');
       }
     }
     await _db.saveSetting(settingKey, jsonEncode(remaining));
   }
 
-  Future<void> _syncBehaviorPoints(String centerId, String halaqahId) async {
-    await _syncDeletedRows(
-      table: 'points',
-      settingKey: 'deleted_behavior_point_ids',
-    );
-    final localData = await _db.getAllBehaviorPoints();
-    if (localData.isEmpty) return;
-    final payload = localData.map((e) => {
-      'id': e.id,
-      'student_id': e.studentId,
-      'center_id': centerId,
-      'halaqa_id': halaqahId,
-      'type': e.type,
-      'amount': e.points,
-      'reason': e.reason,
-      'date': e.date.toIso8601String().split('T')[0],
-      'resolved': e.resolved,
-    }).toList();
-    for (var i = 0; i < payload.length; i += 100) {
-      final chunk = payload.sublist(i, i + 100 > payload.length ? payload.length : i + 100);
-      try {
-        await client.from('points').upsert(chunk);
-      } catch (e) {
-        print('Error syncing points chunk: $e');
+  Future<void> _syncBehaviorPoints(
+    String centerId,
+    String halaqahId,
+    CloudSyncDirection direction,
+  ) async {
+    if (direction.shouldUpload) {
+      await _syncDeletedRows(
+        table: 'points',
+        settingKey: 'deleted_behavior_point_ids',
+      );
+      final localData = await _db.getAllBehaviorPoints();
+      if (localData.isNotEmpty) {
+        final payload = localData.map((e) => {
+          'id': e.id,
+          'student_id': e.studentId,
+          'center_id': centerId,
+          'halaqa_id': halaqahId,
+          'type': e.type,
+          'amount': e.points,
+          'reason': e.reason,
+          'date': e.date.toIso8601String().split('T')[0],
+          'resolved': e.resolved,
+          'resolved_date': e.resolvedDate?.toIso8601String(),
+          'notes': e.notes,
+          'created_at': e.createdAt.toIso8601String(),
+        }).toList();
+        for (var i = 0; i < payload.length; i += 100) {
+          final end = i + 100 > payload.length ? payload.length : i + 100;
+          try {
+            await client.from('points').upsert(payload.sublist(i, end));
+          } on PostgrestException catch (error) {
+            if (_isMissingSchemaColumn(error)) {
+              final compatible = payload.sublist(i, end).map((row) =>
+                Map<String, dynamic>.from(row)
+                  ..remove('resolved_date')
+                  ..remove('notes')
+                  ..remove('created_at')
+              ).toList();
+              await client.from('points').upsert(compatible);
+            } else {
+              rethrow;
+            }
+          } catch (error) {
+            AppLogger.error(error, source: 'supabase.sync.points');
+          }
+        }
       }
+    }
+
+    if (!direction.shouldDownload) return;
+    try {
+      final response = await client
+          .from('points')
+          .select()
+          .eq('center_id', centerId)
+          .eq('halaqa_id', halaqahId);
+      final points = <BehaviorPoint>[];
+      for (final dynamic raw in response as List<dynamic>) {
+        final row = Map<String, dynamic>.from(raw as Map);
+        final amount = (row['amount'] as num?)?.toInt() ?? 0;
+        points.add(
+          BehaviorPoint(
+            id: row['id'].toString(),
+            studentId: row['student_id'].toString(),
+            type: row['type']?.toString() ??
+                (amount < 0 ? 'negative' : 'positive'),
+            reason: row['reason']?.toString() ?? 'سجل سحابي',
+            points: amount,
+            date: DateTime.parse(row['date'].toString()),
+            resolved: row['resolved'] == true || row['resolved'] == 1,
+            resolvedDate: DateTime.tryParse(
+              row['resolved_date']?.toString() ?? '',
+            ),
+            notes: row['notes']?.toString(),
+            createdAt: DateTime.tryParse(
+                  row['created_at']?.toString() ?? '',
+                ) ??
+                DateTime.parse(row['date'].toString()),
+          ),
+        );
+      }
+      await _db.upsertBehaviorPointsFromSync(points);
+    } on PostgrestException catch (error) {
+      if (_isMissingSchemaTable(error)) return;
+      rethrow;
     }
   }
 
@@ -1296,7 +1718,7 @@ class SupabaseService {
             .from('behavior_point_corrections')
             .upsert(payload.sublist(i, end));
       } catch (error) {
-        print('Error syncing behavior corrections: $error');
+        AppLogger.error(error, source: 'supabase.sync.behavior_corrections');
       }
     }
   }
@@ -1336,7 +1758,7 @@ class SupabaseService {
                 onConflict: 'student_id,date',
               );
         } catch (error) {
-          print('Error pushing daily achievements: $error');
+          AppLogger.error(error, source: 'supabase.sync.daily_achievements.push');
         }
       }
     }
@@ -1348,196 +1770,597 @@ class SupabaseService {
           .select('*')
           .eq('center_id', centerId)
           .eq('halaqa_id', halaqahId);
-      for (final remote in List<Map<String, dynamic>>.from(remoteRows)) {
-        await _db.upsertDailyAchievementFromSync(
-          DailyAchievement(
-            id: remote['id'],
-            studentId: remote['student_id'],
-            date: DateTime.parse(remote['date']),
-            source: remote['source'] ?? 'manual',
-            reason: remote['reason'] ?? 'تميز يومي',
-            actualAmount:
-                (remote['actual_amount'] as num?)?.toDouble() ?? 0,
-            planAmount: (remote['plan_amount'] as num?)?.toDouble() ?? 0,
-            unit: remote['unit'] ?? 'ayahs',
-            rewardType: remote['reward_type'],
-            rewardDetails: remote['reward_details'],
-            rewardPoints: (remote['reward_points'] as num?)?.toInt() ?? 0,
-            awardedAt: DateTime.tryParse(
-              remote['awarded_at']?.toString() ?? '',
+      final achievements = List<Map<String, dynamic>>.from(remoteRows)
+          .map(
+            (remote) => DailyAchievement(
+              id: remote['id'],
+              studentId: remote['student_id'],
+              date: DateTime.parse(remote['date']),
+              source: remote['source'] ?? 'manual',
+              reason: remote['reason'] ?? 'تميز يومي',
+              actualAmount:
+                  (remote['actual_amount'] as num?)?.toDouble() ?? 0,
+              planAmount: (remote['plan_amount'] as num?)?.toDouble() ?? 0,
+              unit: remote['unit'] ?? 'ayahs',
+              rewardType: remote['reward_type'],
+              rewardDetails: remote['reward_details'],
+              rewardPoints: (remote['reward_points'] as num?)?.toInt() ?? 0,
+              awardedAt: DateTime.tryParse(
+                remote['awarded_at']?.toString() ?? '',
+              ),
+              notes: remote['notes'],
+              createdAt: DateTime.tryParse(
+                    remote['created_at']?.toString() ?? '',
+                  ) ??
+                  DateTime.now(),
+              updatedAt: DateTime.tryParse(
+                    remote['updated_at']?.toString() ?? '',
+                  ) ??
+                  DateTime.now(),
             ),
-            notes: remote['notes'],
-            createdAt: DateTime.tryParse(
-                  remote['created_at']?.toString() ?? '',
-                ) ??
+          )
+          .toList(growable: false);
+      await _db.upsertDailyAchievementsFromSync(achievements);
+    } catch (error) {
+      AppLogger.error(error, source: 'supabase.sync.daily_achievements.pull');
+    }
+  }
+
+  Future<void> _syncVacations(
+    String centerId,
+    String halaqahId,
+    CloudSyncDirection direction,
+  ) async {
+    if (direction.shouldUpload) {
+      await _syncDeletedRows(
+        table: 'vacations',
+        settingKey: 'deleted_vacation_ids',
+      );
+      final localData = await _db.getAllVacations();
+      final payload = localData.map((vacation) => {
+        'id': vacation.id,
+        'student_id': vacation.studentId,
+        'center_id': centerId,
+        'halaqa_id': halaqahId,
+        'start_date': vacation.startDate.toIso8601String().split('T')[0],
+        'end_date': vacation.endDate.toIso8601String().split('T')[0],
+        'reason': vacation.reason,
+        'notes': vacation.notes,
+        'approved': vacation.approved,
+        'created_at': vacation.createdAt.toIso8601String(),
+      }).toList();
+      for (var i = 0; i < payload.length; i += 100) {
+        final chunk = payload.sublist(
+          i,
+          i + 100 > payload.length ? payload.length : i + 100,
+        );
+        try {
+          await client.from('vacations').upsert(chunk);
+        } on PostgrestException catch (error) {
+          if (_isMissingSchemaTable(error)) return;
+          if (!_isMissingSchemaColumn(error)) rethrow;
+          final compatible = chunk.map((row) {
+            final copy = Map<String, dynamic>.from(row)..remove('halaqa_id');
+            final reason = copy['reason']?.toString() ?? '';
+            final notes = copy.remove('notes')?.toString().trim();
+            if (notes != null && notes.isNotEmpty) {
+              copy['reason'] = '$reason - $notes';
+            }
+            return copy;
+          }).toList();
+          await client.from('vacations').upsert(compatible);
+        }
+      }
+    }
+
+    if (!direction.shouldDownload) return;
+    final scopedStudentIds = await _fetchHalaqahStudentIds(halaqahId);
+    if (scopedStudentIds.isEmpty) return;
+    try {
+      final response = await client
+          .from('vacations')
+          .select()
+          .eq('center_id', centerId);
+      final vacations = <Vacation>[];
+      for (final dynamic raw in response as List<dynamic>) {
+        final row = Map<String, dynamic>.from(raw as Map);
+        final studentId = row['student_id']?.toString();
+        if (studentId == null || !scopedStudentIds.contains(studentId)) continue;
+        vacations.add(
+          Vacation(
+            id: row['id']?.toString(),
+            studentId: studentId,
+            startDate: DateTime.parse(row['start_date'].toString()),
+            endDate: DateTime.parse(row['end_date'].toString()),
+            reason: row['reason']?.toString() ?? VacationReason.other,
+            approved: row['approved'] == true || row['approved'] == 1,
+            notes: row['notes']?.toString(),
+            createdAt: DateTime.tryParse(row['created_at']?.toString() ?? '') ??
                 DateTime.now(),
-            updatedAt: DateTime.tryParse(
-                  remote['updated_at']?.toString() ?? '',
+          ),
+        );
+      }
+      await _db.upsertVacationsFromSync(vacations);
+    } on PostgrestException catch (error) {
+      if (_isMissingSchemaTable(error)) return;
+      rethrow;
+    }
+  }
+
+  Future<void> _syncStudentHolds(
+    String centerId,
+    String halaqahId,
+    CloudSyncDirection direction,
+  ) async {
+    if (direction.shouldUpload) {
+      final holds = await _db.getAllStudentHolds();
+      final payload = holds.map((hold) => {
+        'id': hold.id,
+        'student_id': hold.studentId,
+        'center_id': centerId,
+        'halaqa_id': halaqahId,
+        'start_date': hold.startDate.toIso8601String().split('T')[0],
+        'end_date': hold.endDate.toIso8601String().split('T')[0],
+        'reason': hold.reason,
+        'scope': hold.scope,
+        'notes': hold.notes,
+        'ended_at': hold.endedAt?.toIso8601String(),
+        'created_at': hold.createdAt.toIso8601String(),
+      }).toList();
+      for (var i = 0; i < payload.length; i += 100) {
+        final chunk = payload.sublist(
+          i,
+          i + 100 > payload.length ? payload.length : i + 100,
+        );
+        try {
+          await client.from('student_holds').upsert(chunk);
+        } on PostgrestException catch (error) {
+          if (_isMissingSchemaTable(error)) {
+            AppLogger.warning('student_holds_schema_missing', source: 'supabase.sync.student_holds');
+            return;
+          }
+          if (!_isMissingSchemaColumn(error)) rethrow;
+          final compatibleChunk = chunk
+              .map((row) => Map<String, dynamic>.from(row)..remove('scope'))
+              .toList();
+          try {
+            await client.from('student_holds').upsert(compatibleChunk);
+          } on PostgrestException catch (fallbackError) {
+            if (_isMissingSchemaTable(fallbackError)) {
+              AppLogger.warning('student_holds_schema_missing', source: 'supabase.sync.student_holds');
+              return;
+            }
+            rethrow;
+          }
+        }
+      }
+    }
+
+    if (!direction.shouldDownload) return;
+    final scopedStudentIds = await _fetchHalaqahStudentIds(halaqahId);
+    if (scopedStudentIds.isEmpty) return;
+    try {
+      final response = await client
+          .from('student_holds')
+          .select()
+          .eq('center_id', centerId);
+      for (final dynamic raw in response as List<dynamic>) {
+        final row = Map<String, dynamic>.from(raw as Map);
+        if (!scopedStudentIds.contains(row['student_id']?.toString())) continue;
+        try {
+          await _db.saveStudentHold(StudentHold.fromMap(row));
+        } on StateError {
+          // Preserve a conflicting local hold for explicit user resolution.
+        }
+      }
+    } on PostgrestException catch (error) {
+      if (_isMissingSchemaTable(error)) return;
+      rethrow;
+    }
+  }
+
+  Future<void> _syncTalaqqinRecords(
+    String centerId,
+    String halaqahId,
+    CloudSyncDirection direction,
+  ) async {
+    if (direction.shouldUpload) {
+      final records = await _db.getAllTalaqqinRecords();
+      final payload = records.map((record) => {
+        'id': record.id,
+        'session_id': record.sessionId,
+        'student_id': record.studentId,
+        'center_id': centerId,
+        'halaqa_id': halaqahId,
+        'surah_id': record.surahId,
+        'from_ayah': record.fromAyah,
+        'to_ayah': record.toAyah,
+        'date': record.date.toIso8601String().split('T').first,
+        'notes': record.notes,
+        'created_at': record.createdAt.toIso8601String(),
+      }).toList();
+      for (var i = 0; i < payload.length; i += 100) {
+        final chunk = payload.sublist(
+          i,
+          i + 100 > payload.length ? payload.length : i + 100,
+        );
+        try {
+          await client.from('talaqqin_records').upsert(chunk);
+        } on PostgrestException catch (error) {
+          if (error.code == '42P01' || error.code == 'PGRST205') {
+            AppLogger.warning('talaqqin_schema_missing', source: 'supabase.sync.talaqqin');
+            return;
+          }
+          rethrow;
+        }
+      }
+    }
+
+    if (!direction.shouldDownload) return;
+    final scopedStudentIds = await _fetchHalaqahStudentIds(halaqahId);
+    if (scopedStudentIds.isEmpty) return;
+    try {
+      final response = await client
+          .from('talaqqin_records')
+          .select()
+          .eq('center_id', centerId);
+      final records = <TalaqqinRecord>[];
+      for (final dynamic raw in response as List<dynamic>) {
+        final row = Map<String, dynamic>.from(raw as Map);
+        if (!scopedStudentIds.contains(row['student_id']?.toString())) continue;
+        records.add(TalaqqinRecord.fromMap(row));
+      }
+      await _db.upsertTalaqqinRecordsFromSync(records);
+    } on PostgrestException catch (error) {
+      if (error.code == '42P01' || error.code == 'PGRST205') return;
+      rethrow;
+    }
+  }
+
+  Future<void> _syncStudentAdminActions(
+    String centerId,
+    String halaqahId,
+    CloudSyncDirection direction,
+  ) async {
+    if (direction.shouldUpload) {
+      final actions = await _db.getAllStudentAdminActions();
+      final payload = actions.map((action) => {
+        'id': action.id,
+        'student_id': action.studentId,
+        'center_id': centerId,
+        'halaqa_id': halaqahId,
+        'action_type': action.actionType,
+        'date': action.date.toIso8601String().split('T').first,
+        'details': action.details,
+        'follow_up': action.followUp,
+        'resolved': action.resolved,
+        'created_at': action.createdAt.toIso8601String(),
+        'updated_at': action.updatedAt.toIso8601String(),
+      }).toList();
+      for (var i = 0; i < payload.length; i += 100) {
+        final chunk = payload.sublist(
+          i,
+          i + 100 > payload.length ? payload.length : i + 100,
+        );
+        try {
+          await client.from('student_admin_actions').upsert(chunk);
+        } on PostgrestException catch (error) {
+          if (error.code == '42P01' || error.code == 'PGRST205') {
+            AppLogger.warning('admin_actions_schema_missing', source: 'supabase.sync.admin_actions');
+            return;
+          }
+          rethrow;
+        }
+      }
+    }
+
+    if (!direction.shouldDownload) return;
+    final scopedStudentIds = await _fetchHalaqahStudentIds(halaqahId);
+    if (scopedStudentIds.isEmpty) return;
+    try {
+      final response = await client
+          .from('student_admin_actions')
+          .select()
+          .eq('center_id', centerId);
+      final actions = <StudentAdminAction>[];
+      for (final dynamic raw in response as List<dynamic>) {
+        final row = Map<String, dynamic>.from(raw as Map);
+        if (!scopedStudentIds.contains(row['student_id']?.toString())) continue;
+        actions.add(StudentAdminAction.fromMap(row));
+      }
+      await _db.upsertStudentAdminActionsFromSync(actions);
+    } on PostgrestException catch (error) {
+      if (error.code == '42P01' || error.code == 'PGRST205') return;
+      rethrow;
+    }
+  }
+
+  Future<void> _syncDeletedExams() async {
+    final raw = await _db.getSetting('deleted_exam_ids');
+    if (raw == null || raw.isEmpty) return;
+    dynamic decoded;
+    try {
+      decoded = jsonDecode(raw);
+    } catch (_) {
+      return;
+    }
+    if (decoded is! List) return;
+    final remaining = decoded.map((id) => id.toString()).toList();
+    for (final id in List<String>.from(remaining)) {
+      try {
+        await client.from('exam_scores').delete().eq('id', id);
+        await client.from('exams').delete().eq('id', id);
+        remaining.remove(id);
+      } catch (error) {
+        AppLogger.error(error, source: 'supabase.sync.exams.delete');
+      }
+    }
+    await _db.saveSetting('deleted_exam_ids', jsonEncode(remaining));
+  }
+
+  Future<void> _syncExams(
+    String centerId,
+    String halaqahId,
+    CloudSyncDirection direction,
+  ) async {
+    if (direction.shouldUpload) {
+      await _syncDeletedExams();
+      final localData = await _db.getAllExams();
+
+      final examsPayload = localData.map((exam) => {
+        'id': exam.id,
+        'center_id': centerId,
+        'halaqa_id': halaqahId,
+        'title': 'اختبار ${ExamType.getLabel(exam.type)}',
+        'date': exam.date.toIso8601String().split('T')[0],
+        'type': exam.type,
+        'template_id': exam.templateId,
+        'max_degree': 100,
+        'from_surah': exam.fromSurah,
+        'to_surah': exam.toSurah,
+        'from_ayah': exam.fromAyah,
+        'to_ayah': exam.toAyah,
+        'created_at': exam.createdAt.toIso8601String(),
+      }).toList();
+
+      final scoresPayload = localData.map((exam) => {
+        'id': exam.id,
+        'exam_id': exam.id,
+        'student_id': exam.studentId,
+        'degree': exam.score,
+        'notes': exam.notes,
+        'created_at': exam.createdAt.toIso8601String(),
+      }).toList();
+
+      for (var i = 0; i < examsPayload.length; i += 100) {
+        final end = i + 100 > examsPayload.length ? examsPayload.length : i + 100;
+        final chunkExams = examsPayload.sublist(i, end);
+        final chunkScores = scoresPayload.sublist(i, end);
+        try {
+          await client.from('exams').upsert(chunkExams);
+        } on PostgrestException catch (error) {
+          if (_isMissingSchemaTable(error)) return;
+          if (!_isMissingSchemaColumn(error)) rethrow;
+          final compatible = chunkExams.map((row) {
+            final copy = Map<String, dynamic>.from(row);
+            copy.remove('halaqa_id');
+            copy.remove('template_id');
+            copy.remove('from_surah');
+            copy.remove('to_surah');
+            copy.remove('from_ayah');
+            copy.remove('to_ayah');
+            return copy;
+          }).toList();
+          await client.from('exams').upsert(compatible);
+        }
+        try {
+          await client.from('exam_scores').upsert(chunkScores);
+        } on PostgrestException catch (error) {
+          if (_isMissingSchemaTable(error)) return;
+          rethrow;
+        }
+      }
+    }
+
+    if (!direction.shouldDownload) return;
+    final scopedStudentIds = await _fetchHalaqahStudentIds(halaqahId);
+    if (scopedStudentIds.isEmpty) return;
+    try {
+      final results = await Future.wait<dynamic>([
+        client.from('exams').select().eq('center_id', centerId),
+        client.from('exam_scores').select(),
+      ]);
+      final examsById = <String, Map<String, dynamic>>{
+        for (final dynamic raw in results[0] as List<dynamic>)
+          (raw as Map)['id'].toString(): Map<String, dynamic>.from(raw),
+      };
+      final exams = <Exam>[];
+      for (final dynamic raw in results[1] as List<dynamic>) {
+        final scoreRow = Map<String, dynamic>.from(raw as Map);
+        final studentId = scoreRow['student_id']?.toString();
+        if (studentId == null || !scopedStudentIds.contains(studentId)) continue;
+        final examRow = examsById[scoreRow['exam_id']?.toString()];
+        if (examRow == null) continue;
+        final fromSurah = (examRow['from_surah'] as num?)?.toInt() ?? 1;
+        final toSurah = (examRow['to_surah'] as num?)?.toInt() ?? fromSurah;
+        exams.add(
+          Exam(
+            id: scoreRow['id']?.toString() ?? examRow['id'].toString(),
+            studentId: studentId,
+            date: DateTime.parse(examRow['date'].toString()),
+            type: examRow['type']?.toString() ?? ExamType.oral,
+            templateId: examRow['template_id']?.toString(),
+            fromSurah: fromSurah,
+            toSurah: toSurah,
+            fromAyah: (examRow['from_ayah'] as num?)?.toInt(),
+            toAyah: (examRow['to_ayah'] as num?)?.toInt(),
+            score: (scoreRow['degree'] as num?)?.toInt() ?? 0,
+            notes: scoreRow['notes']?.toString(),
+            createdAt: DateTime.tryParse(
+                  scoreRow['created_at']?.toString() ??
+                      examRow['created_at']?.toString() ??
+                      '',
                 ) ??
                 DateTime.now(),
           ),
         );
       }
-    } catch (error) {
-      print('Error pulling daily achievements: $error');
+      await _db.upsertExamsFromSync(exams);
+    } on PostgrestException catch (error) {
+      if (_isMissingSchemaTable(error)) return;
+      rethrow;
     }
   }
 
-  Future<void> _syncVacations(String centerId) async {
-    final localData = await _db.getAllVacations();
-    if (localData.isEmpty) return;
-    final payload = localData.map((e) => {
-      'id': e.id,
-      'student_id': e.studentId,
-      'center_id': centerId,
-      'start_date': e.startDate.toIso8601String().split('T')[0],
-      'end_date': e.endDate.toIso8601String().split('T')[0],
-      'reason': [e.reason, e.notes].where((element) => element != null && element.isNotEmpty).join(' - '),
-      'approved': e.approved,
-    }).toList();
-    for (var i = 0; i < payload.length; i += 100) {
-      final chunk = payload.sublist(i, i + 100 > payload.length ? payload.length : i + 100);
-      try {
-        await client.from('vacations').upsert(chunk);
-      } catch (e) {
-        print('Error syncing vacations chunk: $e');
-      }
-    }
-  }
-
-  Future<void> _syncStudentHolds(String centerId, String halaqahId) async {
-    final holds = await _db.getAllStudentHolds();
-    if (holds.isEmpty) return;
-    final payload = holds.map((hold) => {
-      'id': hold.id,
-      'student_id': hold.studentId,
-      'center_id': centerId,
-      'halaqa_id': halaqahId,
-      'start_date': hold.startDate.toIso8601String().split('T')[0],
-      'end_date': hold.endDate.toIso8601String().split('T')[0],
-      'reason': hold.reason,
-      'notes': hold.notes,
-      'ended_at': hold.endedAt?.toIso8601String(),
-      'created_at': hold.createdAt.toIso8601String(),
-    }).toList();
-    for (var i = 0; i < payload.length; i += 100) {
-      final chunk = payload.sublist(
-        i,
-        i + 100 > payload.length ? payload.length : i + 100,
-      );
-      try {
-        await client.from('student_holds').upsert(chunk);
-      } catch (e) {
-        print('Error syncing student holds chunk: $e');
-      }
-    }
-  }
-
-  Future<void> _syncExams(String centerId) async {
-    final localData = await _db.getAllExams();
-    if (localData.isEmpty) return;
-    
-    final examsPayload = localData.map((e) => {
-      'id': e.id,
-      'center_id': centerId,
-      'title': 'اختبار محلي',
-      'date': e.date.toIso8601String().split('T')[0],
-      'type': e.type,
-      'max_degree': 100,
-    }).toList();
-
-    final scoresPayload = localData.map((e) => {
-      'id': e.id,
-      'exam_id': e.id,
-      'student_id': e.studentId,
-      'degree': e.score,
-      'notes': e.notes,
-    }).toList();
-
-    for (var i = 0; i < examsPayload.length; i += 100) {
-      final chunkExams = examsPayload.sublist(i, i + 100 > examsPayload.length ? examsPayload.length : i + 100);
-      final chunkScores = scoresPayload.sublist(i, i + 100 > scoresPayload.length ? scoresPayload.length : i + 100);
-      try {
-        await client.from('exams').upsert(chunkExams);
-        await client.from('exam_scores').upsert(chunkScores);
-      } catch (e) {
-        print('Error syncing exams chunk: $e');
-      }
-    }
-  }
-
-  Future<void> _syncExamTemplates(String centerId, String halaqahId) async {
-    await _syncDeletedExamTemplates();
-    final templates = await _db.getExamTemplates();
-    if (templates.isEmpty) return;
-
-    for (var i = 0; i < templates.length; i += 100) {
-      final chunk = templates.sublist(
-        i,
-        i + 100 > templates.length ? templates.length : i + 100,
-      );
-      final payload = chunk.map((template) => {
-        'id': template.id,
-        'center_id': centerId,
-        'halaqa_id': halaqahId,
-        'student_id': template.studentId,
-        'title': template.title,
-        'type': 'custom',
-        'category': template.category,
-        'criteria_json': _decodeJsonObject(template.criteriaJson),
-        'questions_count': template.questionsCount,
-        'created_at': template.createdAt.toIso8601String(),
-        'updated_at': template.updatedAt.toIso8601String(),
-      }).toList();
-      try {
-        await client.from('exam_templates').upsert(payload);
-      } catch (e) {
-        print('Error syncing exam templates chunk: $e');
-        continue;
-      }
-
-      for (final template in chunk) {
-        final questions = await _db.getExamTemplateQuestions(template.id);
-        try {
-          await client
-              .from('exam_questions')
-              .delete()
-              .eq('template_id', template.id);
-        } catch (e) {
-          print('Error clearing old questions for template ${template.id}: $e');
-          continue;
-        }
-        if (questions.isEmpty) continue;
-        final questionsPayload = questions.map((question) => {
-          'id': question.id,
-          'template_id': template.id,
-          'question_order': question.questionOrder,
-          'surah': question.surahId,
-          'to_surah': question.toSurahId,
-          'from_ayah': question.fromAyah,
-          'to_ayah': question.toAyah,
-          'question_type': question.questionType,
-          'prompt_text': question.promptText,
-          'answer_text': question.answerText,
-          'page': question.page,
-          'juz': question.juz,
-          'hizb': question.hizb,
-          'difficulty': question.difficulty,
-          'lines': question.lines,
-          'is_assessed': question.isAssessed,
-          'memorization_errors': question.memorizationErrors,
-          'tashkeel_errors': question.tashkeelErrors,
-          'recitation_errors': question.recitationErrors,
-          'prompt_count': question.promptCount,
-          'question_score': question.questionScore,
-          'created_at': question.createdAt.toIso8601String(),
+  Future<void> _syncExamTemplates(
+    String centerId,
+    String halaqahId,
+    CloudSyncDirection direction,
+  ) async {
+    if (direction.shouldUpload) {
+      await _syncDeletedExamTemplates();
+      final templates = await _db.getExamTemplates();
+      for (var i = 0; i < templates.length; i += 100) {
+        final chunk = templates.sublist(
+          i,
+          i + 100 > templates.length ? templates.length : i + 100,
+        );
+        final payload = chunk.map((template) => {
+          'id': template.id,
+          'center_id': centerId,
+          'halaqa_id': halaqahId,
+          'student_id': template.studentId,
+          'title': template.title,
+          'type': 'custom',
+          'category': template.category,
+          'criteria_json': _decodeJsonObject(template.criteriaJson),
+          'questions_count': template.questionsCount,
+          'created_at': template.createdAt.toIso8601String(),
+          'updated_at': template.updatedAt.toIso8601String(),
         }).toList();
         try {
-          await client.from('exam_questions').upsert(questionsPayload);
+          await client.from('exam_templates').upsert(payload);
         } catch (e) {
-          print('Error syncing questions for template ${template.id}: $e');
+          AppLogger.error(e, source: 'supabase.sync.exam_templates');
+          continue;
+        }
+
+        for (final template in chunk) {
+          final questions = await _db.getExamTemplateQuestions(template.id);
+          try {
+            await client
+                .from('exam_questions')
+                .delete()
+                .eq('template_id', template.id);
+          } catch (e) {
+            AppLogger.error(e, source: 'supabase.sync.exam_questions.clear');
+            continue;
+          }
+          if (questions.isEmpty) continue;
+          final questionsPayload = questions.map((question) => {
+            'id': question.id,
+            'template_id': template.id,
+            'question_order': question.questionOrder,
+            'surah': question.surahId,
+            'to_surah': question.toSurahId,
+            'from_ayah': question.fromAyah,
+            'to_ayah': question.toAyah,
+            'question_type': question.questionType,
+            'prompt_text': question.promptText,
+            'answer_text': question.answerText,
+            'page': question.page,
+            'juz': question.juz,
+            'hizb': question.hizb,
+            'difficulty': question.difficulty,
+            'lines': question.lines,
+            'is_assessed': question.isAssessed,
+            'memorization_errors': question.memorizationErrors,
+            'tashkeel_errors': question.tashkeelErrors,
+            'recitation_errors': question.recitationErrors,
+            'prompt_count': question.promptCount,
+            'question_score': question.questionScore,
+            'created_at': question.createdAt.toIso8601String(),
+          }).toList();
+          try {
+            await client.from('exam_questions').upsert(questionsPayload);
+          } catch (e) {
+            AppLogger.error(e, source: 'supabase.sync.exam_questions');
+          }
         }
       }
+    }
+
+    if (!direction.shouldDownload) return;
+    try {
+      final remoteTemplates = await client
+          .from('exam_templates')
+          .select()
+          .eq('center_id', centerId)
+          .eq('halaqa_id', halaqahId);
+      for (final dynamic raw in remoteTemplates as List<dynamic>) {
+        final row = Map<String, dynamic>.from(raw as Map);
+        final templateId = row['id']?.toString();
+        final studentId = row['student_id']?.toString();
+        if (templateId == null || studentId == null) continue;
+        final template = ExamTemplate(
+          id: templateId,
+          studentId: studentId,
+          title: row['title']?.toString() ?? 'نموذج اختبار',
+          category: row['category']?.toString() ?? 'custom',
+          criteriaJson: jsonEncode(row['criteria_json'] ?? const <String, dynamic>{}),
+          questionsCount: (row['questions_count'] as num?)?.toInt() ?? 0,
+          createdAt: DateTime.tryParse(row['created_at']?.toString() ?? '') ??
+              DateTime.now(),
+          updatedAt: DateTime.tryParse(row['updated_at']?.toString() ?? '') ??
+              DateTime.now(),
+        );
+        final remoteQuestions = await client
+            .from('exam_questions')
+            .select()
+            .eq('template_id', templateId)
+            .order('question_order');
+        final questions = <ExamTemplateQuestion>[];
+        for (final dynamic rawQuestion in remoteQuestions as List<dynamic>) {
+          final question = Map<String, dynamic>.from(rawQuestion as Map);
+          questions.add(
+            ExamTemplateQuestion(
+              id: question['id']?.toString(),
+              templateId: templateId,
+              questionOrder: (question['question_order'] as num?)?.toInt() ?? 0,
+              surahId: (question['surah'] as num?)?.toInt() ?? 1,
+              toSurahId: (question['to_surah'] as num?)?.toInt(),
+              fromAyah: (question['from_ayah'] as num?)?.toInt() ?? 1,
+              toAyah: (question['to_ayah'] as num?)?.toInt() ?? 1,
+              questionType: question['question_type']?.toString() ?? 'recite_from',
+              promptText: question['prompt_text']?.toString() ?? '',
+              answerText: question['answer_text']?.toString() ?? '',
+              page: (question['page'] as num?)?.toInt() ?? 0,
+              juz: (question['juz'] as num?)?.toInt() ?? 0,
+              hizb: (question['hizb'] as num?)?.toInt() ?? 0,
+              difficulty: (question['difficulty'] as num?)?.toInt() ?? 0,
+              lines: (question['lines'] as num?)?.toDouble() ?? 0,
+              isAssessed: question['is_assessed'] == true ||
+                  question['is_assessed'] == 1,
+              memorizationErrors:
+                  (question['memorization_errors'] as num?)?.toInt() ?? 0,
+              tashkeelErrors:
+                  (question['tashkeel_errors'] as num?)?.toInt() ?? 0,
+              recitationErrors:
+                  (question['recitation_errors'] as num?)?.toInt() ?? 0,
+              promptCount: (question['prompt_count'] as num?)?.toInt() ?? 0,
+              questionScore:
+                  (question['question_score'] as num?)?.toDouble() ?? 0,
+              createdAt:
+                  DateTime.tryParse(question['created_at']?.toString() ?? '') ??
+                      template.createdAt,
+            ),
+          );
+        }
+        await _db.saveExamTemplate(template, questions);
+      }
+    } on PostgrestException catch (error) {
+      if (_isMissingSchemaTable(error)) return;
+      rethrow;
     }
   }
 
@@ -1557,7 +2380,7 @@ class SupabaseService {
         await client.from('exam_templates').delete().eq('id', templateId);
         remaining.remove(templateId);
       } catch (e) {
-        print('Error syncing deleted exam template $templateId: $e');
+        AppLogger.error(e, source: 'supabase.sync.exam_templates.delete');
       }
     }
     await _db.saveSetting(
@@ -1577,40 +2400,89 @@ class SupabaseService {
     }
   }
 
-  Future<void> _syncFundTransactions(String centerId) async {
-    final localData = await _db.getFundTransactions();
-    if (localData.isEmpty) return;
-    final payload = localData.map((e) => {
-      'id': e.id,
-      'center_id': centerId,
-      'student_id': e.studentId,
-      'behavior_point_id': e.behaviorPointId,
-      'type': e.type,
-      'amount': e.amount,
-      'note': e.note,
-      'date': e.date.toIso8601String().split('T')[0],
-    }).toList();
-    for (var i = 0; i < payload.length; i += 100) {
-      final chunk = payload.sublist(i, i + 100 > payload.length ? payload.length : i + 100);
-      try {
-        await client.from('fund_transactions').upsert(chunk);
-      } on PostgrestException catch (error) {
-        if ((error.code == 'PGRST204' || error.code == '42703') &&
-            [error.message, error.details, error.hint]
-                .whereType<Object>()
-                .join(' ')
-                .contains('behavior_point_id')) {
-          final compatible = chunk
-              .map((row) => Map<String, dynamic>.from(row)
-                ..remove('behavior_point_id'))
-              .toList();
-          await client.from('fund_transactions').upsert(compatible);
-        } else {
-          print('Error syncing fund tx chunk: $error');
+  Future<void> _syncFundTransactions(
+    String centerId,
+    String halaqahId,
+    CloudSyncDirection direction,
+  ) async {
+    if (direction.shouldUpload) {
+      final localData = await _db.getFundTransactions();
+      final payload = localData.map((e) => {
+        'id': e.id,
+        'center_id': centerId,
+        'halaqa_id': halaqahId,
+        'student_id': e.studentId,
+        'behavior_point_id': e.behaviorPointId,
+        'settled_negative_points': e.settledNegativePoints,
+        'type': e.type,
+        'amount': e.amount,
+        'note': e.note,
+        'date': e.date.toIso8601String().split('T')[0],
+        'created_at': e.createdAt.toIso8601String(),
+      }).toList();
+      for (var i = 0; i < payload.length; i += 100) {
+        final end = i + 100 > payload.length ? payload.length : i + 100;
+        final chunk = payload.sublist(i, end);
+        try {
+          await client.from('fund_transactions').upsert(chunk);
+        } on PostgrestException catch (error) {
+          if ((error.code == 'PGRST204' || error.code == '42703') &&
+              [error.message, error.details, error.hint]
+                  .whereType<Object>()
+                  .join(' ')
+                  .contains(RegExp('behavior_point_id|settled_negative_points|created_at'))) {
+            final compatible = chunk
+                .map((row) => Map<String, dynamic>.from(row)
+                  ..remove('behavior_point_id')
+                  ..remove('settled_negative_points')
+                  ..remove('created_at'))
+                .toList();
+            await client.from('fund_transactions').upsert(compatible);
+          } else {
+            AppLogger.error(error, source: 'supabase.sync.fund');
+          }
+        } catch (error) {
+          AppLogger.error(error, source: 'supabase.sync.fund');
         }
-      } catch (error) {
-        print('Error syncing fund tx chunk: $error');
       }
+    }
+
+    if (!direction.shouldDownload) return;
+    final scopedStudentIds = await _fetchHalaqahStudentIds(halaqahId);
+    try {
+      final response = await client
+          .from('fund_transactions')
+          .select()
+          .eq('center_id', centerId);
+      final transactions = <FundTransaction>[];
+      for (final dynamic raw in response as List<dynamic>) {
+        final row = Map<String, dynamic>.from(raw as Map);
+        final studentId = row['student_id']?.toString();
+        if (studentId != null && !scopedStudentIds.contains(studentId)) {
+          continue;
+        }
+        transactions.add(
+          FundTransaction(
+            id: row['id'].toString(),
+            studentId: studentId,
+            behaviorPointId: row['behavior_point_id']?.toString(),
+            settledNegativePoints:
+                (row['settled_negative_points'] as num?)?.toInt() ?? 0,
+            type: row['type']?.toString() ?? 'donation',
+            amount: (row['amount'] as num?)?.toDouble() ?? 0,
+            note: row['note']?.toString(),
+            date: DateTime.parse(row['date'].toString()),
+            createdAt: DateTime.tryParse(
+                  row['created_at']?.toString() ?? '',
+                ) ??
+                DateTime.parse(row['date'].toString()),
+          ),
+        );
+      }
+      await _db.upsertFundTransactionsFromSync(transactions);
+    } on PostgrestException catch (error) {
+      if (_isMissingSchemaTable(error)) return;
+      rethrow;
     }
   }
 
@@ -1659,8 +2531,10 @@ class SupabaseService {
             'start_date': e.startDate.toIso8601String().split('T')[0],
             'end_date': e.endDate.toIso8601String().split('T')[0],
             'unit': e.unit,
+            'review_unit': e.reviewUnit,
             'new_amount': e.newAmount,
             'review_amount': e.reviewAmount,
+            'recitation_amount': e.recitationAmount,
             'status': e.status,
             'test_status': e.testStatus,
             'completion_exam_id': e.completionExamId,
@@ -1676,8 +2550,33 @@ class SupabaseService {
         );
         try {
           await client.from('plans').upsert(chunk);
+        } on PostgrestException catch (error) {
+          final details = [error.message, error.details, error.hint]
+              .whereType<Object>()
+              .join(' ');
+          if (error.code == 'PGRST204' || error.code == '42703') {
+            final compatible = chunk
+                .map((row) => Map<String, dynamic>.from(row))
+                .toList();
+            var changed = false;
+            for (final optional in const ['review_unit', 'recitation_amount']) {
+              if (details.contains(optional)) {
+                for (final row in compatible) {
+                  row.remove(optional);
+                }
+                changed = true;
+              }
+            }
+            if (changed) {
+              await client.from('plans').upsert(compatible);
+            } else {
+              AppLogger.error(error, source: 'supabase.sync.plans');
+            }
+          } else {
+            AppLogger.error(error, source: 'supabase.sync.plans');
+          }
         } catch (e) {
-          print('Error syncing plans chunk: $e');
+          AppLogger.error(e, source: 'supabase.sync.plans');
         }
       }
     }
@@ -1707,8 +2606,11 @@ class SupabaseService {
           startDate: DateTime.parse(remote['start_date']),
           endDate: DateTime.parse(remote['end_date']),
           unit: remote['unit'] ?? 'ayahs',
+          reviewUnit: remote['review_unit'] ?? remote['unit'] ?? 'ayahs',
           newAmount: (remote['new_amount'] as num?)?.toInt() ?? 5,
           reviewAmount: (remote['review_amount'] as num?)?.toInt() ?? 10,
+          recitationAmount:
+              (remote['recitation_amount'] as num?)?.toInt() ?? 1,
           status: remote['status'] ?? 'active',
           testStatus: remote['test_status'] ?? 'not_required',
           completionExamId: remote['completion_exam_id'],
@@ -1723,26 +2625,281 @@ class SupabaseService {
     }
   }
 
-  Future<void> _syncNotifications(String centerId) async {
-    final localData = await _db.getNotifications();
-    if (localData.isEmpty) return;
-    final payload = localData.map((e) => {
-      'id': e.id,
-      'center_id': centerId,
-      'student_id': e.studentId,
-      'type': e.type,
-      'title': e.title,
-      'body': e.body,
-      'read': e.read,
-      'sent_via': 'none',
-    }).toList();
-    for (var i = 0; i < payload.length; i += 100) {
-      final chunk = payload.sublist(i, i + 100 > payload.length ? payload.length : i + 100);
-      try {
-        await client.from('notifications').upsert(chunk);
-      } catch (e) {
-        print('Error syncing notifications chunk: $e');
+  Future<void> _syncQuranCourses(
+    String centerId,
+    String halaqahId,
+    CloudSyncDirection direction,
+  ) async {
+    try {
+      if (direction.shouldUpload) {
+        await _syncDeletedRows(
+          table: 'quran_course_enrollments',
+          settingKey: 'deleted_quran_course_enrollment_ids',
+        );
+        await _syncDeletedRows(
+          table: 'quran_courses',
+          settingKey: 'deleted_quran_course_ids',
+        );
+
+        final courses = await _db.getQuranCourses();
+        if (courses.isNotEmpty) {
+          final payload = courses.map((course) => {
+                'id': course.id,
+                'center_id': centerId,
+                'halaqa_id': halaqahId,
+                'title': course.title,
+                'type': course.type,
+                'start_date': course.startDate.toIso8601String().split('T').first,
+                'end_date': course.endDate.toIso8601String().split('T').first,
+                'memorization_unit': course.memorizationUnit,
+                'memorization_amount': course.memorizationAmount,
+                'revision_unit': course.revisionUnit,
+                'revision_amount': course.revisionAmount,
+                'study_weekdays': course.studyWeekdays,
+                'status': course.status,
+                'notes': course.notes,
+                'created_at': course.createdAt.toIso8601String(),
+                'updated_at': course.updatedAt.toIso8601String(),
+              }).toList();
+          for (var index = 0; index < payload.length; index += 100) {
+            await client.from('quran_courses').upsert(
+                  payload.sublist(
+                    index,
+                    (index + 100).clamp(0, payload.length).toInt(),
+                  ),
+                );
+          }
+        }
+
+        final enrollments = await _db.getAllQuranCourseEnrollments();
+        if (enrollments.isNotEmpty) {
+          final payload = enrollments.map((item) => {
+                'id': item.id,
+                'course_id': item.courseId,
+                'student_id': item.studentId,
+                'center_id': centerId,
+                'halaqa_id': halaqahId,
+                'enrolled_at': item.enrolledAt.toIso8601String(),
+                'status': item.status,
+                'notes': item.notes,
+                'created_at': item.createdAt.toIso8601String(),
+                'updated_at': item.updatedAt.toIso8601String(),
+              }).toList();
+          for (var index = 0; index < payload.length; index += 100) {
+            await client.from('quran_course_enrollments').upsert(
+                  payload.sublist(
+                    index,
+                    (index + 100).clamp(0, payload.length).toInt(),
+                  ),
+                );
+          }
+        }
       }
+
+      if (!direction.shouldDownload) return;
+      final courseResponse = await client
+          .from('quran_courses')
+          .select()
+          .eq('center_id', centerId)
+          .eq('halaqa_id', halaqahId);
+      final remoteCourses = (courseResponse as List<dynamic>)
+          .map((raw) => QuranCourse.fromMap(
+                Map<String, dynamic>.from(raw as Map),
+              ))
+          .toList();
+      await _db.upsertQuranCoursesFromSync(remoteCourses);
+
+      final enrollmentResponse = await client
+          .from('quran_course_enrollments')
+          .select()
+          .eq('center_id', centerId)
+          .eq('halaqa_id', halaqahId);
+      final remoteEnrollments = (enrollmentResponse as List<dynamic>)
+          .map((raw) => QuranCourseEnrollment.fromMap(
+                Map<String, dynamic>.from(raw as Map),
+              ))
+          .toList();
+      await _db.upsertQuranCourseEnrollmentsFromSync(remoteEnrollments);
+    } on PostgrestException catch (error) {
+      if (error.code == '42P01' || error.code == 'PGRST205') {
+        // P1.24 migration has not been applied yet. Local courses keep working.
+        return;
+      }
+      rethrow;
     }
   }
+
+  Future<void> _syncPlanRecitationRecords(
+    String centerId,
+    String halaqahId,
+    CloudSyncDirection direction,
+  ) async {
+    await QuranService.instance.initialize();
+    if (direction.shouldUpload) {
+      await _syncDeletedRows(
+        table: 'plan_recitation_records',
+        settingKey: 'deleted_plan_recitation_record_ids',
+      );
+    }
+
+    final local = await _db.getAllPlanRecitationRecords();
+    final beforeResponse = await client
+        .from('plan_recitation_records')
+        .select()
+        .eq('center_id', centerId)
+        .eq('halaqa_id', halaqahId);
+    final beforeRows = List<Map<String, dynamic>>.from(
+      beforeResponse as List<dynamic>,
+    );
+    final remoteById = {
+      for (final row in beforeRows) row['id'].toString(): row,
+    };
+
+    if (direction.shouldUpload) {
+      final payload = local.where((record) {
+        final remote = remoteById[record.id];
+        if (remote == null) return true;
+        final remoteUpdated = DateTime.tryParse(
+          remote['updated_at']?.toString() ?? '',
+        );
+        return remoteUpdated == null || record.updatedAt.isAfter(remoteUpdated);
+      }).map((record) => {
+            'id': record.id,
+            'session_id': record.sessionId,
+            'center_id': centerId,
+            'halaqa_id': halaqahId,
+            'plan_id': record.planId,
+            'student_id': record.studentId,
+            'surah_id': record.surahId,
+            'from_ayah': record.fromAyah,
+            'to_ayah': record.toAyah,
+            'segment_order': record.segmentOrder,
+            'date': record.date.toIso8601String().split('T')[0],
+            'quality_rating': record.qualityRating,
+            'notes': record.notes,
+            'created_at': record.createdAt.toIso8601String(),
+            'updated_at': record.updatedAt.toIso8601String(),
+          }).toList();
+      for (var index = 0; index < payload.length; index += 100) {
+        final end = index + 100 > payload.length ? payload.length : index + 100;
+        await client
+            .from('plan_recitation_records')
+            .upsert(payload.sublist(index, end));
+      }
+    }
+
+    if (!direction.shouldDownload) return;
+    final finalResponse = await client
+        .from('plan_recitation_records')
+        .select()
+        .eq('center_id', centerId)
+        .eq('halaqa_id', halaqahId);
+    final finalRows = List<Map<String, dynamic>>.from(
+      finalResponse as List<dynamic>,
+    );
+    final finalIds = finalRows.map((row) => row['id'].toString()).toSet();
+    for (final record in local.where((item) => !finalIds.contains(item.id))) {
+      await _db.deletePlanRecitationRecordFromSync(record.id);
+    }
+    final localById = {for (final record in local) record.id: record};
+    for (final row in finalRows) {
+      final createdAt =
+          DateTime.tryParse(row['created_at']?.toString() ?? '') ??
+              DateTime.now();
+      final updatedAt =
+          DateTime.tryParse(row['updated_at']?.toString() ?? '') ?? createdAt;
+      final existing = localById[row['id']?.toString()];
+      if (existing != null && !updatedAt.isAfter(existing.updatedAt)) continue;
+      await _db.upsertPlanRecitationRecordFromSync(
+        PlanRecitationRecord(
+          id: row['id']?.toString(),
+          sessionId: row['session_id']?.toString(),
+          planId: row['plan_id'].toString(),
+          studentId: row['student_id'].toString(),
+          surahId: (row['surah_id'] as num).toInt(),
+          fromAyah: (row['from_ayah'] as num).toInt(),
+          toAyah: (row['to_ayah'] as num).toInt(),
+          segmentOrder: (row['segment_order'] as num?)?.toInt() ?? 0,
+          date: DateTime.parse(row['date'].toString()),
+          qualityRating: (row['quality_rating'] as num?)?.toInt() ?? 3,
+          notes: row['notes']?.toString(),
+          createdAt: createdAt,
+          updatedAt: updatedAt,
+        ),
+      );
+    }
+  }
+
+  Future<void> _syncNotifications(
+    String centerId,
+    String halaqahId,
+    CloudSyncDirection direction,
+  ) async {
+    if (direction.shouldUpload) {
+      final localData = await _db.getNotifications();
+      final payload = localData.map((notification) => {
+        'id': notification.id,
+        'center_id': centerId,
+        'halaqa_id': halaqahId,
+        'student_id': notification.studentId,
+        'type': notification.type,
+        'title': notification.title,
+        'body': notification.body,
+        'read': notification.read,
+        'sent_via': 'none',
+        'created_at': notification.createdAt.toIso8601String(),
+      }).toList();
+      for (var i = 0; i < payload.length; i += 100) {
+        final chunk = payload.sublist(
+          i,
+          i + 100 > payload.length ? payload.length : i + 100,
+        );
+        try {
+          await client.from('notifications').upsert(chunk);
+        } on PostgrestException catch (error) {
+          if (_isMissingSchemaTable(error)) return;
+          if (!_isMissingSchemaColumn(error)) rethrow;
+          final compatible = chunk
+              .map((row) => Map<String, dynamic>.from(row)
+                ..remove('halaqa_id')
+                ..remove('created_at'))
+              .toList();
+          await client.from('notifications').upsert(compatible);
+        }
+      }
+    }
+
+    if (!direction.shouldDownload) return;
+    final scopedStudentIds = await _fetchHalaqahStudentIds(halaqahId);
+    if (scopedStudentIds.isEmpty) return;
+    try {
+      final response = await client
+          .from('notifications')
+          .select()
+          .eq('center_id', centerId);
+      final notifications = <NotificationLog>[];
+      for (final dynamic raw in response as List<dynamic>) {
+        final row = Map<String, dynamic>.from(raw as Map);
+        final studentId = row['student_id']?.toString();
+        if (studentId == null || !scopedStudentIds.contains(studentId)) continue;
+        notifications.add(
+          NotificationLog(
+            id: row['id']?.toString(),
+            studentId: studentId,
+            type: row['type']?.toString() ?? 'general',
+            title: row['title']?.toString() ?? 'إشعار',
+            body: row['body']?.toString() ?? '',
+            read: row['read'] == true || row['read'] == 1,
+            createdAt: DateTime.tryParse(row['created_at']?.toString() ?? '') ??
+                DateTime.now(),
+          ),
+        );
+      }
+      await _db.upsertNotificationsFromSync(notifications);
+    } on PostgrestException catch (error) {
+      if (_isMissingSchemaTable(error)) return;
+      rethrow;
+    }
+  }
+
 }

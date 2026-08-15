@@ -104,7 +104,9 @@ class _ExamGeneratorScreenState extends State<ExamGeneratorScreen> {
       setState(() {
         _memorizedSurahs = surahs;
         if (surahs.isNotEmpty && _selectedSurah == null) {
-          _selectedSurah = surahs.first;
+          _selectedSurah = _selectedStudent!.memorizationDirection == 'desc'
+              ? surahs.first
+              : surahs.last;
           initializeRange = true;
         }
       });
@@ -325,7 +327,7 @@ class _ExamGeneratorScreenState extends State<ExamGeneratorScreen> {
             const Text('اختر الطالب', style: TextStyle(fontWeight: FontWeight.bold)),
             const SizedBox(height: 12),
             DropdownButtonFormField<Student>(
-              value: _selectedStudent,
+              initialValue: _selectedStudent,
               decoration: const InputDecoration(
                 border: OutlineInputBorder(),
                 prefixIcon: Icon(Icons.person),
@@ -538,7 +540,7 @@ class _ExamGeneratorScreenState extends State<ExamGeneratorScreen> {
               children: [
                 Expanded(
                   child: DropdownButtonFormField<int>(
-                    value: from,
+                    initialValue: from,
                     decoration: const InputDecoration(labelText: 'من'),
                     items: List.generate(
                       to,
@@ -555,7 +557,7 @@ class _ExamGeneratorScreenState extends State<ExamGeneratorScreen> {
                 const SizedBox(width: 16),
                 Expanded(
                   child: DropdownButtonFormField<int>(
-                    value: to,
+                    initialValue: to,
                     decoration: const InputDecoration(labelText: 'إلى'),
                     items: List.generate(
                       max - from + 1,
@@ -610,7 +612,7 @@ class _ExamGeneratorScreenState extends State<ExamGeneratorScreen> {
                 width: double.infinity,
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  border: Border.all(color: Colors.grey[300]!),
+                  border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Row(
@@ -715,7 +717,7 @@ class _ExamGeneratorScreenState extends State<ExamGeneratorScreen> {
             const Text('معايير السؤال', style: TextStyle(fontWeight: FontWeight.bold)),
             const SizedBox(height: 12),
             DropdownButtonFormField<int>(
-              value: _difficulty,
+              initialValue: _difficulty,
               decoration: const InputDecoration(
                 labelText: 'درجة الصعوبة',
                 prefixIcon: Icon(Icons.speed),
@@ -794,7 +796,7 @@ class _ExamGeneratorScreenState extends State<ExamGeneratorScreen> {
     final questions = exam['questions'] as List;
 
     return Card(
-      color: Theme.of(context).colorScheme.primaryContainer.withOpacity(0.35),
+      color: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.35),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -816,11 +818,11 @@ class _ExamGeneratorScreenState extends State<ExamGeneratorScreen> {
             ),
             Text(
               exam['category'] as String,
-              style: TextStyle(color: Colors.grey[700]),
+              style: TextStyle(color: Theme.of(context).colorScheme.onSurface),
             ),
             Text(
               'إجمالي الأسطر: ${(exam['total_lines'] as double).toStringAsFixed(1)}',
-              style: TextStyle(color: Colors.grey[600], fontSize: 12),
+              style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 12),
             ),
             const Divider(height: 24),
             const Text(
@@ -900,7 +902,7 @@ class _ExamGeneratorScreenState extends State<ExamGeneratorScreen> {
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.grey[300]!),
+        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -919,7 +921,7 @@ class _ExamGeneratorScreenState extends State<ExamGeneratorScreen> {
               Expanded(
                 child: Text(
                   rangeLabel,
-                  style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                  style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 12),
                 ),
               ),
               Text(
@@ -950,7 +952,7 @@ class _ExamGeneratorScreenState extends State<ExamGeneratorScreen> {
             '${question['start_text']} ...',
             style: const TextStyle(
               fontSize: 18,
-              fontFamily: 'Amiri',
+              fontFamily: 'Tajawal',
               fontWeight: FontWeight.w500,
             ),
             textDirection: TextDirection.rtl,
@@ -965,14 +967,14 @@ class _ExamGeneratorScreenState extends State<ExamGeneratorScreen> {
                 width: double.infinity,
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: Colors.green.withOpacity(0.12),
+                  color: Colors.green.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text(
                   question['full_text'],
                   style: const TextStyle(
                     fontSize: 16,
-                    fontFamily: 'Amiri',
+                    fontFamily: 'Tajawal',
                   ),
                   textDirection: TextDirection.rtl,
                 ),
@@ -989,7 +991,7 @@ class _ExamGeneratorScreenState extends State<ExamGeneratorScreen> {
                   ? 'الدرجة: ${((question['question_score'] as num?) ?? 0).toStringAsFixed(1)} / 10'
                   : 'لم يُرصد أداء السؤال بعد',
               style: TextStyle(
-                color: assessed ? Colors.green[700] : Colors.grey[600],
+                color: assessed ? Colors.green[700] : Theme.of(context).colorScheme.onSurfaceVariant,
                 fontSize: 11,
               ),
             ),
@@ -1225,7 +1227,7 @@ class _ExamGeneratorScreenState extends State<ExamGeneratorScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               DropdownButtonFormField<String>(
-                value: questionType,
+                initialValue: questionType,
                 decoration: const InputDecoration(labelText: 'نوع السؤال'),
                 items: const [
                   DropdownMenuItem(value: 'recite_from', child: Text('اقرأ من قوله تعالى')),
@@ -1238,7 +1240,7 @@ class _ExamGeneratorScreenState extends State<ExamGeneratorScreen> {
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
-                value: boundaryMode,
+                initialValue: boundaryMode,
                 decoration: const InputDecoration(labelText: 'نهاية النطاق'),
                 items: const [
                   DropdownMenuItem(value: 'exact', child: Text('تحديد آية النهاية')),

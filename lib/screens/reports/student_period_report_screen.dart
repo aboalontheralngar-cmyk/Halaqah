@@ -1,16 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:pdf/pdf.dart';
 import 'package:printing/printing.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../models/behavior_point.dart';
+import '../../models/daily_record.dart';
 import '../../models/student.dart';
 import '../../models/student_period_report.dart';
 import '../../models/vacation.dart';
 import '../../services/database_service.dart';
 import '../../services/pdf_service.dart';
 import '../../services/quran_service.dart';
+import '../../services/qr_service.dart';
 import '../../services/student_period_report_service.dart';
+import '../../utils/helpers.dart';
+import '../../widgets/app_design_widgets.dart';
 
 class StudentPeriodReportScreen extends StatefulWidget {
   final Student? initialStudent;
@@ -38,6 +43,7 @@ class _StudentPeriodReportScreenState extends State<StudentPeriodReportScreen> {
   late DateTime _endDate;
   StudentPeriodReport? _report;
   bool _isLoading = true;
+  String? _selectedHijriMonthKey;
 
   @override
   void initState() {
@@ -83,10 +89,16 @@ class _StudentPeriodReportScreenState extends State<StudentPeriodReportScreen> {
     if (student == null) return;
     setState(() => _isLoading = true);
     try {
-      final report = await _reports.generate(
-        student: student,
+      final candidates = _students
+          .where((item) => item.status == 'active' || item.id == student.id)
+          .toList();
+      final rankedReports = await _reports.generateForStudents(
+        students: candidates,
         startDate: _startDate,
         endDate: _endDate,
+      );
+      final report = rankedReports.firstWhere(
+        (item) => item.student.id == student.id,
       );
       if (!mounted) return;
       setState(() {
@@ -126,6 +138,10 @@ class _StudentPeriodReportScreenState extends State<StudentPeriodReportScreen> {
                     _buildSummary(_report!),
                     const SizedBox(height: 16),
                     _buildPerformance(_report!),
+                    if (_report!.exams.isNotEmpty) ...[
+                      const SizedBox(height: 16),
+                      _buildExams(_report!),
+                    ],
                     const SizedBox(height: 16),
                     _buildDailyDetails(_report!),
                     const SizedBox(height: 16),
@@ -138,6 +154,14 @@ class _StudentPeriodReportScreenState extends State<StudentPeriodReportScreen> {
   }
 
   Widget _buildFilters() {
+    final hijriRanges = Helpers.recentHijriMonths();
+    final hijriRangeByKey = {
+      for (final range in hijriRanges) range.key: range,
+    };
+    final selectedHijriMonthKey =
+        hijriRangeByKey.containsKey(_selectedHijriMonthKey)
+            ? _selectedHijriMonthKey
+            : null;
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -147,7 +171,7 @@ class _StudentPeriodReportScreenState extends State<StudentPeriodReportScreen> {
             const Text('بيانات التقرير', style: TextStyle(fontWeight: FontWeight.bold)),
             const SizedBox(height: 12),
             DropdownButtonFormField<Student>(
-              value: _student,
+              initialValue: _student,
               decoration: const InputDecoration(
                 labelText: 'الطالب',
                 prefixIcon: Icon(Icons.person_outline),
@@ -198,6 +222,35 @@ class _StudentPeriodReportScreenState extends State<StudentPeriodReportScreen> {
               ],
             ),
             const SizedBox(height: 12),
+            DropdownButtonFormField<String>(
+              initialValue: selectedHijriMonthKey,
+              decoration: const InputDecoration(
+                labelText: 'تقرير شهر هجري',
+                prefixIcon: Icon(Icons.brightness_2_outlined),
+                border: OutlineInputBorder(),
+              ),
+              hint: const Text('اختر محرم أو أي شهر هجري'),
+              isExpanded: true,
+              items: hijriRanges
+                  .map(
+                    (range) => DropdownMenuItem(
+                      value: range.key,
+                      child: Text(range.label, overflow: TextOverflow.ellipsis),
+                    ),
+                  )
+                  .toList(),
+              onChanged: (rangeKey) {
+                final range = hijriRangeByKey[rangeKey];
+                if (range == null) return;
+                setState(() {
+                  _selectedHijriMonthKey = range.key;
+                  _startDate = range.startDate;
+                  _endDate = range.endDate;
+                });
+                _generate();
+              },
+            ),
+            const SizedBox(height: 12),
             InkWell(
               onTap: _pickRange,
               borderRadius: BorderRadius.circular(8),
@@ -223,22 +276,51 @@ class _StudentPeriodReportScreenState extends State<StudentPeriodReportScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'ملخص ${report.student.name}',
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 3),
-            SelectableText(
-              'كود الطالب: ${report.student.displayCode}',
-              style: TextStyle(
-                color: Theme.of(context).colorScheme.primary,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              '${_formatDate(report.startDate)} — ${_formatDate(report.endDate)}',
-              style: TextStyle(color: Colors.grey[600]),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                QrImageView(
+                  data: QrService.generateQrData(report.student.qrCode),
+                  size: 72,
+                  padding: const EdgeInsets.all(4),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'ملخص ${report.student.name}',
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      SelectableText(
+                        'كود الطالب: ${report.student.displayCode}',
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.primary,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '${_formatDate(report.startDate)} — ${_formatDate(report.endDate)}',
+                        style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
+                      ),
+                      if (report.rankLabel != null) ...[
+                        const SizedBox(height: 5),
+                        Chip(
+                          avatar: const Icon(Icons.emoji_events_outlined, size: 17),
+                          label: Text(report.rankLabel!),
+                          visualDensity: VisualDensity.compact,
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 12),
             GridView.count(
@@ -257,6 +339,8 @@ class _StudentPeriodReportScreenState extends State<StudentPeriodReportScreen> {
                 _statTile('لم يسمّع', '${report.noRecitationDays} يوم', Colors.orange),
                 _statTile('الإيجابيات', '+${report.positivePoints}', Colors.green),
                 _statTile('السلبيات', '-${report.negativePoints}', Colors.red),
+                _statTile('المخالفات', '${report.violationEvents}', Colors.deepOrange),
+                _statTile('متبقي سلبي', '-${report.outstandingNegativePoints}', Colors.red),
               ],
             ),
             const Divider(height: 24),
@@ -266,6 +350,7 @@ class _StudentPeriodReportScreenState extends State<StudentPeriodReportScreen> {
               children: [
                 Text('حاضر: ${report.presentDays}'),
                 Text('متأخر: ${report.lateDays}'),
+                Text('إجمالي التأخر: ${report.totalLateMinutes} دقيقة'),
                 Text('غائب: ${report.absentDays}'),
                 Text('مستأذن: ${report.excusedDays}'),
                 Text('متوسط الجودة: ${report.averageQuality.toStringAsFixed(1)}/5'),
@@ -281,8 +366,8 @@ class _StudentPeriodReportScreenState extends State<StudentPeriodReportScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.08),
-        border: Border.all(color: color.withOpacity(0.35)),
+        color: color.withValues(alpha: 0.08),
+        border: Border.all(color: color.withValues(alpha: 0.35)),
         borderRadius: BorderRadius.circular(10),
       ),
       child: Row(
@@ -325,9 +410,57 @@ class _StudentPeriodReportScreenState extends State<StudentPeriodReportScreen> {
               ],
             ),
             const SizedBox(height: 8),
-            const Text(
+            Text(
               'المؤشر يجمع المواظبة والتسميع والمراجعة والجودة والنقاط اليومية.',
-              style: TextStyle(fontSize: 11, color: Colors.grey),
+              style: TextStyle(
+                fontSize: 11,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildExams(StudentPeriodReport report) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Row(
+              children: [
+                Icon(Icons.quiz_outlined, size: 19),
+                SizedBox(width: 7),
+                Text('اختبارات الفترة', style: TextStyle(fontWeight: FontWeight.bold)),
+              ],
+            ),
+            const SizedBox(height: 8),
+            ...report.exams.map(
+              (exam) => Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        '${exam.type == 'oral' ? 'شفهي' : 'تحريري'} · ${_formatDate(exam.date)}',
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                    ),
+                    Text(
+                      '${exam.score}%',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        color: exam.score >= 60
+                            ? Theme.of(context).colorScheme.primary
+                            : Theme.of(context).colorScheme.error,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
           ],
         ),
@@ -358,7 +491,7 @@ class _StudentPeriodReportScreenState extends State<StudentPeriodReportScreen> {
     final color = _attendanceColor(day);
     return ExpansionTile(
       leading: CircleAvatar(
-        backgroundColor: color.withOpacity(0.12),
+        backgroundColor: color.withValues(alpha: 0.12),
         child: Icon(_attendanceIcon(day), color: color, size: 20),
       ),
       title: Text(_formatDate(day.date)),
@@ -370,6 +503,10 @@ class _StudentPeriodReportScreenState extends State<StudentPeriodReportScreen> {
       children: [
         _detailRow('الحفظ', _progressText(day.memorization)),
         _detailRow('المراجعة', _progressText(day.revision)),
+        _detailRow('تقييم الحفظ', day.memorizationRating),
+        _detailRow('تقييم المراجعة', day.revisionRating),
+        if (day.lateMinutes > 0)
+          _detailRow('مدة التأخر', '${day.lateMinutes} دقيقة'),
         _detailRow('النقاط', '+${day.positivePoints} / -${day.negativePoints}'),
         if (_dayNote(day).isNotEmpty) _detailRow('الملاحظات', _dayNote(day)),
       ],
@@ -379,12 +516,11 @@ class _StudentPeriodReportScreenState extends State<StudentPeriodReportScreen> {
   Widget _detailRow(String label, String value) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(width: 75, child: Text(label, style: const TextStyle(fontWeight: FontWeight.bold))),
-          Expanded(child: Text(value)),
-        ],
+      child: AppResponsiveInfoRow(
+        label: label,
+        value: value,
+        labelWidth: 75,
+        labelStyle: const TextStyle(fontWeight: FontWeight.bold),
       ),
     );
   }
@@ -402,22 +538,17 @@ class _StudentPeriodReportScreenState extends State<StudentPeriodReportScreen> {
           ),
         ),
         const SizedBox(height: 8),
-        Row(
+        AppResponsiveButtonRow(
           children: [
-            Expanded(
-              child: OutlinedButton.icon(
-                onPressed: () => _print(report, PdfPageFormat.a4),
-                icon: const Icon(Icons.print),
-                label: const Text('طباعة A4'),
-              ),
+            OutlinedButton.icon(
+              onPressed: () => _print(report, PdfPageFormat.a4),
+              icon: const Icon(Icons.print),
+              label: const Text('طباعة A4'),
             ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: OutlinedButton.icon(
-                onPressed: () => _print(report, PdfPageFormat.a5),
-                icon: const Icon(Icons.print_outlined),
-                label: const Text('طباعة A5'),
-              ),
+            OutlinedButton.icon(
+              onPressed: () => _print(report, PdfPageFormat.a5),
+              icon: const Icon(Icons.print_outlined),
+              label: const Text('طباعة A5'),
             ),
           ],
         ),
@@ -449,42 +580,95 @@ class _StudentPeriodReportScreenState extends State<StudentPeriodReportScreen> {
       pageFormat: format,
       halaqahName: settings.halaqahName,
       mosqueName: settings.mosqueName,
+      useHijriCalendar: settings.useHijriCalendar,
     );
     await Printing.layoutPdf(onLayout: (_) async => bytes);
   }
 
   Future<void> _shareWhatsApp(StudentPeriodReport report) async {
-    final text = _whatsAppText(report);
+    final settings = await _db.getSettings();
+    final text = _whatsAppText(
+      report,
+      useHijriCalendar: settings.useHijriCalendar,
+    );
     await Share.share(text, subject: 'تقرير ${report.student.name}');
   }
 
-  String _whatsAppText(StudentPeriodReport report) {
+  String _whatsAppText(
+    StudentPeriodReport report, {
+    bool useHijriCalendar = false,
+  }) {
+    final memorizationRanges = report.days
+        .expand((day) => day.memorization)
+        .toList();
+    final revisionRanges = report.days.expand((day) => day.revision).toList();
+    String reportDate(DateTime date) => useHijriCalendar
+        ? Helpers.getFullHijriDate(date)
+        : _formatDate(date);
     final buffer = StringBuffer()
       ..writeln('🕌 *تقرير الطالب خلال الفترة*')
+      ..writeln('حرصًا على متابعة ابنكم، نضع بين أيديكم مستوى أدائه خلال الفترة:')
       ..writeln('👤 *${report.student.name}*')
       ..writeln('🪪 كود الطالب: ${report.student.displayCode}')
-      ..writeln('📅 ${_formatDate(report.startDate)} — ${_formatDate(report.endDate)}')
+      ..writeln('📅 ${reportDate(report.startDate)} — ${reportDate(report.endDate)}')
       ..writeln()
       ..writeln('📖 *الحفظ والمراجعة*')
       ..writeln('✅ الحفظ الجديد: ${report.memorizedAyahs} آية (${report.memorizedPages.toStringAsFixed(1)} صفحة)')
+      ..writeln('🧭 من: ${_progressText(memorizationRanges)}')
       ..writeln('🔁 المراجعة: ${report.revisedAyahs} آية (${report.revisedPages.toStringAsFixed(1)} صفحة)')
+      ..writeln('🧭 من: ${_progressText(revisionRanges)}')
       ..writeln('⭐ متوسط الجودة: ${report.averageQuality.toStringAsFixed(1)}/5')
       ..writeln()
       ..writeln('📅 *الحضور والمواظبة*')
       ..writeln('✅ حاضر: ${report.presentDays} | ⏰ متأخر: ${report.lateDays}')
+      ..writeln('⏱️ إجمالي وقت التأخر: ${report.totalLateMinutes} دقيقة')
       ..writeln('❌ غائب: ${report.absentDays} | 📝 مستأذن: ${report.excusedDays}')
       ..writeln('🔕 لم يسمّع وهو حاضر: ${report.noRecitationDays}')
       ..writeln('📊 نسبة الحضور: ${report.attendanceRate}%')
       ..writeln()
       ..writeln('🏆 إيجابيات: +${report.positivePoints} (${report.positiveEvents})')
       ..writeln('⚠️ سلبيات: -${report.negativePoints} (${report.negativeEvents})')
+      ..writeln('🚫 مخالفات مستقلة: ${report.violationEvents} (-${report.violationPoints})')
+      ..writeln('💳 سُوّي عبر الصندوق: ${report.settledNegativePoints} نقطة | المتبقي: -${report.outstandingNegativePoints}')
       ..writeln('📈 الأداء العام: ${report.performanceScore}%')
-      ..writeln();
+      ..writeln(report.rankLabel == null ? '' : '🏅 ${report.rankLabel}');
+    if (report.exams.isNotEmpty) {
+      buffer
+        ..writeln()
+        ..writeln('📝 *اختبارات الفترة*');
+      for (final exam in report.exams) {
+        buffer.writeln(
+          '• ${reportDate(exam.date)} — ${exam.type == 'oral' ? 'شفهي' : 'تحريري'}: ${exam.score}%',
+        );
+      }
+    }
+    buffer
+      ..writeln()
+      ..writeln('🗓️ *تفصيل الأيام*');
+    for (final day in report.days) {
+      final activity = day.record?.hasActivity == true
+          ? (day.record!.activityNote?.trim().isNotEmpty == true
+              ? ' · ${day.record!.activityNote!.trim()}'
+              : '')
+          : '';
+      final recitation = day.memorizationDone || day.revisionDone
+          ? ' · تسميع مسجل'
+          : day.record?.recitationExempt == true &&
+                  day.record?.hasActivity != true &&
+                  day.record?.talaqqinDone != true
+              ? ' · معفى من التسميع'
+              : '';
+      buffer.writeln(
+        '• ${Helpers.getDayName(day.date)} ${reportDate(day.date)} — '
+        '${_attendanceLabel(day)}$activity$recitation',
+      );
+    }
+    buffer.writeln();
 
     final notes = report.days
         .where((day) =>
-            day.isSuspended || day.vacation != null || day.hold != null)
-        .map((day) => '• ${_formatDate(day.date)}: ${_dayNote(day)}')
+            day.isSuspended || day.vacation != null || day.hold != null || day.record?.hasActivity == true)
+        .map((day) => '• ${reportDate(day.date)}: ${_dayNote(day)}')
         .where((line) => !line.endsWith(': '))
         .toList();
     if (notes.isNotEmpty) {
@@ -495,6 +679,7 @@ class _StudentPeriodReportScreenState extends State<StudentPeriodReportScreen> {
       buffer.writeln();
     }
     buffer.writeln(_encouragement(report.performanceScore));
+    buffer.writeln('ننتظر ملاحظاتكم، فبتعاون الأسرة والمعلم يرتقي الطالب بإذن الله.');
     buffer.writeln('جزاكم الله خيرًا على المتابعة والتعاون 🌿');
     return buffer.toString();
   }
@@ -512,8 +697,16 @@ class _StudentPeriodReportScreenState extends State<StudentPeriodReportScreen> {
     if (day.isWeeklyHoliday) return 'الإجازة الأسبوعية';
     if (day.hold != null) {
       final note = day.hold!.notes?.trim();
-      return 'إيقاف التسميع: ${day.hold!.reason}'
+      final label = day.hold!.exemptsAttendance
+          ? 'توقف كامل'
+          : 'إيقاف التسميع';
+      return '$label: ${day.hold!.reason}'
           '${note == null || note.isEmpty ? '' : ' — $note'}';
+    }
+    if (day.record?.hasActivity == true) {
+      final note = day.record!.activityNote?.trim();
+      return '${DailyActivityType.label(day.record!.activityType)}'
+          '${note == null || note.isEmpty ? '' : ': $note'}';
     }
     if (day.vacation != null) {
       final vacation = day.vacation!;
@@ -524,6 +717,8 @@ class _StudentPeriodReportScreenState extends State<StudentPeriodReportScreen> {
       day.record?.absenceNote,
       day.record?.memorizationNote,
       day.record?.revisionNote,
+      day.record?.talaqqinNote,
+      day.record?.activityNote,
       day.record?.notes,
       ...day.points.map((point) => BehaviorReason.getLabel(point.reason)),
     ];
@@ -536,10 +731,43 @@ class _StudentPeriodReportScreenState extends State<StudentPeriodReportScreen> {
   String _attendanceLabel(StudentPeriodDay day) {
     if (day.isSuspended) return 'الدراسة معلقة';
     if (day.isWeeklyHoliday) return 'إجازة أسبوعية';
-    if (day.hold != null) return 'الحضور متاح — التسميع موقوف';
+    if (day.hold != null) {
+      return day.hold!.exemptsAttendance
+          ? 'متوقف مؤقتًا — معفى من الحضور والتسميع'
+          : 'الحضور متاح — التسميع موقوف';
+    }
+    final activityLabel = day.record?.hasActivity == true
+        ? DailyActivityType.label(day.record!.activityType)
+        : null;
     switch (day.record?.attendance) {
-      case 'present': return day.memorizationDone ? 'حاضر وسمّع' : 'حاضر ولم يسمّع';
-      case 'late': return day.memorizationDone ? 'متأخر وسمّع' : 'متأخر ولم يسمّع';
+      case 'present':
+        if (day.memorizationDone || day.revisionDone) {
+          return activityLabel == null
+              ? 'حاضر وسمّع'
+              : 'حاضر وسمّع — $activityLabel';
+        }
+        if (day.record?.talaqqinDone == true) {
+          return activityLabel == null
+              ? 'حاضر — تلقين'
+              : 'حاضر — تلقين و$activityLabel';
+        }
+        if (activityLabel != null) return '$activityLabel — حاضر ومعفى من التسميع';
+        if (day.record?.recitationExempt == true) return 'حاضر — معفى من التسميع';
+        return 'حاضر ولم يسمّع';
+      case 'late':
+        if (day.memorizationDone || day.revisionDone) {
+          return activityLabel == null
+              ? 'متأخر وسمّع'
+              : 'متأخر وسمّع — $activityLabel';
+        }
+        if (day.record?.talaqqinDone == true) {
+          return activityLabel == null
+              ? 'متأخر — تلقين'
+              : 'متأخر — تلقين و$activityLabel';
+        }
+        if (activityLabel != null) return '$activityLabel — متأخر ومعفى من التسميع';
+        if (day.record?.recitationExempt == true) return 'متأخر — معفى من التسميع';
+        return 'متأخر ولم يسمّع';
       case 'absent': return 'غائب';
       case 'excused': return 'مستأذن';
       default: return 'لا يوجد سجل';

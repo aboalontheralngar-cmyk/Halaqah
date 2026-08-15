@@ -18,8 +18,8 @@ requireAll(read('lib/models/student.dart'), [
   "return 'HAL-${chunks.join('-')}';",
 ], 'Student identity');
 
-requireAll(read('lib/services/database_service.dart'), [
-  'version: 18',
+requireAll(read('lib/services/database_service.dart') + read('lib/services/local_database_schema.dart'), [
+  'version: 24',
   'recalculateDailyRecitationPoints',
   'idx_students_student_code',
   'behavior_point_id TEXT',
@@ -34,11 +34,11 @@ requireAll(read('lib/services/pdf_service.dart'), [
 ], 'P7 print contract');
 
 requireAll(read('lib/services/recitation_points_policy.dart'), [
-  'fullPlanPoints = 5',
-  'maximumDailyPoints = 10',
-  'ratio >= 2',
-  'ratio >= 1.5',
-  'ratio >= 1.25',
+  'defaultCompletionReward = 5',
+  'defaultExtraReward = 2',
+  'workloadPoints: 0',
+  'final completed = safeActual + 0.000001 >= safePlan',
+  'final exceeded = safeActual > safePlan + 0.000001',
 ], 'Recitation points policy');
 
 requireAll(read('lib/screens/plans/plans_screen.dart'), [

@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:halaqah_teacher/models/ayah.dart';
 import 'package:halaqah_teacher/models/memorization.dart';
 import 'package:halaqah_teacher/services/revision_progression_service.dart';
+import 'package:halaqah_teacher/services/memorized_content_service.dart';
 
 Surah surah(int id, int ayahs) => Surah(
       number: id,
@@ -69,5 +70,28 @@ void main() {
       getSurah: lookup,
     );
     expect(next, {'surahId': 3, 'fromAyah': 1});
+  });
+
+  test('starts and stops inside the range actually memorized', () {
+    const ranges = {
+      2: MemorizedAyahRange(fromAyah: 3, toAyah: 4),
+    };
+    final first = RevisionProgressionService.nextStartingPoint(
+      memorizedSurahIds: const [2],
+      progress: const [],
+      ascending: true,
+      getSurah: lookup,
+      memorizedRanges: ranges,
+    );
+    final afterEnd = RevisionProgressionService.nextStartingPoint(
+      memorizedSurahIds: const [2],
+      progress: [revision(2, 4, DateTime(2026, 7, 13))],
+      ascending: true,
+      getSurah: lookup,
+      memorizedRanges: ranges,
+    );
+
+    expect(first, {'surahId': 2, 'fromAyah': 3});
+    expect(afterEnd, {'surahId': 2, 'fromAyah': 3});
   });
 }

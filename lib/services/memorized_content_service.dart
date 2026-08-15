@@ -51,9 +51,33 @@ class MemorizedContentService {
       }
     }
 
-    for (final row in progress) {
-      if (!row.isRevision) {
-        addRange(row.surahId, row.fromAyah, row.toAyah);
+    final memorizationRows = progress.where((row) => !row.isRevision).toList();
+    for (final row in memorizationRows) {
+      addRange(row.surahId, row.fromAyah, row.toAyah);
+    }
+
+    // Build 75: the memorization direction + the furthest real memorization
+    // record define a continuous memorized frontier. This removes the need to
+    // manually maintain a second "previously memorized" profile range for new
+    // students and, importantly, makes revision show every surah that is
+    // logically behind the student's current memorization position.
+    if (memorizationRows.isNotEmpty) {
+      final frontier = _frontierRow(
+        memorizationRows,
+        student.memorizationDirection,
+      );
+      if (student.memorizationDirection == 'desc') {
+        for (var surahId = 114; surahId > frontier.surahId; surahId--) {
+          final surah = surahById[surahId];
+          if (surah != null) addRange(surahId, 1, surah.totalAyahs);
+        }
+        addRange(frontier.surahId, 1, frontier.toAyah);
+      } else {
+        for (var surahId = 1; surahId < frontier.surahId; surahId++) {
+          final surah = surahById[surahId];
+          if (surah != null) addRange(surahId, 1, surah.totalAyahs);
+        }
+        addRange(frontier.surahId, 1, frontier.toAyah);
       }
     }
 
@@ -109,5 +133,21 @@ class MemorizedContentService {
       );
     }
     return result;
+  }
+
+  static MemorizationProgress _frontierRow(
+    List<MemorizationProgress> rows,
+    String direction,
+  ) {
+    final ordered = List<MemorizationProgress>.from(rows);
+    ordered.sort((a, b) {
+      if (a.surahId != b.surahId) {
+        return direction == 'desc'
+            ? a.surahId.compareTo(b.surahId)
+            : b.surahId.compareTo(a.surahId);
+      }
+      return b.toAyah.compareTo(a.toAyah);
+    });
+    return ordered.first;
   }
 }

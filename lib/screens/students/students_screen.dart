@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../services/database_service.dart';
 import '../../models/student.dart';
@@ -55,18 +56,17 @@ class _StudentsScreenState extends State<StudentsScreen> {
   Future<void> _loadStudents() async {
     setState(() => _isLoading = true);
     try {
-      final settings = await _db.getSettings();
-      // احتساب النقاط السلبية التلقائية بعد انتهاء دوام الحلقة فقط (idempotent)
-      // مع تخطّي الأيام المعطّلة (إجازة أسبوعية أو تعليق دراسة)
-      if (_checkPastEndTime(settings)) {
-        final today = DateTime.now();
-        final suspended = await _db.isDateSuspended(today);
-        await _db.applyAutomaticNegativePoints(isHoliday: suspended);
-        await _db.generateNotifications();
-      }
-      final students = await _db.getOperationalStudents();
-      final archivedStudents = await _db.getArchivedStudents();
-      final leftOutIds = await _db.getStudentsWhoDidNotReciteLastClass();
+      final results = await Future.wait<dynamic>([
+        _db.getSettings(),
+        _db.getOperationalStudents(),
+        _db.getArchivedStudents(),
+        _db.getStudentsWhoDidNotReciteLastClass(),
+      ]);
+      final settings = results[0] as HalaqahSettings;
+      final students = results[1] as List<Student>;
+      final archivedStudents = results[2] as List<Student>;
+      final leftOutIds = results[3] as List<String>;
+      if (!mounted) return;
       setState(() {
         _students = students;
         _settings = settings;
@@ -75,8 +75,30 @@ class _StudentsScreenState extends State<StudentsScreen> {
         _applyFilters();
         _isLoading = false;
       });
+
+      // لا نحجب ظهور قائمة الطلاب بعمليات إغلاق/نقاط وإشعارات قد تستغرق
+      // وقتًا على قواعد كبيرة. تنفذ بعد الإطار الأول ثم نحدث المؤشرات فقط.
+      unawaited(_refreshAutomaticRules(settings));
     } catch (e) {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _refreshAutomaticRules(HalaqahSettings settings) async {
+    if (!_checkPastEndTime(settings)) return;
+    try {
+      final today = DateTime.now();
+      final suspended = await _db.isDateSuspended(today);
+      await _db.applyAutomaticNegativePoints(isHoliday: suspended);
+      await _db.generateNotifications();
+      final leftOutIds = await _db.getStudentsWhoDidNotReciteLastClass();
+      if (!mounted) return;
+      setState(() {
+        _leftOutStudentIds = leftOutIds;
+        _applyFilters();
+      });
+    } catch (_) {
+      // فشل الصيانة الخلفية لا يمنع استخدام قائمة الطلاب.
     }
   }
 
@@ -289,46 +311,33 @@ class _StudentsScreenState extends State<StudentsScreen> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('تصفية'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            RadioListTile<String>(
-              title: const Text('الكل'),
-              value: 'all',
-              groupValue: _statusFilter,
-              onChanged: (value) {
-                setState(() {
-                  _statusFilter = value!;
-                  _applyFilters();
-                });
-                Navigator.pop(context);
-              },
-            ),
-            RadioListTile<String>(
-              title: const Text('نشط'),
-              value: 'active',
-              groupValue: _statusFilter,
-              onChanged: (value) {
-                setState(() {
-                  _statusFilter = value!;
-                  _applyFilters();
-                });
-                Navigator.pop(context);
-              },
-            ),
-            RadioListTile<String>(
-              title: const Text('موقوف'),
-              value: 'suspended',
-              groupValue: _statusFilter,
-              onChanged: (value) {
-                setState(() {
-                  _statusFilter = value!;
-                  _applyFilters();
-                });
-                Navigator.pop(context);
-              },
-            ),
-          ],
+        content: RadioGroup<String>(
+          groupValue: _statusFilter,
+          onChanged: (value) {
+            if (value == null) return;
+            setState(() {
+              _statusFilter = value;
+              _applyFilters();
+            });
+            Navigator.pop(context);
+          },
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: const [
+              RadioListTile<String>(
+                title: Text('الكل'),
+                value: 'all',
+              ),
+              RadioListTile<String>(
+                title: Text('نشط'),
+                value: 'active',
+              ),
+              RadioListTile<String>(
+                title: Text('موقوف'),
+                value: 'suspended',
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -372,6 +381,8 @@ class _StudentsScreenState extends State<StudentsScreen> {
         return 'سطر';
       case 'pages':
         return 'صفحة';
+      case 'hizbs':
+        return 'حزب';
       default:
         return type;
     }

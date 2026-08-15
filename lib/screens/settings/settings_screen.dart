@@ -3,20 +3,26 @@ import 'dart:io';
 import '../../services/database_service.dart';
 import '../../services/backup_service.dart';
 import '../../services/backup_crypto_service.dart';
+import '../../services/background_backup_scheduler.dart';
 import '../../services/cloud_backup_service.dart';
 import '../../services/cloud_connection_diagnostics.dart';
 import '../../services/audit_log_service.dart';
+import '../../services/activation_policy_service.dart';
 import '../../services/supabase_service.dart';
 import 'package:share_plus/share_plus.dart';
 import '../../models/settings.dart';
 import '../../app/app.dart';
 import '../../app/build_info.dart';
 import '../../utils/prayer_time_helper.dart';
+import '../../widgets/app_design_widgets.dart';
 import 'message_templates_screen.dart';
 import 'whats_new_screen.dart';
 import 'privacy_policy_screen.dart';
 import 'audit_log_screen.dart';
 import 'diagnostics_screen.dart';
+import 'operational_readiness_screen.dart';
+import 'offline_exchange_screen.dart';
+import 'model_halaqah_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   final VoidCallback? onOpenMenu;
@@ -33,8 +39,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
   HalaqahSettings _settings = HalaqahSettings();
   bool _isLoading = true;
   String _selectedSection = 'halaqah';
+  String _selectedDataArea = 'backup';
+  String _settingsQuery = '';
   DateTime? _lastBackupAt;
   String? _lastAutomaticBackupError;
+  String? _backgroundBackupSchedulerError;
+  DateTime? _lastBackgroundBackupWorkerAt;
+  String? _lastBackgroundBackupWorkerStatus;
   int _savedBackupCount = 0;
   bool _isPassphraseConfigured = false;
   bool _dataActionBusy = false;
@@ -60,6 +71,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _backup.passphrases.isConfigured,
         _db.getSetting('last_cloud_upload_at'),
         _db.getSetting('last_cloud_download_at'),
+        _db.getSetting('last_background_backup_scheduler_error'),
+        _db.getSetting('last_background_backup_worker_at'),
+        _db.getSetting('last_background_backup_worker_status'),
       ]);
       final settings = results[0] as HalaqahSettings;
       setState(() {
@@ -71,6 +85,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _lastCloudUploadAt = DateTime.tryParse((results[5] as String?) ?? '');
         _lastCloudDownloadAt =
             DateTime.tryParse((results[6] as String?) ?? '');
+        _backgroundBackupSchedulerError = (results[7] as String?)?.trim();
+        _lastBackgroundBackupWorkerAt =
+            DateTime.tryParse((results[8] as String?) ?? '');
+        _lastBackgroundBackupWorkerStatus = (results[9] as String?)?.trim();
         _isLoading = false;
       });
     } catch (e) {
@@ -78,8 +96,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  Future<void> _saveSettings() async {
+  Future<void> _saveSettings({bool refreshBackupSchedule = false}) async {
     await _db.saveSettings(_settings);
+    if (refreshBackupSchedule) {
+      await BackgroundBackupScheduler.synchronize(settings: _settings);
+      final schedulerError =
+          await _db.getSetting('last_background_backup_scheduler_error');
+      if (mounted) {
+        setState(() {
+          _backgroundBackupSchedulerError = schedulerError?.trim();
+        });
+      }
+    }
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('تم حفظ الإعدادات')),
@@ -157,28 +185,54 @@ class _SettingsScreenState extends State<SettingsScreen> {
       body: SafeArea(
         child: _isLoading
             ? const Center(child: CircularProgressIndicator())
-            : ListView(
-                padding: const EdgeInsets.all(16),
-                children: [
-                  _buildSettingsNavigation(),
-                  const SizedBox(height: 16),
-                  _buildSelectedSection(),
-                ],
+            : AppScreenBody(
+                scrollable: true,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const AppPageIntro(
+                      title: 'مركز إعدادات الحلقة',
+                      subtitle:
+                          'الإعدادات اليومية أولًا، والبيانات وإدارة النظام في مساحات مستقلة.',
+                      icon: Icons.tune_rounded,
+                    ),
+                    const SizedBox(height: 16),
+                    _buildSettingsNavigation(),
+                    const SizedBox(height: 16),
+                    _buildSelectedSection(),
+                  ],
+                ),
               ),
       ),
     );
   }
 
   Widget _buildSettingsNavigation() {
-    const sections = <(String, String, IconData)>[
-      ('halaqah', 'الحلقة', Icons.mosque_outlined),
-      ('timing', 'الأوقات', Icons.schedule_outlined),
-      ('rules', 'القواعد', Icons.rule_outlined),
-      ('display', 'المظهر', Icons.palette_outlined),
-      ('data', 'البيانات', Icons.shield_outlined),
-      ('diagnostics', 'التشخيص', Icons.health_and_safety_outlined),
-      ('about', 'حول', Icons.info_outline),
+    const everyday = <(String, String, IconData, String)>[
+      ('halaqah', 'الحلقة', Icons.mosque_outlined, 'الاسم والمعلم والعملة'),
+      ('timing', 'الأوقات', Icons.schedule_outlined, 'الدوام ورمضان والعطلات'),
+      ('rules', 'القواعد', Icons.rule_outlined, 'الغياب والفصل والنقاط'),
+      ('display', 'المظهر والرسائل', Icons.palette_outlined, 'الثيم والقوالب'),
     ];
+    const administration = <(String, String, IconData, String)>[
+      ('data', 'البيانات والمزامنة', Icons.shield_outlined, 'نسخ وتشفير ورفع وتنزيل'),
+      ('diagnostics', 'إدارة النظام', Icons.admin_panel_settings_outlined, 'جاهزية وتشخيص وسجل تدقيق'),
+      ('about', 'حول التطبيق', Icons.info_outline, 'الإصدار وما الجديد'),
+    ];
+    final query = _settingsQuery.trim().toLowerCase();
+    List<(String, String, IconData, String)> filtered(
+      List<(String, String, IconData, String)> source,
+    ) => query.isEmpty
+        ? source
+        : source
+            .where(
+              (item) =>
+                  item.$2.toLowerCase().contains(query) ||
+                  item.$4.toLowerCase().contains(query),
+            )
+            .toList();
+    final visibleEveryday = filtered(everyday);
+    final visibleAdministration = filtered(administration);
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(12),
@@ -186,27 +240,73 @@ class _SettingsScreenState extends State<SettingsScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'أقسام الإعدادات',
+              'مركز الإعدادات',
               style: TextStyle(fontWeight: FontWeight.bold),
             ),
-            const SizedBox(height: 10),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: sections.map((section) {
-                return ChoiceChip(
-                  selected: _selectedSection == section.$1,
-                  avatar: Icon(section.$3, size: 18),
-                  label: Text(section.$2),
-                  onSelected: (_) {
-                    setState(() => _selectedSection = section.$1);
-                  },
-                );
-              }).toList(),
+            const SizedBox(height: 4),
+            Text(
+              'الإعدادات اليومية أولًا، وأدوات مدير النظام في قسم مستقل.',
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                fontSize: 12,
+              ),
             ),
+            const SizedBox(height: 12),
+            TextField(
+              onChanged: (value) => setState(() => _settingsQuery = value),
+              decoration: const InputDecoration(
+                isDense: true,
+                labelText: 'ابحث عن إعداد',
+                hintText: 'مثل: النسخ، المزامنة، الأوقات، التشخيص',
+                prefixIcon: Icon(Icons.search),
+              ),
+            ),
+            if (visibleEveryday.isNotEmpty) ...[
+              const SizedBox(height: 14),
+              _buildSettingsNavGroup('إعدادات الحلقة اليومية', visibleEveryday),
+            ],
+            if (visibleAdministration.isNotEmpty) ...[
+              const Divider(height: 24),
+              _buildSettingsNavGroup('الإدارة والحماية', visibleAdministration),
+            ],
+            if (visibleEveryday.isEmpty && visibleAdministration.isEmpty) ...[
+              const SizedBox(height: 16),
+              const Center(child: Text('لا يوجد قسم يطابق البحث')),
+            ],
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildSettingsNavGroup(
+    String title,
+    List<(String, String, IconData, String)> sections,
+  ) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: sections.map((section) {
+            return ChoiceChip(
+              selected: _selectedSection == section.$1,
+              avatar: Icon(section.$3, size: 18),
+              label: Text(section.$2),
+              tooltip: section.$4,
+              onSelected: (_) {
+                setState(() => _selectedSection = section.$1);
+              },
+            );
+          }).toList(),
+        ),
+      ],
     );
   }
 
@@ -298,7 +398,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<String>(
-              value: _settings.gender,
+              initialValue: _settings.gender,
               decoration: const InputDecoration(
                 labelText: 'جنس الحلقة',
                 prefixIcon: Icon(Icons.people_outline),
@@ -337,7 +437,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     return Card(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      elevation: 2,
+      elevation: 0,
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -359,7 +459,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               width: double.infinity,
               child: SegmentedButton<String>(
                 style: SegmentedButton.styleFrom(
-                  selectedBackgroundColor: Theme.of(context).primaryColor.withOpacity(0.15),
+                  selectedBackgroundColor: Theme.of(context).primaryColor.withValues(alpha: 0.15),
                   selectedForegroundColor: Theme.of(context).primaryColor,
                 ),
                 segments: [
@@ -430,7 +530,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               // Relative timing options
               // 1. Country Selection
               DropdownButtonFormField<String>(
-                value: _settings.country,
+                initialValue: _settings.country,
                 decoration: const InputDecoration(
                   labelText: 'الدولة',
                   prefixIcon: Icon(Icons.public),
@@ -459,7 +559,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
               // 2. City Selection
               DropdownButtonFormField<String>(
-                value: cities.contains(_settings.city) ? _settings.city : 'custom',
+                initialValue: cities.contains(_settings.city) ? _settings.city : 'custom',
                 decoration: const InputDecoration(
                   labelText: 'المدينة',
                   prefixIcon: Icon(Icons.location_city),
@@ -538,7 +638,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
               // 4. Calculation Method Selection
               DropdownButtonFormField<String>(
-                value: _settings.calculationMethod,
+                initialValue: _settings.calculationMethod,
                 decoration: const InputDecoration(
                   labelText: 'طريقة الحساب الفلكية',
                   prefixIcon: Icon(Icons.calculate_outlined),
@@ -560,7 +660,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
               // 5. Reference Prayer Selection
               DropdownButtonFormField<String>(
-                value: _settings.relativeStartPrayer,
+                initialValue: _settings.relativeStartPrayer,
                 decoration: const InputDecoration(
                   labelText: 'صلاة البداية المرجعية',
                   prefixIcon: Icon(Icons.church_outlined),
@@ -662,7 +762,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             const SizedBox(height: 8),
             DropdownButtonFormField<String>(
-              value: _settings.ramadanTimingType,
+              initialValue: _settings.ramadanTimingType,
               decoration: const InputDecoration(
                 border: OutlineInputBorder(),
               ),
@@ -725,7 +825,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ] else if (_settings.ramadanTimingType == 'relative') ...[
               // Reference prayer in Ramadan
               DropdownButtonFormField<String>(
-                value: _settings.ramadanRelativeStartPrayer,
+                initialValue: _settings.ramadanRelativeStartPrayer,
                 decoration: const InputDecoration(
                   labelText: 'صلاة البدء في رمضان',
                   prefixIcon: Icon(Icons.church_outlined),
@@ -892,11 +992,66 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             const Divider(),
             ListTile(
+              leading: const Icon(Icons.balance_outlined),
+              title: const Text('موازنة نقاط السلوك'),
+              subtitle: const Text('ضبط العقوبات الأساسية مع حماية توازن الغياب'),
+              trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+              onTap: _showBehaviorPointsBalanceDialog,
+            ),
+            ListTile(
+              leading: const Icon(Icons.functions_outlined),
+              title: const Text('تقريب نقاط إنجاز المقرر'),
+              subtitle: Text(
+                _settings.recitationPointsRounding == 'floor'
+                    ? 'لأسفل مع ضمان نقطة عند وجود إنجاز'
+                    : _settings.recitationPointsRounding == 'ceil'
+                        ? 'لأعلى مع عدم تجاوز مكافأة الإتمام'
+                        : 'لأقرب عدد صحيح مع ضمان نقطة عند وجود إنجاز',
+              ),
+              trailing: DropdownButton<String>(
+                value: _settings.recitationPointsRounding,
+                underline: const SizedBox(),
+                items: const [
+                  DropdownMenuItem(value: 'nearest', child: Text('الأقرب')),
+                  DropdownMenuItem(value: 'floor', child: Text('لأسفل')),
+                  DropdownMenuItem(value: 'ceil', child: Text('لأعلى')),
+                ],
+                onChanged: (value) {
+                  if (value == null) return;
+                  setState(() {
+                    _settings = _settings.copyWith(
+                      recitationPointsRounding: value,
+                    );
+                  });
+                  _saveSettings();
+                },
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.workspace_premium_outlined),
+              title: const Text('نظام الحلقة النموذجية'),
+              subtitle: const Text('تقييم يومي لمعايير الحلقة وخطة التحسين'),
+              trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const ModelHalaqahScreen()),
+              ),
+            ),
+            ListTile(
               leading: const Icon(Icons.stars_outlined, color: Colors.amber),
               title: const Text('قواعد النقاط والسلوك المخصصة'),
               subtitle: const Text('إضافة وتعديل وحذف بنود النقاط والمكافآت المخصصة'),
               trailing: const Icon(Icons.arrow_forward_ios, size: 16),
               onTap: _showCustomPointsConfigDialog,
+            ),
+            ListTile(
+              leading: const Icon(Icons.history_outlined),
+              title: const Text('سجل إصدارات قواعد النقاط'),
+              subtitle: const Text(
+                'عرض القيم السابقة؛ النتائج التاريخية لا يعاد احتسابها',
+              ),
+              trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+              onTap: _showPointsConfigHistoryDialog,
             ),
           ],
         ),
@@ -1036,10 +1191,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'البيانات',
+              'البيانات والحماية',
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
+            const SizedBox(height: 6),
+            const Text(
+              'اختر المهمة المطلوبة؛ لا تظهر أدوات النسخ والمزامنة والخصوصية كلها في وقت واحد.',
+              style: TextStyle(fontSize: 12),
+            ),
+            const SizedBox(height: 12),
+            _buildDataAreaNavigation(),
             const SizedBox(height: 16),
+            if (_selectedDataArea == 'backup') ...[
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(12),
@@ -1082,7 +1245,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
                 color: _isPassphraseConfigured
-                    ? Colors.green.withOpacity(0.09)
+                    ? Colors.green.withValues(alpha: 0.09)
                     : Theme.of(context).colorScheme.errorContainer,
                 borderRadius: BorderRadius.circular(12),
               ),
@@ -1136,13 +1299,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
               subtitle: const Text('استعادة إحدى النسخ المحلية المحفوظة'),
               onTap: _dataActionBusy ? null : _performRestore,
             ),
+            ListTile(
+              leading: const Icon(Icons.wifi_tethering_outlined),
+              title: const Text('تبادل بين الأجهزة دون إنترنت'),
+              subtitle: const Text(
+                'حزمة مشفرة وكود ربط عبر المشاركة القريبة أو البلوتوث',
+              ),
+              trailing: const Icon(Icons.chevron_left),
+              onTap: _dataActionBusy
+                  ? null
+                  : () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const OfflineExchangeScreen(),
+                        ),
+                      ),
+            ),
             const Divider(height: 28),
             SwitchListTile.adaptive(
               contentPadding: EdgeInsets.zero,
               secondary: const Icon(Icons.schedule_send_outlined),
               title: const Text('النسخ المحلي التلقائي'),
               subtitle: Text(
-                'ينفذ عند أول فتح للتطبيق بعد الساعة ${_formatHour(_settings.automaticBackupHour)}',
+                'مجدول بعد الساعة ${_formatHour(_settings.automaticBackupHour)} حتى عند إغلاق التطبيق',
               ),
               value: _settings.automaticBackupEnabled,
               onChanged: (value) async {
@@ -1152,7 +1331,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     automaticBackupEnabled: value,
                   );
                 });
-                await _saveSettings();
+                await _saveSettings(refreshBackupSchedule: true);
               },
             ),
             if (_settings.automaticBackupEnabled) ...[
@@ -1160,15 +1339,51 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 contentPadding: EdgeInsets.zero,
                 leading: const Icon(Icons.access_time),
                 title: const Text('وقت النسخ التلقائي'),
-                subtitle: const Text('يُطبق عند فتح التطبيق، ولا يحتاج بقاءه مفتوحًا عند الوقت نفسه'),
+                subtitle: const Text(
+                  'ينفذه أندرويد في أول فرصة مناسبة بعد الموعد؛ قد يتأخر قليلًا مع توفير البطارية',
+                ),
                 trailing: Text(
                   _formatHour(_settings.automaticBackupHour),
                   style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
                 onTap: _selectAutomaticBackupHour,
               ),
+              Container(
+                width: double.infinity,
+                margin: const EdgeInsets.only(bottom: 12),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: _backgroundBackupSchedulerError?.isNotEmpty == true
+                      ? Theme.of(context).colorScheme.errorContainer
+                      : Colors.teal.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(
+                      _backgroundBackupSchedulerError?.isNotEmpty == true
+                          ? Icons.warning_amber_rounded
+                          : Icons.task_alt_outlined,
+                      color: _backgroundBackupSchedulerError?.isNotEmpty == true
+                          ? Theme.of(context).colorScheme.error
+                          : Colors.teal,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        _backgroundBackupSchedulerError?.isNotEmpty == true
+                            ? 'تعذر تسجيل مهمة النسخ في نظام أندرويد. افتح مركز التشخيص ثم أعد حفظ وقت النسخ.'
+                            : _lastBackgroundBackupWorkerAt == null
+                                ? 'الجدولة جاهزة، ولم يحن أول تشغيل خلفي بعد.'
+                                : 'آخر تشغيل خلفي: ${_formatBackupDate(_lastBackgroundBackupWorkerAt!)} (${_backgroundWorkerStatusLabel(_lastBackgroundBackupWorkerStatus)})',
+                      ),
+                    ),
+                  ],
+                ),
+              ),
               DropdownButtonFormField<int>(
-                value: const [7, 14, 30]
+                initialValue: const [7, 14, 30]
                         .contains(_settings.automaticBackupRetentionCount)
                     ? _settings.automaticBackupRetentionCount
                     : 14,
@@ -1211,7 +1426,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             if (_settings.backupReminderEnabled)
               DropdownButtonFormField<int>(
-                value: const [1, 3, 7]
+                initialValue: const [1, 3, 7]
                         .contains(_settings.backupReminderIntervalDays)
                     ? _settings.backupReminderIntervalDays
                     : 3,
@@ -1260,7 +1475,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             if (supabase.isAuthenticated) ...[
               DropdownButtonFormField<int>(
-                value: const [10, 30, 60]
+                initialValue: const [10, 30, 60]
                         .contains(_settings.cloudBackupRetentionCount)
                     ? _settings.cloudBackupRetentionCount
                     : 30,
@@ -1301,9 +1516,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 onTap: _dataActionBusy ? null : _performCloudRestore,
               ),
             ],
+            ],
+            if (_selectedDataArea == 'privacy') ...[
             const Divider(height: 28),
             DropdownButtonFormField<int>(
-              value: const [365, 730, 1825]
+              initialValue: const [365, 730, 1825]
                       .contains(_settings.auditLogRetentionDays)
                   ? _settings.auditLogRetentionDays
                   : 730,
@@ -1344,6 +1561,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               subtitle: const Text('ما يُجمع، ولماذا، وكيف يُحتفظ به ويُحذف'),
               onTap: () => _openPrivacyPolicy(),
             ),
+            ],
+            if (_selectedDataArea == 'sync') ...[
             const Divider(height: 28),
             ListTile(
               contentPadding: EdgeInsets.zero,
@@ -1469,8 +1688,37 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 },
               ),
             ],
+            ],
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildDataAreaNavigation() {
+    const areas = <(String, String, IconData)>[
+      ('backup', 'النسخ والحماية', Icons.backup_outlined),
+      ('sync', 'المزامنة والاتصال', Icons.sync_alt_outlined),
+      ('privacy', 'الخصوصية والسجل', Icons.privacy_tip_outlined),
+    ];
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Wrap(
+        spacing: 6,
+        runSpacing: 6,
+        children: areas.map((area) {
+          return ChoiceChip(
+            selected: _selectedDataArea == area.$1,
+            avatar: Icon(area.$3, size: 17),
+            label: Text(area.$2),
+            onSelected: (_) => setState(() => _selectedDataArea = area.$1),
+          );
+        }).toList(),
       ),
     );
   }
@@ -1547,6 +1795,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return '$day/$month/${local.year}، $hour:$minute';
   }
 
+  String _backgroundWorkerStatusLabel(String? status) => switch (status) {
+        'success' => 'نجح',
+        'failed' => 'تعذر',
+        'not_due' => 'لم يحن الموعد',
+        _ => 'لم يعمل بعد',
+      };
+
   Future<void> _selectAutomaticBackupHour() async {
     final picked = await showTimePicker(
       context: context,
@@ -1559,7 +1814,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     setState(() {
       _settings = _settings.copyWith(automaticBackupHour: picked.hour);
     });
-    await _saveSettings();
+    await _saveSettings(refreshBackupSchedule: true);
   }
 
   Widget _buildDiagnosticsSection() {
@@ -1575,7 +1830,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    'مركز التشخيص والدعم',
+                    'إدارة النظام والدعم',
                     style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
@@ -1586,7 +1841,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             const SizedBox(height: 12),
             const Text(
-              'يفحص نسخة التطبيق وSQLite والنسخ الاحتياطية والمزامنة واتصال Supabase والحوادث البرمجية المنقحة.',
+              'هذه الأدوات لمدير النظام أو عند وجود مشكلة. لا يحتاجها المعلم في عمله اليومي المعتاد.',
             ),
             const SizedBox(height: 8),
             Container(
@@ -1610,21 +1865,68 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
             const SizedBox(height: 14),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.icon(
-                onPressed: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => const DiagnosticsScreen(),
-                  ),
+            _buildAdminToolTile(
+              icon: Icons.fact_check_outlined,
+              title: 'جاهزية التشغيل والإطلاق',
+              subtitle: 'ابدأ هنا لمعرفة العوائق والاختبارات التي لم تعتمد بعد',
+              color: Colors.teal,
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const OperationalReadinessScreen(),
                 ),
-                icon: const Icon(Icons.monitor_heart_outlined),
-                label: const Text('فتح مركز التشخيص'),
+              ),
+            ),
+            const SizedBox(height: 8),
+            _buildAdminToolTile(
+              icon: Icons.monitor_heart_outlined,
+              title: 'التشخيص الفني وتقرير الدعم',
+              subtitle: 'يفحص قاعدة الجهاز والنسخ والمزامنة ويولد تقريرًا منقحًا',
+              color: Colors.blue,
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const DiagnosticsScreen()),
+              ),
+            ),
+            const SizedBox(height: 8),
+            _buildAdminToolTile(
+              icon: Icons.manage_history_outlined,
+              title: 'سجل التدقيق الإداري',
+              subtitle: 'مراجعة النسخ والاستعادة والتعديلات الحساسة ومن نفذها',
+              color: Colors.deepPurple,
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const AuditLogScreen()),
               ),
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildAdminToolTile({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: color.withValues(alpha: 0.07),
+      borderRadius: BorderRadius.circular(14),
+      child: ListTile(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+        ),
+        leading: CircleAvatar(
+          backgroundColor: color.withValues(alpha: 0.14),
+          child: Icon(icon, color: color),
+        ),
+        title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
+        subtitle: Text(subtitle),
+        trailing: const Icon(Icons.chevron_left),
+        onTap: onTap,
       ),
     );
   }
@@ -1645,12 +1947,51 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(height: 8),
             Text(
               'تطبيق لإدارة الحلقات القرآنية',
-              style: TextStyle(color: Colors.grey[600]),
+              style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
+            ),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surfaceContainerLow,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: Theme.of(context).colorScheme.outlineVariant,
+                ),
+              ),
+              child: const Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.key_off_outlined),
+                  SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'أكواد التفعيل المستقبلية',
+                          style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        SizedBox(height: 4),
+                        Text(
+                          ActivationPolicyService.statusLabel,
+                          style: TextStyle(fontSize: 12),
+                        ),
+                        SizedBox(height: 4),
+                        Text(
+                          'البنية مهيأة فقط، ولن يُحجب أي جزء من التطبيق دون قرار واعتماد رسمي.',
+                          style: TextStyle(fontSize: 12),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ),
             const SizedBox(height: 12),
             ElevatedButton.icon(
               style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.teal.withOpacity(0.1),
+                backgroundColor: Colors.teal.withValues(alpha: 0.1),
                 foregroundColor: Colors.teal,
                 elevation: 0,
               ),
@@ -1705,7 +2046,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const SizedBox(height: 8),
                 Text(
                   'المسار: $filePath',
-                  style: const TextStyle(fontSize: 12, color: Colors.grey),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
                 ),
               ],
             ),
@@ -1741,12 +2085,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _refreshBackupStatus() async {
     final lastRaw = await _db.getSetting('last_backup_at');
     final error = await _db.getSetting('last_automatic_backup_error');
+    final schedulerError =
+        await _db.getSetting('last_background_backup_scheduler_error');
+    final workerAt =
+        await _db.getSetting('last_background_backup_worker_at');
+    final workerStatus =
+        await _db.getSetting('last_background_backup_worker_status');
     final files = await _backup.getBackupFiles();
     final passphraseConfigured = await _backup.passphrases.isConfigured;
     if (!mounted) return;
     setState(() {
       _lastBackupAt = DateTime.tryParse(lastRaw ?? '');
       _lastAutomaticBackupError = error?.trim();
+      _backgroundBackupSchedulerError = schedulerError?.trim();
+      _lastBackgroundBackupWorkerAt = DateTime.tryParse(workerAt ?? '');
+      _lastBackgroundBackupWorkerStatus = workerStatus?.trim();
       _savedBackupCount = files.length;
       _isPassphraseConfigured = passphraseConfigured;
     });
@@ -2245,6 +2598,219 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  void _showBehaviorPointsBalanceDialog() {
+    final config = _settings.pointsConfig;
+    final controllers = <String, TextEditingController>{
+      'late_penalty': TextEditingController(
+        text: (config['late_penalty'] ?? -1).abs().toString(),
+      ),
+      'incomplete_penalty': TextEditingController(
+        text: (config['incomplete_penalty'] ?? -3).abs().toString(),
+      ),
+      'no_thobe': TextEditingController(
+        text: (config['no_thobe'] ?? -2).abs().toString(),
+      ),
+      'appearance_violation': TextEditingController(
+        text: (config['appearance_violation'] ?? -2).abs().toString(),
+      ),
+      'unexcused_absence': TextEditingController(
+        text: (config['unexcused_absence'] ?? -10).abs().toString(),
+      ),
+    };
+    const labels = <String, String>{
+      'late_penalty': 'التأخر',
+      'incomplete_penalty': 'عدم إكمال التسميع',
+      'no_thobe': 'مخالفة الزي',
+      'appearance_violation': 'مخالفة المظهر',
+      'unexcused_absence': 'الغياب بلا عذر',
+    };
+
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('موازنة نقاط السلوك'),
+        content: SizedBox(
+          width: 440,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'أدخل مقدار الخصم كرقم موجب. يجب أن يبقى خصم الغياب بلا عذر '
+                  'أشد من مجموع التأخر وعدم إكمال التسميع ومخالفة الزي.',
+                ),
+                const SizedBox(height: 12),
+                ...controllers.entries.map(
+                  (entry) => Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: TextField(
+                      controller: entry.value,
+                      keyboardType: TextInputType.number,
+                      decoration: InputDecoration(
+                        labelText: labels[entry.key],
+                        prefixText: '− ',
+                        border: const OutlineInputBorder(),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('إلغاء'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              final parsed = <String, int>{};
+              for (final entry in controllers.entries) {
+                final value = int.tryParse(entry.value.text.trim());
+                if (value == null || value <= 0) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('كل القيم يجب أن تكون أرقامًا موجبة')),
+                  );
+                  return;
+                }
+                parsed[entry.key] = value;
+              }
+              final ordinaryMaximum = parsed['late_penalty']! +
+                  parsed['incomplete_penalty']! +
+                  parsed['no_thobe']!;
+              if (parsed['unexcused_absence']! <= ordinaryMaximum) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      'خصم الغياب يجب أن يكون أكبر من $ordinaryMaximum نقطة للحفاظ على التوازن.',
+                    ),
+                  ),
+                );
+                return;
+              }
+              setState(() {
+                for (final entry in parsed.entries) {
+                  _settings.pointsConfig[entry.key] = -entry.value;
+                }
+              });
+              await _saveSettings();
+              if (dialogContext.mounted) Navigator.pop(dialogContext);
+            },
+            child: const Text('حفظ الموازنة'),
+          ),
+        ],
+      ),
+    ).whenComplete(() {
+      for (final controller in controllers.values) {
+        controller.dispose();
+      }
+    });
+  }
+
+  Map<String, int> _parsePointsConfigSnapshot(String? snapshot) {
+    final result = <String, int>{};
+    if (snapshot == null || snapshot.trim().isEmpty) return result;
+    for (final pair in snapshot.split(',')) {
+      final separator = pair.lastIndexOf(':');
+      if (separator <= 0 || separator >= pair.length - 1) continue;
+      final key = pair.substring(0, separator).trim();
+      final value = int.tryParse(pair.substring(separator + 1).trim());
+      if (key.isNotEmpty && value != null) result[key] = value;
+    }
+    return result;
+  }
+
+  String _pointsRuleLabel(String key) {
+    const labels = <String, String>{
+      'late_penalty': 'التأخر',
+      'incomplete_penalty': 'عدم إكمال التسميع',
+      'no_thobe': 'مخالفة الزي',
+      'appearance_violation': 'مخالفة المظهر',
+      'unexcused_absence': 'الغياب بلا عذر',
+      'daily_memorization': 'إتمام المقرر',
+      'extra_memorization': 'الزيادة على المقرر',
+    };
+    if (labels.containsKey(key)) return labels[key]!;
+    if (key.startsWith('c_')) return key.substring(2);
+    return key.replaceAll('_', ' ');
+  }
+
+  String _formatRulesHistoryDate(String? raw) {
+    final date = DateTime.tryParse(raw ?? '')?.toLocal();
+    if (date == null) return 'وقت غير معروف';
+    String two(int value) => value.toString().padLeft(2, '0');
+    return '${date.year}-${two(date.month)}-${two(date.day)} '
+        '${two(date.hour)}:${two(date.minute)}';
+  }
+
+  Future<void> _showPointsConfigHistoryDialog() async {
+    final history = await _db.getPointsConfigHistory();
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const AppDialogTitle(
+          icon: Icons.history_outlined,
+          title: 'سجل إصدارات قواعد النقاط',
+        ),
+        content: SizedBox(
+          width: 520,
+          child: history.isEmpty
+              ? const Text(
+                  'لا توجد إصدارات سابقة بعد. سيبدأ السجل عند أول تغيير جديد '
+                  'على إعدادات النقاط.',
+                )
+              : ListView.separated(
+                  shrinkWrap: true,
+                  itemCount: history.length,
+                  separatorBuilder: (_, __) => const Divider(height: 20),
+                  itemBuilder: (context, index) {
+                    final row = history[index];
+                    final snapshot = _parsePointsConfigSnapshot(
+                      row['snapshot']?.toString(),
+                    );
+                    final entries = snapshot.entries.toList()
+                      ..sort((a, b) => _pointsRuleLabel(a.key)
+                          .compareTo(_pointsRuleLabel(b.key)));
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _formatRulesHistoryDate(row['created_at']?.toString()),
+                          style: Theme.of(context).textTheme.labelLarge,
+                        ),
+                        const SizedBox(height: 6),
+                        Wrap(
+                          spacing: 6,
+                          runSpacing: 6,
+                          children: entries
+                              .map(
+                                (entry) => Chip(
+                                  visualDensity: VisualDensity.compact,
+                                  label: Text(
+                                    '${_pointsRuleLabel(entry.key)}: '
+                                    '${entry.value > 0 ? '+' : ''}${entry.value}',
+                                  ),
+                                ),
+                              )
+                              .toList(),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('إغلاق'),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _showCustomPointsConfigDialog() {
     showDialog(
       context: context,
@@ -2256,15 +2822,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 .toList();
 
             return AlertDialog(
-              title: Row(
-                children: [
-                  Icon(Icons.star, color: Theme.of(context).primaryColor),
-                  const SizedBox(width: 8),
-                  Text(
-                    'قواعد النقاط والسلوك المخصصة',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                  ),
-                ],
+              title: AppDialogTitle(
+                icon: Icons.star,
+                iconColor: Theme.of(context).primaryColor,
+                title: 'قواعد النقاط والسلوك المخصصة',
               ),
               content: SizedBox(
                 width: double.maxFinite,
@@ -2283,7 +2844,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         child: Text(
                           'لا يوجد قواعد مخصصة حاليًا. أضف قواعدك الأولى كمعلم!',
                           textAlign: TextAlign.center,
-                          style: TextStyle(color: Colors.grey),
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.onSurfaceVariant,
+                          ),
                         ),
                       )
                     else
@@ -2304,26 +2867,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                   fontWeight: FontWeight.bold,
                                 ),
                               ),
-                              trailing: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  IconButton(
-                                    icon: const Icon(Icons.edit, color: Colors.blue),
-                                    onPressed: () => _showAddEditRuleDialog(
+                              trailing: PopupMenuButton<String>(
+                                tooltip: 'إجراءات القاعدة',
+                                onSelected: (value) {
+                                  if (value == 'edit') {
+                                    _showAddEditRuleDialog(
                                       setDialogState,
                                       ruleKey: rule.key,
                                       ruleVal: rule.value,
-                                    ),
+                                    );
+                                  }
+                                  if (value == 'delete') {
+                                    setState(() {
+                                      _settings.pointsConfig.remove(rule.key);
+                                    });
+                                    _saveSettings();
+                                    setDialogState(() {});
+                                  }
+                                },
+                                itemBuilder: (_) => const [
+                                  PopupMenuItem(
+                                    value: 'edit',
+                                    child: Text('تعديل القاعدة'),
                                   ),
-                                  IconButton(
-                                    icon: const Icon(Icons.delete, color: Colors.red),
-                                    onPressed: () {
-                                      setState(() {
-                                        _settings.pointsConfig.remove(rule.key);
-                                      });
-                                      _saveSettings();
-                                      setDialogState(() {});
-                                    },
+                                  PopupMenuItem(
+                                    value: 'delete',
+                                    child: Text('حذف القاعدة'),
                                   ),
                                 ],
                               ),

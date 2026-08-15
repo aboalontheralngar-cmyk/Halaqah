@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo, useEffect } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { 
   FileText, 
   Plus, 
@@ -9,9 +10,24 @@ import {
   CalendarDays,
 } from "lucide-react";
 import { useStore } from "@/store/useStore";
+import { localDateKey } from "@/utils/dateUtils";
 
 export default function ExamsPage() {
-  const { students, exams, addExam, updateExamScore, fetchCenterData } = useStore();
+  const {
+    students,
+    exams,
+    addExam,
+    updateExamScore,
+    fetchCenterData
+  } = useStore(
+    useShallow((state) => ({
+      students: state.students,
+      exams: state.exams,
+      addExam: state.addExam,
+      updateExamScore: state.updateExamScore,
+      fetchCenterData: state.fetchCenterData,
+    })),
+  );
   const [showForm, setShowForm] = useState(false);
   const [showScores, setShowScores] = useState<string | null>(null);
   const [formData, setFormData] = useState({ title: "", type: "oral" as "oral" | "written", maxDegree: 100, date: "" });
@@ -39,7 +55,7 @@ export default function ExamsPage() {
         title,
         type: formData.type,
         maxDegree,
-        date: formData.date || new Date().toISOString().split("T")[0],
+        date: formData.date || localDateKey(),
         studentScores: [],
       });
       setShowForm(false);
@@ -83,8 +99,8 @@ export default function ExamsPage() {
       {/* Header Section */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div>
-          <h1 className="text-3xl font-black text-gray-900 dark:text-white tracking-tight">سجل الامتحانات والاختبارات 🏆</h1>
-          <p className="text-gray-500 dark:text-gray-400 mt-2 font-medium">وثق نتائج اختبارات طلابك وراقب مستوياتهم العلمية.</p>
+          <h1 className="text-3xl font-black text-[var(--foreground)] tracking-tight">سجل الامتحانات والاختبارات 🏆</h1>
+          <p className="text-[var(--muted)] mt-2 font-medium">وثق نتائج اختبارات طلابك وراقب مستوياتهم العلمية.</p>
         </div>
         <button 
           onClick={() => setShowForm(true)}
@@ -97,22 +113,22 @@ export default function ExamsPage() {
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-        <div className="bg-white dark:bg-gray-900 rounded-[2rem] border border-gray-100 dark:border-gray-800 p-8 flex items-center gap-6 shadow-sm">
+        <div className="bg-[var(--surface)] rounded-[2rem] border border-[var(--border)] p-8 flex items-center gap-6 shadow-sm">
           <div className="w-16 h-16 bg-rose-50 dark:bg-rose-900/20 rounded-2xl flex items-center justify-center">
             <FileText className="w-8 h-8 text-rose-600 dark:text-rose-400" />
           </div>
           <div>
-            <p className="text-3xl font-black text-gray-900 dark:text-white">{stats.totalExams}</p>
+            <p className="text-3xl font-black text-[var(--foreground)]">{stats.totalExams}</p>
             <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">إجمالي الامتحانات</p>
           </div>
         </div>
         
-        <div className="bg-white dark:bg-gray-900 rounded-[2rem] border border-gray-100 dark:border-gray-800 p-8 flex items-center gap-6 shadow-sm">
+        <div className="bg-[var(--surface)] rounded-[2rem] border border-[var(--border)] p-8 flex items-center gap-6 shadow-sm">
           <div className="w-16 h-16 bg-amber-50 dark:bg-amber-900/20 rounded-2xl flex items-center justify-center">
             <Trophy className="w-8 h-8 text-amber-600 dark:text-amber-400" />
           </div>
           <div>
-            <p className="text-3xl font-black text-gray-900 dark:text-white">{stats.avgDegree}</p>
+            <p className="text-3xl font-black text-[var(--foreground)]">{stats.avgDegree}</p>
             <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">متوسط الدرجات</p>
           </div>
         </div>
@@ -132,15 +148,15 @@ export default function ExamsPage() {
             const completedScores = exam.studentScores.filter(s => s.degree > 0).length;
             const progress = (completedScores / students.length) * 100;
             return (
-              <div key={exam.id} className="group bg-white dark:bg-gray-900 rounded-[2.5rem] border border-gray-100 dark:border-gray-800 p-8 hover:shadow-2xl hover:shadow-gray-200/50 dark:hover:shadow-none transition-all duration-500">
+              <div key={exam.id} className="group bg-[var(--surface)] rounded-[2.5rem] border border-[var(--border)] p-8 hover:shadow-2xl hover:shadow-gray-200/50 dark:hover:shadow-none transition-all duration-500">
                 <div className="flex items-start justify-between mb-8">
                   <div className="space-y-1">
-                    <h4 className="text-xl font-black text-gray-900 dark:text-white group-hover:text-teal-600 dark:group-hover:text-teal-400 transition-colors">{exam.title}</h4>
+                    <h4 className="text-xl font-black text-[var(--foreground)] group-hover:text-teal-600 dark:group-hover:text-teal-400 transition-colors">{exam.title}</h4>
                     <div className="flex items-center gap-3">
                       <span className={`text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-full ${
-                        exam.type === "oral" ? "bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400" : "bg-purple-50 dark:bg-purple-900/20 text-purple-600 dark:text-purple-400"
+                        exam.type === "oral" ? "bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400" : exam.type === "monthly_plan" ? "bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300" : "bg-purple-50 dark:bg-purple-900/20 text-purple-600 dark:text-purple-400"
                       }`}>
-                        اختبار {exam.type === "oral" ? "شفهي" : "تحريري"}
+                        اختبار {exam.type === "oral" ? "شفهي" : exam.type === "monthly_plan" ? "الخطة الشهرية" : "تحريري"}
                       </span>
                       <span className="text-[10px] font-bold text-gray-400 dark:text-gray-500 flex items-center gap-1">
                         <CalendarDays className="w-3 h-3" /> {exam.date}
@@ -155,7 +171,7 @@ export default function ExamsPage() {
                 <div className="space-y-4">
                   <div className="flex justify-between items-end mb-1">
                     <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">نسبة الرصد</span>
-                    <span className="text-xs font-black text-gray-900 dark:text-white">{Math.round(progress)}%</span>
+                    <span className="text-xs font-black text-[var(--foreground)]">{Math.round(progress)}%</span>
                   </div>
                   <div className="h-2 w-full bg-gray-50 dark:bg-gray-800 rounded-full overflow-hidden">
                     <div 
@@ -180,12 +196,12 @@ export default function ExamsPage() {
       {/* Create Modal */}
       {showForm && (
         <div className="fixed inset-0 bg-gray-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-300">
-          <div className="bg-white dark:bg-gray-900 rounded-[2.5rem] p-10 w-full max-w-md shadow-2xl relative animate-in zoom-in-95 duration-300" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-[var(--surface)] rounded-[2.5rem] p-10 w-full max-w-md shadow-2xl relative animate-in zoom-in-95 duration-300" onClick={(e) => e.stopPropagation()}>
             <button onClick={() => setShowForm(false)} className="absolute top-8 left-8 p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors">
               <X className="w-6 h-6 text-gray-400" />
             </button>
             
-            <h3 className="text-2xl font-black text-gray-900 dark:text-white mb-8">إضافة امتحان جديد</h3>
+            <h3 className="text-2xl font-black text-[var(--foreground)] mb-8">إضافة امتحان جديد</h3>
             
             <form onSubmit={handleCreateExam} className="space-y-6">
               <div>
@@ -246,13 +262,13 @@ export default function ExamsPage() {
       {/* Scores Modal */}
       {showScores && (
         <div className="fixed inset-0 bg-gray-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-300">
-          <div className="bg-white dark:bg-gray-900 rounded-[3rem] p-10 w-full max-w-2xl max-h-[85vh] overflow-hidden flex flex-col shadow-2xl relative animate-in zoom-in-95 duration-300" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-[var(--surface)] rounded-[3rem] p-10 w-full max-w-2xl max-h-[85vh] overflow-hidden flex flex-col shadow-2xl relative animate-in zoom-in-95 duration-300" onClick={(e) => e.stopPropagation()}>
             <button onClick={() => setShowScores(null)} className="absolute top-8 left-8 p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors">
               <X className="w-6 h-6 text-gray-400" />
             </button>
             
             <div className="mb-10">
-              <h3 className="text-2xl font-black text-gray-900 dark:text-white mb-1">رصد درجات الطلاب</h3>
+              <h3 className="text-2xl font-black text-[var(--foreground)] mb-1">رصد درجات الطلاب</h3>
               <p className="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest">
                 امتحان: {exams.find(e => e.id === showScores)?.title}
               </p>
@@ -278,7 +294,7 @@ export default function ExamsPage() {
                         onChange={(e) => setScoreData(scoreData.map(s => s.studentId === score.studentId ? { ...s, degree: parseInt(e.target.value) } : s))}
                         min={0} 
                         max={exam?.maxDegree || 100} 
-                        className="w-24 bg-white dark:bg-gray-900 border-none rounded-xl px-4 py-3 text-center font-black text-teal-600 dark:text-teal-400 shadow-sm outline-none focus:ring-2 ring-teal-500/20" 
+                        className="w-24 bg-[var(--surface)] border-none rounded-xl px-4 py-3 text-center font-black text-teal-600 dark:text-teal-400 shadow-sm outline-none focus:ring-2 ring-teal-500/20" 
                       />
                       <span className="text-[10px] font-black text-gray-300 dark:text-gray-600 uppercase tracking-widest">/ {exam?.maxDegree}</span>
                     </div>

@@ -1,13 +1,17 @@
 import 'package:flutter/material.dart';
+import 'package:printing/printing.dart';
 import '../../services/database_service.dart';
 import '../../models/student.dart';
 import '../../models/exam.dart';
 import '../../utils/quran_data.dart';
 import '../../utils/helpers.dart';
+import '../../services/pdf_service.dart';
 import 'add_exam_screen.dart';
 import 'exam_result_screen.dart';
 import 'exam_generator_screen.dart';
 import 'exam_templates_screen.dart';
+import 'monthly_plan_exam_screen.dart';
+import '../competition/competitions_screen.dart';
 
 class ExamsScreen extends StatefulWidget {
   const ExamsScreen({super.key});
@@ -18,6 +22,7 @@ class ExamsScreen extends StatefulWidget {
 
 class _ExamsScreenState extends State<ExamsScreen> {
   final DatabaseService _db = DatabaseService();
+  final PdfService _pdf = PdfService();
   List<ExamWithStudent> _exams = [];
   List<Student> _students = [];
   bool _isLoading = true;
@@ -32,12 +37,17 @@ class _ExamsScreenState extends State<ExamsScreen> {
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
     try {
-      final students = await _db.getStudents(status: 'active');
+      final results = await Future.wait<dynamic>([
+        _db.getStudents(status: 'active'),
+        _db.getAllExams(),
+      ]);
+      final students = results[0] as List<Student>;
+      final allExams = results[1] as List<Exam>;
+      final studentsById = {for (final student in students) student.id: student};
       final exams = <ExamWithStudent>[];
-
-      for (final student in students) {
-        final studentExams = await _db.getStudentExams(student.id);
-        for (final exam in studentExams) {
+      for (final exam in allExams) {
+        final student = studentsById[exam.studentId];
+        if (student != null) {
           exams.add(ExamWithStudent(student: student, exam: exam));
         }
       }
@@ -81,6 +91,29 @@ class _ExamsScreenState extends State<ExamsScreen> {
       appBar: AppBar(
         title: const Text('الامتحانات'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.calendar_month_outlined),
+            onPressed: () async {
+              final changed = await Navigator.push<bool>(
+                context,
+                MaterialPageRoute(builder: (context) => const MonthlyPlanExamScreen()),
+              );
+              if (changed == true) _loadData();
+            },
+            tooltip: 'الاختبار الشهري للخطة',
+          ),
+          IconButton(
+            icon: const Icon(Icons.emoji_events_outlined),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const CompetitionsScreen(),
+                ),
+              );
+            },
+            tooltip: 'المسابقات والتحكيم',
+          ),
           IconButton(
             icon: const Icon(Icons.folder_copy_outlined),
             onPressed: () {
@@ -139,16 +172,11 @@ class _ExamsScreenState extends State<ExamsScreen> {
 
   Widget _buildStatsSection() {
     return Container(
-      margin: const EdgeInsets.all(16),
-      padding: const EdgeInsets.all(16),
+      margin: const EdgeInsets.fromLTRB(14, 12, 14, 8),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            Theme.of(context).primaryColor,
-            Theme.of(context).primaryColor.withOpacity(0.8),
-          ],
-        ),
-        borderRadius: BorderRadius.circular(16),
+        color: Theme.of(context).colorScheme.primary,
+        borderRadius: BorderRadius.circular(18),
       ),
       child: Column(
         children: [
@@ -159,7 +187,7 @@ class _ExamsScreenState extends State<ExamsScreen> {
                 _students.firstWhere((s) => s.id == _selectedStudentId).name,
                 style: const TextStyle(
                   color: Colors.white,
-                  fontSize: 18,
+                  fontSize: 15,
                   fontWeight: FontWeight.bold,
                 ),
               ),
@@ -185,7 +213,7 @@ class _ExamsScreenState extends State<ExamsScreen> {
           value,
           style: const TextStyle(
             color: Colors.white,
-            fontSize: 20,
+            fontSize: 17,
             fontWeight: FontWeight.bold,
           ),
         ),
@@ -193,7 +221,7 @@ class _ExamsScreenState extends State<ExamsScreen> {
         Text(
           label,
           style: TextStyle(
-            color: Colors.white.withOpacity(0.8),
+            color: Colors.white.withValues(alpha: 0.8),
             fontSize: 11,
           ),
         ),
@@ -206,9 +234,9 @@ class _ExamsScreenState extends State<ExamsScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.quiz, size: 60, color: Colors.grey[400]),
+          Icon(Icons.quiz, size: 60, color: Theme.of(context).colorScheme.onSurfaceVariant),
           const SizedBox(height: 16),
-          Text('لا توجد امتحانات', style: TextStyle(color: Colors.grey[600])),
+          Text('لا توجد امتحانات', style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
           const SizedBox(height: 8),
           ElevatedButton.icon(
             onPressed: () => _navigateToAddExam(),
@@ -252,7 +280,7 @@ class _ExamsScreenState extends State<ExamsScreen> {
               Row(
                 children: [
                   CircleAvatar(
-                    backgroundColor: Theme.of(context).primaryColor.withOpacity(0.1),
+                    backgroundColor: Theme.of(context).primaryColor.withValues(alpha: 0.1),
                     child: Text(
                       data.student.name.isNotEmpty ? data.student.name[0] : '؟',
                       style: TextStyle(color: Theme.of(context).primaryColor),
@@ -269,7 +297,7 @@ class _ExamsScreenState extends State<ExamsScreen> {
                         ),
                         Text(
                           Helpers.formatHijriDate(data.exam.date),
-                          style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                          style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant),
                         ),
                       ],
                     ),
@@ -279,7 +307,7 @@ class _ExamsScreenState extends State<ExamsScreen> {
                     height: 60,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      color: scoreColor.withOpacity(0.1),
+                      color: scoreColor.withValues(alpha: 0.1),
                     ),
                     child: Center(
                       child: Column(
@@ -304,6 +332,34 @@ class _ExamsScreenState extends State<ExamsScreen> {
                       ),
                     ),
                   ),
+                  PopupMenuButton<String>(
+                    tooltip: 'خيارات الامتحان',
+                    onSelected: (action) {
+                      if (action == 'print') {
+                        _printExam(data);
+                      } else if (action == 'delete') {
+                        _confirmDeleteExam(data);
+                      }
+                    },
+                    itemBuilder: (context) => const [
+                      PopupMenuItem(
+                        value: 'print',
+                        child: ListTile(
+                          dense: true,
+                          leading: Icon(Icons.print_outlined),
+                          title: Text('طباعة النتيجة'),
+                        ),
+                      ),
+                      PopupMenuItem(
+                        value: 'delete',
+                        child: ListTile(
+                          dense: true,
+                          leading: Icon(Icons.delete_outline),
+                          title: Text('حذف الامتحان'),
+                        ),
+                      ),
+                    ],
+                  ),
                 ],
               ),
               const Divider(height: 24),
@@ -312,11 +368,11 @@ class _ExamsScreenState extends State<ExamsScreen> {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(
-                      color: Colors.blue.withOpacity(0.1),
+                      color: Colors.blue.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Text(
-                      data.exam.type == 'oral' ? 'شفهي' : 'تحريري',
+                      ExamType.getLabel(data.exam.type),
                       style: const TextStyle(fontSize: 12, color: Colors.blue),
                     ),
                   ),
@@ -326,7 +382,7 @@ class _ExamsScreenState extends State<ExamsScreen> {
                       fromSurah == toSurah
                           ? 'سورة $fromSurah'
                           : 'من $fromSurah إلى $toSurah',
-                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                      style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant),
                     ),
                   ),
                 ],
@@ -343,6 +399,55 @@ class _ExamsScreenState extends State<ExamsScreen> {
     if (score >= 75) return Colors.lightGreen;
     if (score >= 60) return Colors.orange;
     return Colors.red;
+  }
+
+  Future<void> _printExam(ExamWithStudent data) async {
+    try {
+      final bytes = await _pdf.generateExamResult(data.student, data.exam, 'حلقتي');
+      await Printing.layoutPdf(onLayout: (_) => bytes);
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('تعذرت طباعة النتيجة: $error')),
+      );
+    }
+  }
+
+  Future<void> _confirmDeleteExam(ExamWithStudent data) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('حذف الامتحان'),
+        content: Text(
+          'سيتم حذف امتحان ${data.student.name} ونتيجته. إذا كان الامتحان معتمدًا لتجاوز خطة فستعود الخطة إلى انتظار الاختبار.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('إلغاء'),
+          ),
+          FilledButton.tonal(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('حذف'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      await _db.deleteExam(data.exam.id);
+      if (!mounted) return;
+      await _loadData();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('تم حذف الامتحان')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('تعذر حذف الامتحان: $error')),
+      );
+    }
   }
 
   void _navigateToAddExam() async {

@@ -5,6 +5,7 @@ class Exam {
   final String studentId;
   final DateTime date;
   final String type;
+  final String? templateId;
   final int fromSurah;
   final int toSurah;
   final int? fromAyah;
@@ -18,6 +19,7 @@ class Exam {
     required this.studentId,
     required this.date,
     this.type = 'oral',
+    this.templateId,
     required this.fromSurah,
     required this.toSurah,
     this.fromAyah,
@@ -43,6 +45,7 @@ class Exam {
         'student_id': studentId,
         'date': date.toIso8601String().split('T')[0],
         'type': type,
+        'template_id': templateId,
         'from_surah': fromSurah,
         'to_surah': toSurah,
         'from_ayah': fromAyah,
@@ -57,6 +60,7 @@ class Exam {
         studentId: map['student_id'],
         date: DateTime.parse(map['date']),
         type: map['type'] ?? 'oral',
+        templateId: map['template_id']?.toString(),
         fromSurah: map['from_surah'],
         toSurah: map['to_surah'],
         fromAyah: map['from_ayah'],
@@ -70,6 +74,7 @@ class Exam {
 class ExamType {
   static const String oral = 'oral';
   static const String written = 'written';
+  static const String monthlyPlan = 'monthly_plan';
 
   static String getLabel(String type) {
     switch (type) {
@@ -77,6 +82,8 @@ class ExamType {
         return 'شفهي';
       case written:
         return 'تحريري';
+      case monthlyPlan:
+        return 'اختبار الخطة الشهرية';
       default:
         return type;
     }

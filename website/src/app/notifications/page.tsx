@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import { useShallow } from "zustand/react/shallow";
 import {
   Bell,
   Check,
@@ -12,6 +13,7 @@ import {
   Archive,
 } from "lucide-react";
 import { useStore } from "@/store/useStore";
+import { localDateKey } from "@/utils/dateUtils";
 
 interface Notification {
   id: string;
@@ -25,7 +27,21 @@ interface Notification {
 }
 
 export default function NotificationsPage() {
-  const { students, attendance, homeworkGrades, memorization } = useStore();
+  const {
+    students,
+    attendance,
+    homeworkGrades,
+    memorization,
+    studentHolds
+  } = useStore(
+    useShallow((state) => ({
+      students: state.students,
+      attendance: state.attendance,
+      homeworkGrades: state.homeworkGrades,
+      memorization: state.memorization,
+      studentHolds: state.studentHolds,
+    })),
+  );
 
   const [readIds, setReadIds] = useState<string[]>(() => {
     if (typeof window !== "undefined") {
@@ -46,7 +62,7 @@ export default function NotificationsPage() {
 
   const notifications = useMemo(() => {
     const list: Notification[] = [];
-    const today = new Date().toISOString().split("T")[0];
+    const today = localDateKey();
 
     students.forEach((student) => {
       // 1. Check if student is absent today
@@ -54,8 +70,16 @@ export default function NotificationsPage() {
         (a) => a.studentId === student.id && a.date === today
       );
       
+      const holdToday = studentHolds.find(
+        (hold) =>
+          hold.studentId === student.id &&
+          !hold.endedAt &&
+          hold.startDate <= today &&
+          hold.endDate >= today,
+      );
+
       if (todayRecord) {
-        if (todayRecord.status === "absent") {
+        if (todayRecord.status === "absent" && holdToday?.scope !== "full_pause") {
           const id = `absent_${student.id}_${today}`;
           if (!deletedIds.includes(id)) {
             list.push({
@@ -80,7 +104,13 @@ export default function NotificationsPage() {
             (m) => m.studentId === student.id && m.date === today
           );
 
-          if (!hasGradeToday && !hasMemoToday) {
+          if (
+            !hasGradeToday &&
+            !hasMemoToday &&
+            !todayRecord.talaqqinDone &&
+            !todayRecord.recitationExempt &&
+            !holdToday
+          ) {
             const id = `leftout_${student.id}_${today}`;
             if (!deletedIds.includes(id)) {
               list.push({
@@ -106,6 +136,15 @@ export default function NotificationsPage() {
       let consecutiveCount = 0;
       let latestAbsentDate = "";
       for (const record of studentRecords) {
+        const fullPause = studentHolds.some(
+          (hold) =>
+            hold.studentId === student.id &&
+            hold.scope === "full_pause" &&
+            !hold.endedAt &&
+            hold.startDate <= record.date &&
+            hold.endDate >= record.date,
+        );
+        if (fullPause) continue;
         if (record.status === "absent") {
           consecutiveCount++;
           if (!latestAbsentDate) latestAbsentDate = record.date;
@@ -132,7 +171,7 @@ export default function NotificationsPage() {
     });
 
     return list;
-  }, [students, attendance, homeworkGrades, memorization, readIds, deletedIds]);
+  }, [students, attendance, homeworkGrades, memorization, studentHolds, readIds, deletedIds]);
 
   const handleMarkAsRead = (id: string) => {
     const updated = [...readIds, id];
@@ -233,11 +272,11 @@ export default function NotificationsPage() {
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div>
-          <h1 className="text-3xl font-black text-gray-900 dark:text-white tracking-tight flex items-center gap-4">
+          <h1 className="text-3xl font-black text-[var(--foreground)] tracking-tight flex items-center gap-4">
             <Bell className="w-8 h-8" />
             مركز الإشعارات
           </h1>
-          <p className="text-gray-500 dark:text-gray-400 mt-2 font-medium">
+          <p className="text-[var(--muted)] mt-2 font-medium">
             متابعة تنبيهات الطلاب والأنشطة في الحلقة
           </p>
         </div>
@@ -245,7 +284,7 @@ export default function NotificationsPage() {
 
       {/* Stats */}
       <div className="grid md:grid-cols-4 gap-4">
-        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl p-6">
+        <div className="bg-[var(--surface)] border border-gray-200 dark:border-gray-800 rounded-2xl p-6">
           <p className="text-xs font-bold text-gray-500 uppercase mb-3">إجمالي الإشعارات</p>
           <p className="text-3xl font-black text-teal-600">{stats.total}</p>
         </div>
@@ -294,7 +333,7 @@ export default function NotificationsPage() {
         {filteredNotifications.length === 0 ? (
           <div className="text-center py-12 bg-gray-50 dark:bg-gray-900 rounded-2xl border-2 border-dashed border-gray-300 dark:border-gray-700">
             <Bell className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-            <p className="text-gray-500 dark:text-gray-400 font-bold text-lg">
+            <p className="text-[var(--muted)] font-bold text-lg">
               {showArchived ? "لا توجد إشعارات مؤرشفة" : "لا توجد إشعارات جديدة"}
             </p>
           </div>

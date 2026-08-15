@@ -7,7 +7,7 @@ const requireText = (source, text, label) => {
   if (!source.includes(text)) throw new Error(`Missing ${label}: ${text}`);
 };
 
-const database = read("lib/services/database_service.dart");
+const database = read("lib/services/database_service.dart") + read("lib/services/local_database_schema.dart");
 const service = read("lib/services/daily_excellence_service.dart");
 const screen = read("lib/screens/honor_board/daily_excellence_screen.dart");
 const home = read("lib/screens/home/home_screen.dart");
@@ -20,7 +20,7 @@ const layout = read("website/src/components/DashboardLayout.tsx");
 const migration = read("website/supabase/migrations/20260712000300_p5_daily_excellence.sql");
 
 for (const contract of [
-  "version: 18",
+  "version: 24",
   "CREATE TABLE IF NOT EXISTS daily_achievements",
   "getDailyAchievements",
   "saveDailyAchievement",

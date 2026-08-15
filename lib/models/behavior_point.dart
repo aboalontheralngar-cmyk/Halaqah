@@ -91,12 +91,12 @@ class BehaviorReason {
   };
 
   static const Map<String, Map<String, dynamic>> negative = {
-    'late': {'label': 'التأخير', 'points': -2},
+    'late': {'label': 'التأخير', 'points': -1},
     'incomplete_memorization': {'label': 'عدم إتمام المقرر', 'points': -3},
-    'unexcused_absence': {'label': 'الغياب بدون عذر', 'points': -5},
-    'bad_haircut': {'label': 'حلاقة غير لائقة', 'points': -3},
-    'bad_clothes': {'label': 'ملابس غير مناسبة', 'points': -3},
-    'bad_hygiene': {'label': 'عدم النظافة', 'points': -3},
+    'unexcused_absence': {'label': 'الغياب بدون عذر', 'points': -10},
+    'bad_haircut': {'label': 'حلاقة غير لائقة', 'points': -2},
+    'bad_clothes': {'label': 'ملابس غير مناسبة', 'points': -2},
+    'bad_hygiene': {'label': 'عدم النظافة', 'points': -2},
     'bad_behavior': {'label': 'سوء السلوك', 'points': -4},
     'disrespect': {'label': 'عدم الاحترام', 'points': -5},
   };
@@ -111,5 +111,16 @@ class BehaviorReason {
     return positive[reason]?['points'] ??
         negative[reason]?['points'] ??
         0;
+  }
+
+  /// يفصل عقوبات المواظبة عن المخالفات السلوكية، مع دعم السجلات القديمة
+  /// التي خزنت الوصف العربي بدل المفتاح التقني.
+  static bool isAttendancePenalty(String reason) {
+    final normalized = reason.trim().toLowerCase();
+    return normalized == 'late' ||
+        normalized == 'unexcused_absence' ||
+        normalized.contains('غياب بدون عذر') ||
+        normalized.contains('التأخر') ||
+        normalized.contains('التأخير');
   }
 }

@@ -1,6 +1,8 @@
 "use client";
 
+import { logOperationalError } from "@/lib/operationalLog";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { useRouter } from "next/navigation";
 import { Html5QrcodeScanner } from "html5-qrcode";
 import {
@@ -8,9 +10,12 @@ import {
   CheckCircle, 
   UserCheck, 
   ArrowRight,
-  AlertCircle
+  AlertCircle,
+  BookOpen,
+  ClipboardCheck,
+  RotateCcw,
 } from "lucide-react";
-import { useStore } from "@/store/useStore";
+import { useStore, type Student } from "@/store/useStore";
 import { decodeStudentQr } from "@/lib/studentQr";
 
 function localDateKey(date: Date): string {
@@ -22,10 +27,19 @@ function localDateKey(date: Date): string {
 
 export default function QRScannerPage() {
   const router = useRouter();
-  const { fetchStudents, fetchAttendance } = useStore();
+  const {
+    fetchStudents,
+    fetchAttendance
+  } = useStore(
+    useShallow((state) => ({
+      fetchStudents: state.fetchStudents,
+      fetchAttendance: state.fetchAttendance,
+    })),
+  );
   const [lastScanned, setLastScanned] = useState<string | null>(null);
   const [status, setStatus] = useState<"idle" | "success" | "error">("idle");
   const [errorMsg, setErrorMsg] = useState("");
+  const [scannedStudent, setScannedStudent] = useState<Student | null>(null);
   const scannerRef = useRef<Html5QrcodeScanner | null>(null);
   const processingRef = useRef(false);
   const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -35,8 +49,25 @@ export default function QRScannerPage() {
     resetTimerRef.current = setTimeout(() => {
       processingRef.current = false;
       setStatus("idle");
+      setScannedStudent(null);
     }, 3000);
   }, []);
+
+  const resetScanner = useCallback(() => {
+    if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
+    processingRef.current = false;
+    setStatus("idle");
+    setLastScanned(null);
+    setScannedStudent(null);
+    setErrorMsg("");
+  }, []);
+
+  const openMemorization = (mode: "session" | "direct") => {
+    if (!scannedStudent) return;
+    localStorage.setItem("memorization_prefill_student_id", scannedStudent.id);
+    localStorage.setItem("memorization_entry_mode", mode);
+    router.push("/memorization");
+  };
 
   const onScanSuccess = useCallback(async (decodedText: string) => {
     if (processingRef.current) return;
@@ -72,8 +103,8 @@ export default function QRScannerPage() {
 
     if (existing?.status === "present" || existing?.status === "late") {
       setLastScanned(`${student.name} — مسجل مسبقًا`);
+      setScannedStudent(student);
       setStatus("success");
-      scheduleReset();
       return;
     }
 
@@ -85,8 +116,8 @@ export default function QRScannerPage() {
     });
 
     setLastScanned(student.name);
+    setScannedStudent(student);
     setStatus("success");
-    scheduleReset();
   }, [scheduleReset]);
 
   const onScanFailure = useCallback(() => {
@@ -108,7 +139,7 @@ export default function QRScannerPage() {
 
     return () => {
       if (scannerRef.current) {
-        scannerRef.current.clear().catch(err => console.error("Failed to clear scanner", err));
+        scannerRef.current.clear().catch(err => logOperationalError("attendance_qr.scanner_clear", err));
       }
       if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
     };
@@ -117,8 +148,8 @@ export default function QRScannerPage() {
   return (
     <div className="min-h-[80vh] flex flex-col items-center justify-center space-y-8 animate-in fade-in duration-700">
       <div className="text-center space-y-2">
-        <h1 className="text-3xl font-black text-gray-900 dark:text-white">ماسح الحضور الذكي 📸</h1>
-        <p className="text-gray-500 dark:text-gray-400 font-medium">قم بتوجيه كاميرا الجوال نحو كود الطالب لرصد الحضور فوراً.</p>
+        <h1 className="text-3xl font-black text-[var(--foreground)]">ماسح الحضور الذكي 📸</h1>
+        <p className="text-[var(--muted)] font-medium">قم بتوجيه كاميرا الجوال نحو كود الطالب لرصد الحضور فوراً.</p>
       </div>
 
       <div className="relative w-full max-w-md aspect-square bg-gray-900 rounded-[3rem] overflow-hidden shadow-2xl border-4 border-white dark:border-gray-800">
@@ -126,10 +157,35 @@ export default function QRScannerPage() {
         
         {/* Status Overlays */}
         {status === "success" && (
-          <div className="absolute inset-0 bg-green-500/90 backdrop-blur-md flex flex-col items-center justify-center text-white z-50 animate-in zoom-in-95 duration-300">
-            <CheckCircle className="w-20 h-20 mb-4 animate-bounce" />
-            <h2 className="text-2xl font-black">تم تسجيل الحضور!</h2>
-            <p className="text-lg font-bold mt-2">{lastScanned}</p>
+          <div className="absolute inset-0 overflow-y-auto bg-green-600/95 p-6 text-white z-50 animate-in zoom-in-95 duration-300">
+            <div className="flex min-h-full flex-col items-center justify-center">
+              <CheckCircle className="mb-3 h-14 w-14" />
+              <h2 className="text-xl font-black">تم التعرف على الطالب وتحضيره</h2>
+              <p className="mt-2 text-center text-base font-bold">{lastScanned}</p>
+              <div className="mt-5 grid w-full grid-cols-1 gap-2 sm:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={() => openMemorization("direct")}
+                  className="flex items-center justify-center gap-2 rounded-2xl bg-white px-4 py-3 text-xs font-black text-emerald-800"
+                >
+                  <ClipboardCheck className="h-4 w-4" /> تسجيل حفظ مباشر
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openMemorization("session")}
+                  className="flex items-center justify-center gap-2 rounded-2xl bg-emerald-900/35 px-4 py-3 text-xs font-black text-white ring-1 ring-white/40"
+                >
+                  <BookOpen className="h-4 w-4" /> بدء جلسة تسميع
+                </button>
+                <button
+                  type="button"
+                  onClick={resetScanner}
+                  className="flex items-center justify-center gap-2 rounded-2xl bg-black/15 px-4 py-3 text-xs font-black text-white sm:col-span-2"
+                >
+                  <RotateCcw className="h-4 w-4" /> الاكتفاء بالحضور ومسح طالب آخر
+                </button>
+              </div>
+            </div>
           </div>
         )}
 
@@ -145,7 +201,7 @@ export default function QRScannerPage() {
       <div className="flex gap-4">
         <button 
           onClick={() => router.back()}
-          className="px-8 py-4 bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-3xl font-black text-sm text-gray-600 dark:text-gray-300 flex items-center gap-2 hover:bg-gray-50 transition-all"
+          className="px-8 py-4 bg-[var(--surface)] border border-[var(--border)] rounded-3xl font-black text-sm text-gray-600 dark:text-gray-300 flex items-center gap-2 hover:bg-gray-50 transition-all"
         >
           <ArrowRight className="w-5 h-5" /> العودة للخلف
         </button>

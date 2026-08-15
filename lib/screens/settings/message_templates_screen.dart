@@ -168,7 +168,7 @@ class _MessageTemplatesScreenState extends State<MessageTemplatesScreen> {
     required List<String> variables,
   }) {
     return Card(
-      elevation: 2,
+      elevation: 0,
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -184,9 +184,13 @@ class _MessageTemplatesScreenState extends State<MessageTemplatesScreen> {
               ),
             ),
             const SizedBox(height: 12),
-            const Text(
+            Text(
               'المتغيرات المتاحة (سيتم استبدالها تلقائياً):',
-              style: TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.bold),
+              style: TextStyle(
+                fontSize: 12,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                fontWeight: FontWeight.bold,
+              ),
             ),
             const SizedBox(height: 6),
             Wrap(
@@ -195,7 +199,7 @@ class _MessageTemplatesScreenState extends State<MessageTemplatesScreen> {
               children: variables.map((variable) {
                 return ActionChip(
                   label: Text(variable, style: const TextStyle(fontSize: 11, color: Colors.teal)),
-                  backgroundColor: Colors.teal.withOpacity(0.06),
+                  backgroundColor: Colors.teal.withValues(alpha: 0.06),
                   onPressed: () {
                     final text = controller.text;
                     final selection = controller.selection;

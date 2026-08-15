@@ -95,16 +95,11 @@ class _PointsHistoryScreenState extends State<PointsHistoryScreen> {
 
   Widget _buildSummaryCard() {
     return Container(
-      margin: const EdgeInsets.all(16),
-      padding: const EdgeInsets.all(20),
+      margin: const EdgeInsets.fromLTRB(14, 12, 14, 8),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            Theme.of(context).primaryColor,
-            Theme.of(context).primaryColor.withOpacity(0.8),
-          ],
-        ),
-        borderRadius: BorderRadius.circular(16),
+        color: Theme.of(context).colorScheme.primary,
+        borderRadius: BorderRadius.circular(18),
       ),
       child: Column(
         children: [
@@ -129,7 +124,7 @@ class _PointsHistoryScreenState extends State<PointsHistoryScreen> {
         Text(
           value,
           style: TextStyle(
-            fontSize: 24,
+            fontSize: 18,
             fontWeight: FontWeight.bold,
             color: valueColor,
           ),
@@ -138,7 +133,7 @@ class _PointsHistoryScreenState extends State<PointsHistoryScreen> {
         Text(
           label,
           style: TextStyle(
-            color: Colors.white.withOpacity(0.8),
+            color: Colors.white.withValues(alpha: 0.8),
             fontSize: 12,
           ),
         ),
@@ -151,11 +146,11 @@ class _PointsHistoryScreenState extends State<PointsHistoryScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.history, size: 60, color: Colors.grey[400]),
+          Icon(Icons.history, size: 60, color: Theme.of(context).colorScheme.onSurfaceVariant),
           const SizedBox(height: 16),
           Text(
             'لا يوجد سجل نقاط',
-            style: TextStyle(color: Colors.grey[600]),
+            style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
           ),
         ],
       ),
@@ -184,7 +179,7 @@ class _PointsHistoryScreenState extends State<PointsHistoryScreen> {
       margin: const EdgeInsets.only(bottom: 8),
       child: ListTile(
         leading: CircleAvatar(
-          backgroundColor: color.withOpacity(0.1),
+          backgroundColor: color.withValues(alpha: 0.1),
           child: Icon(
             isPositive ? Icons.add_circle : Icons.remove_circle,
             color: color,
@@ -194,55 +189,76 @@ class _PointsHistoryScreenState extends State<PointsHistoryScreen> {
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(Helpers.formatHijriDate(point.date)),
+            const SizedBox(height: 4),
+            Wrap(
+              spacing: 8,
+              runSpacing: 6,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                Text(Helpers.formatHijriDate(point.date)),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    '${isPositive ? '+' : ''}${point.points}',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: color,
+                    ),
+                  ),
+                ),
+                if (!point.resolved)
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Text(
+                      'مخالفة قائمة',
+                      style: TextStyle(fontSize: 11, color: Colors.orange),
+                    ),
+                  ),
+              ],
+            ),
             if (point.notes != null && point.notes!.isNotEmpty)
               Text(
                 point.notes!,
-                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-              ),
-            if (!point.resolved)
-              Container(
-                margin: const EdgeInsets.only(top: 4),
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                decoration: BoxDecoration(
-                  color: Colors.orange.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: const Text(
-                  'مخالفة قائمة',
-                  style: TextStyle(fontSize: 10, color: Colors.orange),
-                ),
+                style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant),
               ),
           ],
         ),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(
-                color: color.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Text(
-                '${isPositive ? '+' : ''}${point.points}',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  color: color,
-                ),
+        trailing: PopupMenuButton<String>(
+          tooltip: 'إجراءات السجل',
+          onSelected: (value) {
+            if (value == 'reassign') _showReassignDialog(point);
+            if (value == 'delete') _confirmDelete(point);
+          },
+          itemBuilder: (_) => const [
+            PopupMenuItem(
+              value: 'reassign',
+              child: Row(
+                children: [
+                  Icon(Icons.person_search_outlined, color: Colors.blue),
+                  SizedBox(width: 12),
+                  Expanded(child: Text('تصحيح الطالب المسند إليه')),
+                ],
               ),
             ),
-            IconButton(
-              icon: const Icon(Icons.person_search_outlined),
-              color: Colors.blue,
-              tooltip: 'تصحيح الطالب المسند إليه',
-              onPressed: () => _showReassignDialog(point),
-            ),
-            IconButton(
-              icon: const Icon(Icons.delete_outline),
-              color: Colors.red,
-              tooltip: 'حذف السجل الخاطئ',
-              onPressed: () => _confirmDelete(point),
+            PopupMenuItem(
+              value: 'delete',
+              child: Row(
+                children: [
+                  Icon(Icons.delete_outline, color: Colors.red),
+                  SizedBox(width: 12),
+                  Expanded(child: Text('حذف السجل الخاطئ')),
+                ],
+              ),
             ),
           ],
         ),
@@ -332,7 +348,7 @@ class _PointsHistoryScreenState extends State<PointsHistoryScreen> {
               Text('مسند حاليًا إلى: ${widget.student.name}'),
               const SizedBox(height: 12),
               DropdownButtonFormField<Student>(
-                value: selectedStudent,
+                initialValue: selectedStudent,
                 decoration: const InputDecoration(
                   labelText: 'الطالب الصحيح',
                   prefixIcon: Icon(Icons.person_search_outlined),

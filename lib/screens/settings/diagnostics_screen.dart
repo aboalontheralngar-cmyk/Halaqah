@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:printing/printing.dart';
 
 import '../../app/build_info.dart';
 import '../../services/diagnostic_center_service.dart';
+import '../../services/local_data_integrity_service.dart';
+import '../../services/pdf_service.dart';
+import '../../widgets/app_design_widgets.dart';
 
 class DiagnosticsScreen extends StatefulWidget {
   const DiagnosticsScreen({super.key});
@@ -67,6 +71,8 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
                 _backupCard(data),
                 const SizedBox(height: 12),
                 _recordsCard(data),
+                const SizedBox(height: 12),
+                _integrityCard(data),
                 const SizedBox(height: 12),
                 _incidentsCard(data),
               ],
@@ -145,6 +151,21 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
           ),
           OutlinedButton.icon(
             onPressed: () async {
+              try {
+                final bytes = await PdfService().generateArabicFontDiagnosticPdf();
+                await Printing.layoutPdf(onLayout: (_) async => bytes);
+              } catch (error) {
+                if (!mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('تعذر إنشاء اختبار PDF: $error')),
+                );
+              }
+            },
+            icon: const Icon(Icons.picture_as_pdf_outlined),
+            label: const Text('اختبار PDF العربي'),
+          ),
+          OutlinedButton.icon(
+            onPressed: () async {
               await Clipboard.setData(
                 ClipboardData(text: data.toSupportReport()),
               );
@@ -213,6 +234,17 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
                 ? 'يوجد خطأ يحتاج مراجعة'
                 : 'لا يوجد خطأ معلق',
           ),
+          _detailRow(
+            'آخر تشغيل في الخلفية',
+            _date(data.lastBackgroundBackupWorkerAt),
+          ),
+          _detailRow('حالة التشغيل الخلفي', data.backgroundBackupWorkerStatus),
+          _detailRow(
+            'جدولة أندرويد',
+            data.hasBackgroundBackupSchedulerError
+                ? 'يوجد خطأ في الجدولة'
+                : 'لا يوجد خطأ معلق',
+          ),
         ],
       );
 
@@ -237,6 +269,65 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
         ],
       );
 
+  Widget _integrityCard(DiagnosticSnapshot data) {
+    final report = data.dataIntegrity;
+    final healthy = report.isHealthy;
+    final color = healthy
+        ? Colors.green
+        : report.hasCritical
+            ? Theme.of(context).colorScheme.error
+            : Colors.orange;
+    return _sectionCard(
+      title: 'سلامة البيانات المحلية',
+      icon: healthy
+          ? Icons.verified_outlined
+          : Icons.data_exploration_outlined,
+      iconColor: color,
+      children: [
+        _detailRow('الحالة', report.statusLabel),
+        _detailRow(
+          'قواعد الفحص',
+          '${report.checkedRules} من ${LocalDataIntegrityEvaluator.totalRules}',
+        ),
+        _detailRow('حرجة', '${report.criticalCount}'),
+        _detailRow('ملاحظات', '${report.warningCount}'),
+        if (healthy)
+          const Text(
+            'لم يكتشف الفحص المحلي مشكلات في العلاقات أو الهوية أو النطاقات القرآنية.',
+          )
+        else ...[
+          const Divider(height: 24),
+          ...report.issues.map(
+            (issue) => ListTile(
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+              leading: Icon(
+                issue.severity == DataIntegritySeverity.critical
+                    ? Icons.error_outline
+                    : Icons.warning_amber_outlined,
+                color: issue.severity == DataIntegritySeverity.critical
+                    ? Theme.of(context).colorScheme.error
+                    : Colors.orange,
+              ),
+              title: Text(
+                issue.title,
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+              subtitle: Text(
+                '${issue.description}\nعدد الحالات: ${issue.affectedCount}',
+              ),
+              isThreeLine: true,
+            ),
+          ),
+          const Text(
+            'هذا الفحص للقراءة فقط. أنشئ نسخة احتياطية قبل أي معالجة أو تنزيل من السحابة.',
+            style: TextStyle(fontWeight: FontWeight.w600),
+          ),
+        ],
+      ],
+    );
+  }
+
   Widget _incidentsCard(DiagnosticSnapshot data) => _sectionCard(
         title: 'الحوادث البرمجية المنقحة',
         icon: Icons.bug_report_outlined,
@@ -257,7 +348,9 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
                       style: const TextStyle(fontWeight: FontWeight.bold),
                     ),
                     subtitle: Text(
-                      '${incident.eventType} · ${incident.source}\n${_date(incident.createdAt)}',
+                      '${incident.eventType} · ${incident.source}'
+                      '${incident.operation == null ? '' : ' · ${incident.operation}'}'
+                      '\n${_date(incident.createdAt)}',
                     ),
                     isThreeLine: true,
                   ),
@@ -301,20 +394,7 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
 
   Widget _detailRow(String label, String value) => Padding(
         padding: const EdgeInsets.only(bottom: 8),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            SizedBox(
-              width: 112,
-              child: Text(
-                label,
-                style: const TextStyle(fontWeight: FontWeight.w600),
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(child: Text(value)),
-          ],
-        ),
+        child: AppResponsiveInfoRow(label: label, value: value),
       );
 
   String _date(DateTime? value) {

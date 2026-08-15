@@ -11,6 +11,7 @@ import 'backup_crypto_service.dart';
 import 'backup_passphrase_store.dart';
 import 'backup_policy_service.dart';
 import 'database_service.dart';
+import 'offline_exchange_policy.dart';
 
 class BackupPassphraseRequiredException implements Exception {
   const BackupPassphraseRequiredException();
@@ -18,6 +19,15 @@ class BackupPassphraseRequiredException implements Exception {
   @override
   String toString() =>
       'يلزم إعداد عبارة حماية للنسخ الاحتياطية قبل تنفيذ العملية';
+}
+
+class OfflineExchangePackageException implements Exception {
+  final String message;
+
+  const OfflineExchangePackageException(this.message);
+
+  @override
+  String toString() => message;
 }
 
 class AutomaticBackupResult {
@@ -70,15 +80,49 @@ class BackupService {
       throw const BackupPassphraseRequiredException();
     }
 
+    return _exportEncryptedPackage(
+      automatic: automatic,
+      passphrase: effectivePassphrase,
+      purpose: 'backup',
+    );
+  }
+
+  Future<String> exportDeviceExchange({
+    required String passphrase,
+    DateTime? now,
+  }) async {
+    final createdAt = now ?? DateTime.now();
+    return _exportEncryptedPackage(
+      automatic: false,
+      passphrase: passphrase,
+      purpose: 'device_exchange',
+      createdAt: createdAt,
+      expiresAt: createdAt.add(OfflineExchangePolicy.validity),
+    );
+  }
+
+  Future<String> _exportEncryptedPackage({
+    required bool automatic,
+    required String passphrase,
+    required String purpose,
+    DateTime? createdAt,
+    DateTime? expiresAt,
+  }) async {
+    final isExchange = purpose == 'device_exchange';
     try {
-      final tables = await _db.exportBackupTables();
-      final createdAt = DateTime.now();
+      final tables = isExchange
+          ? await _db.exportDeviceExchangeTables()
+          : await _db.exportBackupTables();
+      final packageCreatedAt = createdAt ?? DateTime.now();
       final integrityDigest = sha256
           .convert(utf8.encode(jsonEncode(tables)))
           .toString();
       final payload = <String, dynamic>{
         'version': _payloadVersion,
-        'date': createdAt.toUtc().toIso8601String(),
+        'purpose': purpose,
+        'date': packageCreatedAt.toUtc().toIso8601String(),
+        if (expiresAt != null)
+          'expires_at': expiresAt.toUtc().toIso8601String(),
         'tables': tables,
         'integrity': <String, dynamic>{
           'algorithm': 'SHA-256',
@@ -87,39 +131,62 @@ class BackupService {
       };
       final envelope = await _crypto.encrypt(
         clearText: const JsonEncoder.withIndent('  ').convert(payload),
-        passphrase: effectivePassphrase,
+        passphrase: passphrase,
         payloadVersion: _payloadVersion,
-        createdAt: createdAt,
+        createdAt: packageCreatedAt,
       );
 
       final directory = await getApplicationDocumentsDirectory();
-      final timestamp = DateFormat('yyyy-MM-dd_HH-mm-ss_SSS').format(createdAt);
-      final kind = automatic ? 'auto_' : '';
+      final timestamp =
+          DateFormat('yyyy-MM-dd_HH-mm-ss_SSS').format(packageCreatedAt);
+      final kind = isExchange
+          ? 'exchange_'
+          : automatic
+              ? 'backup_auto_'
+              : 'backup_';
       final filePath =
-          '${directory.path}/halaqah_backup_${kind}$timestamp.halaqah';
+          '${directory.path}/halaqah_${kind}$timestamp.halaqah';
       final file = File(filePath);
       await file.writeAsString(
         const JsonEncoder.withIndent('  ').convert(envelope),
         flush: true,
       );
 
-      final now = createdAt.toIso8601String();
-      await _db.saveSetting('last_backup_at', now);
-      if (automatic) await _db.saveSetting('last_automatic_backup_at', now);
+      final createdAtText = packageCreatedAt.toIso8601String();
+      if (!isExchange) {
+        await _db.saveSetting('last_backup_at', createdAtText);
+        if (automatic) {
+          await _db.saveSetting(
+            'last_automatic_backup_at',
+            createdAtText,
+          );
+        }
+      }
       await _audit.record(
-        eventType: automatic ? 'backup.auto_created' : 'backup.created',
-        entityType: 'backup',
+        eventType: isExchange
+            ? 'offline_exchange.created'
+            : automatic
+                ? 'backup.auto_created'
+                : 'backup.created',
+        entityType: isExchange ? 'device_exchange' : 'backup',
         entityId: file.path.split(Platform.pathSeparator).last,
         details: <String, dynamic>{
           'encrypted': true,
           'payload_version': _payloadVersion,
+          'purpose': purpose,
+          if (expiresAt != null)
+            'expires_at': expiresAt.toUtc().toIso8601String(),
         },
       );
       return filePath;
     } catch (error) {
       await _audit.record(
-        eventType: automatic ? 'backup.auto_failed' : 'backup.create_failed',
-        entityType: 'backup',
+        eventType: isExchange
+            ? 'offline_exchange.create_failed'
+            : automatic
+                ? 'backup.auto_failed'
+                : 'backup.create_failed',
+        entityType: isExchange ? 'device_exchange' : 'backup',
         outcome: 'failure',
         details: <String, dynamic>{'error_type': error.runtimeType.toString()},
       );
@@ -271,6 +338,73 @@ class BackupService {
         entityId: file.path.split(Platform.pathSeparator).last,
         outcome: 'failure',
         details: <String, dynamic>{'error_type': error.runtimeType.toString()},
+      );
+      rethrow;
+    }
+  }
+
+  Future<Map<String, int>> mergeBackup(
+    String filePath, {
+    required String passphrase,
+  }) async {
+    final file = File(filePath);
+    if (!await file.exists()) {
+      throw FileSystemException('ملف التبادل غير موجود');
+    }
+    if (await file.length() > _maximumBackupBytes) {
+      throw const FormatException('حجم ملف التبادل أكبر من الحد المسموح');
+    }
+    try {
+      final root = _decodeJsonObject(await file.readAsString());
+      if (!_crypto.isEncryptedEnvelope(root)) {
+        throw const FormatException(
+          'تبادل الأجهزة يقبل الملفات المشفرة الحديثة فقط',
+        );
+      }
+      final clearText = await _crypto.decrypt(
+        envelope: root,
+        passphrase: passphrase,
+      );
+      final backup = _decodeJsonObject(clearText);
+      _validatePayload(backup);
+      if (backup['purpose'] != 'device_exchange') {
+        throw const OfflineExchangePackageException(
+          'هذا الملف نسخة احتياطية وليس حزمة تبادل بين الأجهزة',
+        );
+      }
+      final createdAt = DateTime.tryParse(
+        backup['date']?.toString() ?? '',
+      );
+      final expiresAt = DateTime.tryParse(
+        backup['expires_at']?.toString() ?? '',
+      );
+      if (createdAt == null ||
+          expiresAt == null ||
+          !OfflineExchangePolicy.isWithinValidityWindow(
+            createdAt: createdAt,
+            expiresAt: expiresAt,
+          )) {
+        throw const OfflineExchangePackageException(
+          'انتهت صلاحية حزمة التبادل؛ أنشئ حزمة جديدة من الجهاز المرسل',
+        );
+      }
+      final result = await _db.mergeFromBackup(backup);
+      await _audit.record(
+        eventType: 'offline_exchange.merged',
+        entityType: 'device_exchange',
+        entityId: file.path.split(Platform.pathSeparator).last,
+        details: result,
+      );
+      return result;
+    } catch (error) {
+      await _audit.record(
+        eventType: 'offline_exchange.failed',
+        entityType: 'device_exchange',
+        entityId: file.path.split(Platform.pathSeparator).last,
+        outcome: 'failure',
+        details: <String, dynamic>{
+          'error_type': error.runtimeType.toString(),
+        },
       );
       rethrow;
     }

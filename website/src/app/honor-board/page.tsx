@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import { useShallow } from "zustand/react/shallow";
 import {
   Trophy,
   Calendar,
@@ -12,7 +13,21 @@ import {
 import { useStore, type Student } from "@/store/useStore";
 
 export default function HonorBoardPage() {
-  const { students, attendance, memorization, points, exams } = useStore();
+  const {
+    students,
+    attendance,
+    memorization,
+    points,
+    exams
+  } = useStore(
+    useShallow((state) => ({
+      students: state.students,
+      attendance: state.attendance,
+      memorization: state.memorization,
+      points: state.points,
+      exams: state.exams,
+    })),
+  );
   const [selectedCategory, setSelectedCategory] = useState<
     "overall" | "memorization" | "attendance" | "behavior" | "exams"
   >("overall");
@@ -154,11 +169,11 @@ export default function HonorBoardPage() {
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div>
-          <h1 className="text-3xl font-black text-gray-900 dark:text-white tracking-tight flex items-center gap-4">
+          <h1 className="text-3xl font-black text-[var(--foreground)] tracking-tight flex items-center gap-4">
             <Trophy className="w-8 h-8" />
             لوحة الشرف
           </h1>
-          <p className="text-gray-500 dark:text-gray-400 mt-2 font-medium">
+          <p className="text-[var(--muted)] mt-2 font-medium">
             احتفاء بأفضل الطلاب المتفوقين في مختلف الفئات
           </p>
         </div>
@@ -174,7 +189,7 @@ export default function HonorBoardPage() {
               className={`px-6 py-3 rounded-full font-bold text-sm transition-all flex items-center gap-2 whitespace-nowrap ${
                 selectedCategory === cat
                   ? "bg-gradient-to-r from-teal-600 to-teal-500 text-white shadow-lg"
-                  : "bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 hover:border-teal-300"
+                  : "bg-[var(--surface)] border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 hover:border-teal-300"
               }`}
             >
               {getCategoryIcon(cat)}
@@ -208,7 +223,7 @@ export default function HonorBoardPage() {
                 <div className="w-20 h-20 rounded-full bg-white dark:bg-gray-800 flex items-center justify-center text-2xl font-black mx-auto mb-4 shadow-lg">
                   {student.name[0]}
                 </div>
-                <h3 className="text-2xl font-black text-gray-900 dark:text-white mb-6">
+                <h3 className="text-2xl font-black text-[var(--foreground)] mb-6">
                   {student.name}
                 </h3>
                 <div
@@ -225,7 +240,7 @@ export default function HonorBoardPage() {
       </div>
 
       {/* Full Rankings Table */}
-      <div className="bg-white dark:bg-gray-900 rounded-3xl border border-gray-200 dark:border-gray-800 overflow-hidden">
+      <div className="bg-[var(--surface)] rounded-3xl border border-gray-200 dark:border-gray-800 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-right">
             <thead>
@@ -270,7 +285,7 @@ export default function HonorBoardPage() {
                         <div className="w-10 h-10 rounded-xl bg-gray-100 dark:bg-gray-800 flex items-center justify-center font-bold text-gray-600 dark:text-gray-400 group-hover:bg-teal-600 group-hover:text-white transition-all">
                           {student.name[0]}
                         </div>
-                        <span className="font-bold text-gray-900 dark:text-white">
+                        <span className="font-bold text-[var(--foreground)]">
                           {student.name}
                         </span>
                       </div>

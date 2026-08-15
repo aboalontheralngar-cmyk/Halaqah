@@ -47,7 +47,7 @@ assertIncludes(
   [
     "class DiagnosticSnapshot",
     "toSupportReport()",
-    "database.getVersion()",
+    "PRAGMA user_version",
     "last_cloud_upload_at",
     "last_cloud_download_at",
     "لا يحتوي هذا التقرير أسماء الطلاب",
@@ -72,7 +72,7 @@ assertIncludes(
 
 assertIncludes(
   read("lib/screens/settings/settings_screen.dart"),
-  ["('diagnostics', 'التشخيص'", "DiagnosticsScreen", "AppBuildInfo.displayVersion"],
+  ["('diagnostics', 'إدارة النظام'", "DiagnosticsScreen", "AppBuildInfo.displayVersion"],
   "Diagnostics navigation",
 );
 
@@ -85,7 +85,7 @@ for (const test of [
 
 assertIncludes(
   read("lib/app/build_info.dart"),
-  ["4.1.0-alpha.2", "buildNumber = 42", "releaseLabel = 'RC2'"],
+  ["4.3.0-alpha.22", "buildNumber = 76", "releaseLabel = 'P1.27'"],
   "Central build identity",
 );
 

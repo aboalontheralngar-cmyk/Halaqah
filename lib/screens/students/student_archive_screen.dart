@@ -28,14 +28,20 @@ class _StudentArchiveScreenState extends State<StudentArchiveScreen> {
   Future<void> _loadArchive() async {
     setState(() => _isLoading = true);
     try {
-      final students = await _db.getArchivedStudents();
-      final entries = await Future.wait(
-        students.map((student) async => _ArchivedStudentEntry(
-              student: student,
-              latestChange:
-                  await _db.getLatestStudentStatusChange(student.id),
-            )),
-      );
+      final results = await Future.wait<dynamic>([
+        _db.getArchivedStudents(),
+        _db.getLatestStudentStatusChanges(),
+      ]);
+      final students = results[0] as List<Student>;
+      final latestByStudent =
+          results[1] as Map<String, StudentStatusChange>;
+      final entries = [
+        for (final student in students)
+          _ArchivedStudentEntry(
+            student: student,
+            latestChange: latestByStudent[student.id],
+          ),
+      ];
       entries.sort((a, b) => a.student.name.compareTo(b.student.name));
       if (!mounted) return;
       setState(() {
@@ -132,7 +138,7 @@ class _StudentArchiveScreenState extends State<StudentArchiveScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.inventory_2_outlined, size: 72, color: Colors.grey[400]),
+            Icon(Icons.inventory_2_outlined, size: 72, color: Theme.of(context).colorScheme.onSurfaceVariant),
             const SizedBox(height: 12),
             const Text(
               'لا توجد سجلات في هذا القسم',
@@ -157,7 +163,7 @@ class _StudentArchiveScreenState extends State<StudentArchiveScreen> {
             Row(
               children: [
                 CircleAvatar(
-                  backgroundColor: color.withOpacity(0.12),
+                  backgroundColor: color.withValues(alpha: 0.12),
                   child: Text(
                     student.name.isEmpty ? '؟' : student.name[0],
                     style: TextStyle(color: color, fontWeight: FontWeight.bold),
@@ -178,7 +184,7 @@ class _StudentArchiveScreenState extends State<StudentArchiveScreen> {
                             : change.reason,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
-                        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                        style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant),
                       ),
                     ],
                   ),
@@ -187,7 +193,7 @@ class _StudentArchiveScreenState extends State<StudentArchiveScreen> {
                   padding:
                       const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                   decoration: BoxDecoration(
-                    color: color.withOpacity(0.12),
+                    color: color.withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Text(
@@ -203,7 +209,7 @@ class _StudentArchiveScreenState extends State<StudentArchiveScreen> {
                 alignment: AlignmentDirectional.centerStart,
                 child: Text(
                   'آخر تغيير: ${Helpers.getFullHijriDate(change.changedAt)}',
-                  style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                  style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.onSurfaceVariant),
                 ),
               ),
             ],

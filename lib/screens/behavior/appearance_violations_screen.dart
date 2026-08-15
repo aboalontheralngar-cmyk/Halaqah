@@ -25,16 +25,20 @@ class _AppearanceViolationsScreenState extends State<AppearanceViolationsScreen>
   Future<void> _loadViolations() async {
     setState(() => _isLoading = true);
     try {
-      final students = await _db.getStudents(status: 'active');
+      final results = await Future.wait<dynamic>([
+        _db.getStudents(status: 'active'),
+        _db.getAllUnresolvedViolations(),
+      ]);
+      final students = results[0] as List<Student>;
+      final unresolved = results[1] as List<BehaviorPoint>;
+      final studentsById = {for (final student in students) student.id: student};
       final violations = <ViolationWithStudent>[];
-
-      for (final student in students) {
-        final unresolved = await _db.getUnresolvedViolations(student.id);
-        for (final violation in unresolved) {
-          violations.add(ViolationWithStudent(
-            student: student,
-            violation: violation,
-          ));
+      for (final violation in unresolved) {
+        final student = studentsById[violation.studentId];
+        if (student != null) {
+          violations.add(
+            ViolationWithStudent(student: student, violation: violation),
+          );
         }
       }
 
@@ -82,7 +86,7 @@ class _AppearanceViolationsScreenState extends State<AppearanceViolationsScreen>
           const SizedBox(height: 8),
           Text(
             'جميع الطلاب ملتزمون بالمظهر المطلوب',
-            style: TextStyle(color: Colors.grey[600]),
+            style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
           ),
         ],
       ),
@@ -94,9 +98,9 @@ class _AppearanceViolationsScreenState extends State<AppearanceViolationsScreen>
       margin: const EdgeInsets.all(16),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.orange.withOpacity(0.1),
+        color: Colors.orange.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.orange.withOpacity(0.3)),
+        border: Border.all(color: Colors.orange.withValues(alpha: 0.3)),
       ),
       child: Row(
         children: [
@@ -113,7 +117,7 @@ class _AppearanceViolationsScreenState extends State<AppearanceViolationsScreen>
                 const SizedBox(height: 4),
                 Text(
                   'هذه المخالفات تستمر حتى يتم تعديلها. اضغط على "تم التعديل" عند إصلاح المخالفة.',
-                  style: TextStyle(fontSize: 12, color: Colors.grey[700]),
+                  style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurface),
                 ),
               ],
             ),
@@ -151,7 +155,7 @@ class _AppearanceViolationsScreenState extends State<AppearanceViolationsScreen>
             Row(
               children: [
                 CircleAvatar(
-                  backgroundColor: Colors.red.withOpacity(0.1),
+                  backgroundColor: Colors.red.withValues(alpha: 0.1),
                   child: Text(
                     data.student.name.isNotEmpty ? data.student.name[0] : '؟',
                     style: const TextStyle(color: Colors.red),
@@ -168,7 +172,7 @@ class _AppearanceViolationsScreenState extends State<AppearanceViolationsScreen>
                       ),
                       Text(
                         data.violation.reason,
-                        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                        style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant),
                       ),
                     ],
                   ),
@@ -176,7 +180,7 @@ class _AppearanceViolationsScreenState extends State<AppearanceViolationsScreen>
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   decoration: BoxDecoration(
-                    color: Colors.red.withOpacity(0.1),
+                    color: Colors.red.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Text(
@@ -198,7 +202,7 @@ class _AppearanceViolationsScreenState extends State<AppearanceViolationsScreen>
                   children: [
                     Text(
                       'تاريخ المخالفة',
-                      style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+                      style: TextStyle(fontSize: 10, color: Theme.of(context).colorScheme.onSurfaceVariant),
                     ),
                     Text(
                       Helpers.formatHijriDate(data.violation.date),
@@ -211,7 +215,7 @@ class _AppearanceViolationsScreenState extends State<AppearanceViolationsScreen>
                   children: [
                     Text(
                       'مفتوحة منذ',
-                      style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+                      style: TextStyle(fontSize: 10, color: Theme.of(context).colorScheme.onSurfaceVariant),
                     ),
                     Text(
                       '$daysCount يوم',
@@ -235,16 +239,16 @@ class _AppearanceViolationsScreenState extends State<AppearanceViolationsScreen>
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: Colors.grey.withOpacity(0.1),
+                  color: Colors.grey.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Row(
                   children: [
-                    Icon(Icons.note, size: 16, color: Colors.grey[600]),
+                    Icon(Icons.note, size: 16, color: Theme.of(context).colorScheme.onSurfaceVariant),
                     const SizedBox(width: 8),
                     Text(
                       data.violation.notes!,
-                      style: TextStyle(fontSize: 12, color: Colors.grey[700]),
+                      style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurface),
                     ),
                   ],
                 ),

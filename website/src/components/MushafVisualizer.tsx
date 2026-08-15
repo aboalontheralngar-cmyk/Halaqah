@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { X, RefreshCw, Bookmark, Calendar, Info } from "lucide-react";
 import { useStore, Student, MushafProgress } from "@/store/useStore";
 import { quranService, type Ayah } from "@/services/quranService";
@@ -13,15 +14,32 @@ interface MushafVisualizerProps {
 type AyahWithSurah = Ayah & { surahNumber: number; surahName: string };
 
 export default function MushafVisualizer({ student, onClose }: MushafVisualizerProps) {
-  const { mushafProgress, fetchMushafProgress, togglePreMemorized } = useStore();
+  const {
+    mushafProgress,
+    fetchMushafProgress,
+    togglePreMemorized
+  } = useStore(
+    useShallow((state) => ({
+      mushafProgress: state.mushafProgress,
+      fetchMushafProgress: state.fetchMushafProgress,
+      togglePreMemorized: state.togglePreMemorized,
+    })),
+  );
   const [loading, setLoading] = useState(true);
   const [selectedThumun, setSelectedThumun] = useState<{ hizb: number; thumun: number } | null>(null);
 
   useEffect(() => {
-    setLoading(true);
-    fetchMushafProgress(student.id).finally(() => {
-      setLoading(false);
+    let active = true;
+    queueMicrotask(() => {
+      if (!active) return;
+      setLoading(true);
+      fetchMushafProgress(student.id).finally(() => {
+        if (active) setLoading(false);
+      });
     });
+    return () => {
+      active = false;
+    };
   }, [student.id, fetchMushafProgress]);
 
   const progressMap = useMemo(() => {
@@ -39,9 +57,9 @@ export default function MushafVisualizer({ student, onClose }: MushafVisualizerP
   };
 
   const getCellColor = (p: MushafProgress | undefined) => {
-    if (!p) return "bg-gray-150 dark:bg-gray-800 border-gray-200 dark:border-gray-750 hover:bg-gray-250 dark:hover:bg-gray-700";
+    if (!p) return "bg-gray-100 dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:bg-gray-200 dark:hover:bg-gray-700";
     if (p.isPreMemorized) return "bg-sky-100 dark:bg-sky-950/40 border-sky-300 dark:border-sky-800 text-sky-800 dark:text-sky-400 hover:bg-sky-200 dark:hover:bg-sky-900/40";
-    if (!p.lastGradedDate) return "bg-gray-150 dark:bg-gray-800 border-gray-200 dark:border-gray-750 hover:bg-gray-250 dark:hover:bg-gray-700";
+    if (!p.lastGradedDate) return "bg-gray-100 dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:bg-gray-200 dark:hover:bg-gray-700";
 
     const days = Math.floor((new Date().getTime() - new Date(p.lastGradedDate).getTime()) / (1000 * 60 * 60 * 24));
     if (days < 14) {
@@ -126,17 +144,17 @@ export default function MushafVisualizer({ student, onClose }: MushafVisualizerP
 
   return (
     <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-white dark:bg-gray-950 rounded-[2.5rem] w-full max-w-5xl shadow-2xl border border-gray-100 dark:border-gray-850 overflow-hidden flex flex-col h-[90vh]">
+      <div className="bg-[var(--surface)] rounded-[2.5rem] w-full max-w-5xl shadow-2xl border border-[var(--border)] overflow-hidden flex flex-col h-[90vh]">
         {/* Header */}
-        <div className="p-8 border-b border-gray-100 dark:border-gray-850 flex items-center justify-between bg-gray-50/50 dark:bg-gray-900/30">
+        <div className="p-8 border-b border-[var(--border)] flex items-center justify-between bg-gray-50/50 dark:bg-gray-900/30">
           <div>
-            <h3 className="text-xl font-black text-gray-900 dark:text-white flex items-center gap-2">
+            <h3 className="text-xl font-black text-[var(--foreground)] flex items-center gap-2">
               <span>خريطة المصحف التفاعلية 🗺️</span>
               <span className="text-sm font-bold text-teal-600 dark:text-teal-400 bg-teal-50 dark:bg-teal-950/40 px-3 py-1 rounded-full">
                 {student.name}
               </span>
             </h3>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+            <p className="text-xs text-[var(--muted)] mt-1">
               رسم تخطيطي تفاعلي لـ 60 حزباً (480 ثُمناً) مع تتبع جودة الحفظ ومستوى النسيان.
             </p>
           </div>
@@ -158,7 +176,7 @@ export default function MushafVisualizer({ student, onClose }: MushafVisualizerP
         </div>
 
         {/* Stats & Legend */}
-        <div className="p-8 border-b border-gray-100 dark:border-gray-850 bg-white dark:bg-gray-950 grid grid-cols-1 md:grid-cols-5 gap-6">
+        <div className="p-8 border-b border-[var(--border)] bg-[var(--surface)] grid grid-cols-1 md:grid-cols-5 gap-6">
           {/* Progress Card */}
           <div className="bg-gradient-to-br from-teal-600 to-teal-400 rounded-3xl p-5 text-white flex flex-col justify-between shadow-lg md:col-span-2">
             <div>
@@ -208,7 +226,7 @@ export default function MushafVisualizer({ student, onClose }: MushafVisualizerP
                 return (
                   <div 
                     key={hizb} 
-                    className="flex flex-col sm:flex-row sm:items-center bg-white dark:bg-gray-900 p-4 rounded-2xl border border-gray-100 dark:border-gray-850 gap-4"
+                    className="flex flex-col sm:flex-row sm:items-center bg-[var(--surface)] p-4 rounded-2xl border border-[var(--border)] gap-4"
                   >
                     <div className="w-20 font-black text-xs text-gray-700 dark:text-gray-300 shrink-0">
                       الحزب {hizb}
@@ -241,9 +259,9 @@ export default function MushafVisualizer({ student, onClose }: MushafVisualizerP
       {/* Thumun Details Sub-modal */}
       {selectedThumun && (
         <div className="fixed inset-0 bg-gray-950/40 backdrop-blur-xs flex items-center justify-center z-[60] p-4">
-          <div className="bg-white dark:bg-gray-900 rounded-[2.5rem] w-full max-w-md p-8 shadow-2xl border border-gray-100 dark:border-gray-800 space-y-6">
+          <div className="bg-[var(--surface)] rounded-[2.5rem] w-full max-w-md p-8 shadow-2xl border border-[var(--border)] space-y-6">
             <div className="flex items-center justify-between border-b border-gray-50 dark:border-gray-800 pb-4">
-              <h4 className="text-base font-black text-gray-900 dark:text-white">
+              <h4 className="text-base font-black text-[var(--foreground)]">
                 تفاصيل الثمن {selectedThumun.thumun} - الحزب {selectedThumun.hizb}
               </h4>
               <button 
@@ -277,17 +295,17 @@ export default function MushafVisualizer({ student, onClose }: MushafVisualizerP
                   <>
                     {/* Graded Details */}
                     {p && (p.lastGradedDate || p.averageGrade > 0) ? (
-                      <div className="bg-gray-50 dark:bg-gray-850 rounded-2xl p-4 space-y-3">
+                      <div className="bg-gray-50 dark:bg-gray-800 rounded-2xl p-4 space-y-3">
                         <div className="flex justify-between items-center text-xs">
                           <span className="font-bold text-gray-400">متوسط التقييم:</span>
-                          <span className="font-black text-gray-900 dark:text-white">
+                          <span className="font-black text-[var(--foreground)]">
                             {getGradeArabic(p.averageGrade)}
                           </span>
                         </div>
                         {p.lastGradedDate && (
                           <div className="flex justify-between items-center text-xs">
                             <span className="font-bold text-gray-400">آخر تسميع:</span>
-                            <span className="font-black text-gray-900 dark:text-white flex items-center gap-1.5">
+                            <span className="font-black text-[var(--foreground)] flex items-center gap-1.5">
                               <Calendar className="w-3.5 h-3.5 text-gray-400" />
                               {p.lastGradedDate}
                             </span>
@@ -295,16 +313,16 @@ export default function MushafVisualizer({ student, onClose }: MushafVisualizerP
                         )}
                       </div>
                     ) : (
-                      <div className="bg-gray-50 dark:bg-gray-850 rounded-2xl p-4 flex gap-3 items-center text-xs text-gray-500 font-bold">
+                      <div className="bg-gray-50 dark:bg-gray-800 rounded-2xl p-4 flex gap-3 items-center text-xs text-gray-500 font-bold">
                         <Info className="w-4 h-4" />
                         <span>لم يتم تقييم هذا الثمن رسمياً بعد.</span>
                       </div>
                     )}
 
                     {/* Pre-memorized Checkbox toggle */}
-                    <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-850 rounded-2xl">
+                    <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-800 rounded-2xl">
                       <div className="space-y-0.5">
-                        <span className="text-xs font-black text-gray-900 dark:text-white">حفظ مسبق</span>
+                        <span className="text-xs font-black text-[var(--foreground)]">حفظ مسبق</span>
                         <p className="text-[10px] text-gray-400 font-medium">تحديده «محفوظًا مسبقًا» دون خوض جلسة تسميع.</p>
                       </div>
                       <button

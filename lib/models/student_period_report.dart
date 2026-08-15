@@ -1,5 +1,6 @@
 import 'behavior_point.dart';
 import 'daily_record.dart';
+import 'exam.dart';
 import 'memorization.dart';
 import 'student.dart';
 import 'student_hold.dart';
@@ -17,6 +18,7 @@ class StudentPeriodDay {
   final bool isWeeklyHoliday;
   final String? suspensionReason;
   final int performanceScore;
+  final int lateMinutes;
 
   const StudentPeriodDay({
     required this.date,
@@ -30,10 +32,16 @@ class StudentPeriodDay {
     required this.isWeeklyHoliday,
     required this.suspensionReason,
     required this.performanceScore,
+    this.lateMinutes = 0,
   });
 
   bool get isStudyDay => !isSuspended && !isWeeklyHoliday;
-  bool get isRecitationRequiredDay => isStudyDay && hold == null;
+  bool get isAttendanceRequiredDay =>
+      isStudyDay && !(hold?.exemptsAttendance ?? false);
+  bool get isRecitationRequiredDay => isAttendanceRequiredDay &&
+      hold == null &&
+      !(record?.recitationExempt ?? false) &&
+      !(record?.talaqqinDone ?? false);
   bool get attended =>
       record?.attendance == 'present' || record?.attendance == 'late';
   bool get memorizationDone =>
@@ -48,6 +56,28 @@ class StudentPeriodDay {
   int get negativePoints => points
       .where((item) => item.points < 0)
       .fold(0, (sum, item) => sum + item.points.abs());
+  List<BehaviorPoint> get violations => points
+      .where((item) =>
+          item.points < 0 &&
+          !BehaviorReason.isAttendancePenalty(item.reason))
+      .toList();
+  double get memorizationQuality => _quality(memorization);
+  double get revisionQuality => _quality(revision);
+  String get memorizationRating => _rating(memorizationQuality);
+  String get revisionRating => _rating(revisionQuality);
+
+  static double _quality(List<MemorizationProgress> items) => items.isEmpty
+      ? 0
+      : items.fold<int>(0, (sum, item) => sum + item.qualityRating) /
+          items.length;
+
+  static String _rating(double value) {
+    if (value >= 4.5) return 'ممتاز';
+    if (value >= 3.5) return 'جيد جدًا';
+    if (value >= 2.5) return 'جيد';
+    if (value > 0) return 'يحتاج متابعة';
+    return '—';
+  }
 }
 
 class StudentPeriodReport {
@@ -70,6 +100,12 @@ class StudentPeriodReport {
   final int negativeEvents;
   final double averageQuality;
   final int performanceScore;
+  final int totalLateMinutes;
+  final int violationEvents;
+  final int violationPoints;
+  final int settledNegativePoints;
+  final List<Exam> exams;
+  final int? periodRank;
 
   const StudentPeriodReport({
     required this.student,
@@ -91,6 +127,12 @@ class StudentPeriodReport {
     required this.negativeEvents,
     required this.averageQuality,
     required this.performanceScore,
+    this.totalLateMinutes = 0,
+    this.violationEvents = 0,
+    this.violationPoints = 0,
+    this.settledNegativePoints = 0,
+    this.exams = const [],
+    this.periodRank,
   });
 
   double get memorizedPages => memorizedLines / 15;
@@ -100,4 +142,46 @@ class StudentPeriodReport {
   int get attendanceRate => attendanceTotal == 0
       ? 0
       : (((presentDays + lateDays) / attendanceTotal) * 100).round();
+  int get outstandingNegativePoints =>
+      (negativePoints - settledNegativePoints).clamp(0, negativePoints).toInt();
+  String? get rankLabel {
+    switch (periodRank) {
+      case 1:
+        return 'المركز الأول';
+      case 2:
+        return 'المركز الثاني';
+      case 3:
+        return 'المركز الثالث';
+      default:
+        return null;
+    }
+  }
+
+  StudentPeriodReport copyWithRank(int? rank) => StudentPeriodReport(
+        student: student,
+        startDate: startDate,
+        endDate: endDate,
+        days: days,
+        memorizedAyahs: memorizedAyahs,
+        revisedAyahs: revisedAyahs,
+        memorizedLines: memorizedLines,
+        revisedLines: revisedLines,
+        presentDays: presentDays,
+        lateDays: lateDays,
+        absentDays: absentDays,
+        excusedDays: excusedDays,
+        noRecitationDays: noRecitationDays,
+        positivePoints: positivePoints,
+        negativePoints: negativePoints,
+        positiveEvents: positiveEvents,
+        negativeEvents: negativeEvents,
+        averageQuality: averageQuality,
+        performanceScore: performanceScore,
+        totalLateMinutes: totalLateMinutes,
+        violationEvents: violationEvents,
+        violationPoints: violationPoints,
+        settledNegativePoints: settledNegativePoints,
+        exams: exams,
+        periodRank: rank,
+      );
 }

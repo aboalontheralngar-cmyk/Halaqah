@@ -79,13 +79,13 @@ export default function AuditLogPage() {
 
   return (
     <main className="max-w-6xl mx-auto space-y-6 pb-20" dir="rtl">
-      <header className="flex flex-col md:flex-row md:items-center justify-between gap-4 rounded-[2.5rem] bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 p-7 shadow-sm">
+      <header className="flex flex-col md:flex-row md:items-center justify-between gap-4 rounded-[2.5rem] bg-[var(--surface)] border border-[var(--border)] p-7 shadow-sm">
         <div className="flex items-center gap-4">
           <div className="w-14 h-14 rounded-2xl bg-teal-50 dark:bg-teal-900/20 flex items-center justify-center">
             <ShieldCheck className="w-8 h-8 text-teal-600" />
           </div>
           <div>
-            <h1 className="text-2xl font-black text-gray-900 dark:text-white">سجل التدقيق</h1>
+            <h1 className="text-2xl font-black text-[var(--foreground)]">سجل التدقيق</h1>
             <p className="text-sm text-gray-500 mt-1">أحداث حساسة بلا كلمات مرور أو بيانات اتصال أو محتوى نسخ.</p>
           </div>
         </div>
@@ -96,7 +96,7 @@ export default function AuditLogPage() {
 
       <div className="flex gap-2 overflow-x-auto pb-1">
         {(["all", "success", "failure", "denied"] as const).map((value) => (
-          <button key={value} onClick={() => setOutcome(value)} className={`px-5 py-2.5 rounded-xl text-xs font-black whitespace-nowrap ${outcome === value ? "bg-teal-600 text-white" : "bg-white dark:bg-gray-900 text-gray-500 border border-gray-100 dark:border-gray-800"}`}>
+          <button key={value} onClick={() => setOutcome(value)} className={`px-5 py-2.5 rounded-xl text-xs font-black whitespace-nowrap ${outcome === value ? "bg-teal-600 text-white" : "bg-[var(--surface)] text-gray-500 border border-[var(--border)]"}`}>
             {{ all: "الكل", success: "ناجح", failure: "فشل", denied: "مرفوض" }[value]}
           </button>
         ))}
@@ -116,13 +116,13 @@ export default function AuditLogPage() {
               ? (event.metadata?.changed_fields as string[]).join("، ")
               : null;
             return (
-              <article key={event.id} className="rounded-3xl bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 p-5 flex items-start gap-4 shadow-sm">
+              <article key={event.id} className="rounded-3xl bg-[var(--surface)] border border-[var(--border)] p-5 flex items-start gap-4 shadow-sm">
                 <div className={`w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 ${failed ? "bg-rose-50 dark:bg-rose-900/20" : "bg-emerald-50 dark:bg-emerald-900/20"}`}>
                   {failed ? <AlertTriangle className="w-5 h-5 text-rose-600" /> : <CheckCircle2 className="w-5 h-5 text-emerald-600" />}
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                    <h2 className="font-black text-gray-900 dark:text-white">{eventLabels[event.event_type] ?? event.event_type}</h2>
+                    <h2 className="font-black text-[var(--foreground)]">{eventLabels[event.event_type] ?? event.event_type}</h2>
                     <time className="text-xs text-gray-400" dateTime={event.created_at}>{new Date(event.created_at).toLocaleString("ar")}</time>
                   </div>
                   <p className="text-xs text-gray-500 mt-2">الكيان: {event.entity_type}{event.entity_id ? ` • ${event.entity_id}` : ""}</p>

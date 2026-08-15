@@ -5,6 +5,7 @@ import '../../models/exam.dart';
 import '../../services/pdf_service.dart';
 import '../../utils/quran_data.dart';
 import '../../utils/helpers.dart';
+import '../../widgets/app_design_widgets.dart';
 
 class ExamResultScreen extends StatelessWidget {
   final Exam exam;
@@ -98,8 +99,8 @@ class ExamResultScreen extends StatelessWidget {
                 shape: BoxShape.circle,
                 gradient: RadialGradient(
                   colors: [
-                    _scoreColor.withOpacity(0.2),
-                    _scoreColor.withOpacity(0.05),
+                    _scoreColor.withValues(alpha: 0.2),
+                    _scoreColor.withValues(alpha: 0.05),
                   ],
                 ),
                 border: Border.all(color: _scoreColor, width: 6),
@@ -129,7 +130,7 @@ class ExamResultScreen extends StatelessWidget {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
               decoration: BoxDecoration(
-                color: _scoreColor.withOpacity(0.1),
+                color: _scoreColor.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(20),
               ),
               child: Text(
@@ -176,16 +177,19 @@ class ExamResultScreen extends StatelessWidget {
             ),
             const Divider(),
             _buildDetailRow(
+              context,
               'التاريخ',
               Helpers.getFullHijriDate(exam.date),
               Icons.calendar_today,
             ),
             _buildDetailRow(
+              context,
               'نوع الامتحان',
               exam.type == 'oral' ? 'شفهي' : 'تحريري',
               Icons.quiz,
             ),
             _buildDetailRow(
+              context,
               'النطاق',
               fromSurah == toSurah
                   ? 'سورة $fromSurah'
@@ -198,18 +202,22 @@ class ExamResultScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildDetailRow(String label, String value, IconData icon) {
+  Widget _buildDetailRow(
+    BuildContext context,
+    String label,
+    String value,
+    IconData icon,
+  ) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Row(
-        children: [
-          Icon(icon, size: 20, color: Colors.grey[600]),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(label, style: TextStyle(color: Colors.grey[600])),
-          ),
-          Text(value, style: const TextStyle(fontWeight: FontWeight.w500)),
-        ],
+      child: AppResponsiveInfoRow(
+        label: label,
+        value: value,
+        icon: icon,
+        labelStyle: TextStyle(
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
+        ),
+        valueStyle: const TextStyle(fontWeight: FontWeight.w500),
       ),
     );
   }
@@ -223,7 +231,7 @@ class ExamResultScreen extends StatelessWidget {
           children: [
             Row(
               children: [
-                Icon(Icons.note, color: Colors.grey[600]),
+                Icon(Icons.note, color: Theme.of(context).colorScheme.onSurfaceVariant),
                 const SizedBox(width: 8),
                 const Text(
                   'ملاحظات وتوصيات',
@@ -241,14 +249,14 @@ class ExamResultScreen extends StatelessWidget {
 
   Widget _buildStudentCard(BuildContext context) {
     return Card(
-      color: Theme.of(context).primaryColor.withOpacity(0.05),
+      color: Theme.of(context).primaryColor.withValues(alpha: 0.05),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Row(
           children: [
             CircleAvatar(
               radius: 30,
-              backgroundColor: Theme.of(context).primaryColor.withOpacity(0.1),
+              backgroundColor: Theme.of(context).primaryColor.withValues(alpha: 0.1),
               child: Text(
                 student.name.isNotEmpty ? student.name[0] : '؟',
                 style: TextStyle(
@@ -269,7 +277,7 @@ class ExamResultScreen extends StatelessWidget {
                   const SizedBox(height: 4),
                   Text(
                     'إجمالي الحفظ: ${student.totalMemorized} آية',
-                    style: TextStyle(color: Colors.grey[600]),
+                    style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
                   ),
                 ],
               ),

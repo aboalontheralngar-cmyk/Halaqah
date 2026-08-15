@@ -54,6 +54,41 @@ void main() {
         3,
       );
     });
+
+    test('supports hizb plans without leaving the selected surah', () {
+      expect(
+        MemorizationMeasureService.calculateToAyah(
+          surah: surah,
+          fromAyah: 2,
+          planType: 'hizbs',
+          planAmount: 1,
+        ),
+        5,
+      );
+    });
+  });
+
+  test('line plans do not collapse when source line metadata is zero', () {
+    final zeroLineSurah = Surah(
+      number: 2,
+      name: 'قصيرة',
+      totalAyahs: 2,
+      juzStart: 30,
+      pageStart: 604,
+      ayahs: [
+        _ayah(number: 1, page: 604, lines: 0),
+        _ayah(number: 2, page: 604, lines: 0),
+      ],
+    );
+    expect(
+      MemorizationMeasureService.calculateAmount(
+        surah: zeroLineSurah,
+        fromAyah: 1,
+        toAyah: 2,
+        planType: 'lines',
+      ),
+      1,
+    );
   });
 
   group('exceedsPlan', () {
@@ -69,6 +104,15 @@ void main() {
         isTrue,
       );
       expect(
+        MemorizationMeasureService.calculateAmount(
+          surah: surah,
+          fromAyah: 1,
+          toAyah: 5,
+          planType: 'hizbs',
+        ),
+        closeTo(8.5 / 150, 0.0001),
+      );
+      expect(
         MemorizationMeasureService.exceedsPlan(
           surah: surah,
           fromAyah: 1,
@@ -76,7 +120,7 @@ void main() {
           planType: 'pages',
           planAmount: 2,
         ),
-        isTrue,
+        isFalse,
       );
       expect(
         MemorizationMeasureService.exceedsPlan(
@@ -90,7 +134,14 @@ void main() {
       );
     });
 
-    test('does not award a bonus when the plan is met exactly', () {
+    test('does not count a touched page as a complete face', () {
+      final amount = MemorizationMeasureService.calculateAmount(
+        surah: surah,
+        fromAyah: 1,
+        toAyah: 2,
+        planType: 'pages',
+      );
+      expect(amount, closeTo(2.5 / 15, 0.0001));
       expect(
         MemorizationMeasureService.exceedsPlan(
           surah: surah,

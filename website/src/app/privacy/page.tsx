@@ -61,11 +61,11 @@ export default function PrivacyPage() {
 
       <section className="grid md:grid-cols-2 gap-5">
         {sections.map(({ icon: Icon, title, body }) => (
-          <article key={title} className="rounded-[2rem] bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 p-7 shadow-sm">
+          <article key={title} className="rounded-[2rem] bg-[var(--surface)] border border-[var(--border)] p-7 shadow-sm">
             <div className="w-12 h-12 rounded-2xl bg-teal-50 dark:bg-teal-900/20 flex items-center justify-center mb-5">
               <Icon className="w-6 h-6 text-teal-600 dark:text-teal-400" />
             </div>
-            <h2 className="font-black text-gray-900 dark:text-white mb-3">{title}</h2>
+            <h2 className="font-black text-[var(--foreground)] mb-3">{title}</h2>
             <p className="text-sm text-gray-600 dark:text-gray-300 leading-7">{body}</p>
           </article>
         ))}

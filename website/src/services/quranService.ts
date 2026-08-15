@@ -1,3 +1,4 @@
+import { logOperationalError } from "@/lib/operationalLog";
 export interface Ayah {
   number: number;
   page: number;
@@ -69,7 +70,7 @@ class QuranService {
       }));
       this.isLoaded = true;
     } catch (error) {
-      console.error("Failed to load Quran data:", error);
+      logOperationalError("quran.initialize", error);
     }
   }
 

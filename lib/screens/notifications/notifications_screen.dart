@@ -16,6 +16,35 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   List<NotificationLog> _notifications = [];
   List<Student> _students = [];
   bool _isLoading = true;
+  String _filter = 'unread';
+  String _query = '';
+
+  List<NotificationLog> get _visibleNotifications {
+    final normalized = _query.trim().toLowerCase();
+    return _notifications.where((notification) {
+      final matchesFilter = switch (_filter) {
+        'unread' => !notification.read,
+        'read' => notification.read,
+        'attendance' => const [
+            'repeated_absence',
+            'dismissal_warning',
+            'student_expelled',
+          ]
+            .contains(notification.type),
+        'performance' => const ['low_performance', 'consecutive_no_recitation']
+            .contains(notification.type),
+        'plans' => const ['plan_completed', 'surah_completed']
+            .contains(notification.type),
+        _ => true,
+      };
+      if (!matchesFilter) return false;
+      if (normalized.isEmpty) return true;
+      final studentName = _getStudentName(notification.studentId).toLowerCase();
+      return studentName.contains(normalized) ||
+          notification.title.toLowerCase().contains(normalized) ||
+          notification.body.toLowerCase().contains(normalized);
+    }).toList();
+  }
 
   @override
   void initState() {
@@ -62,8 +91,14 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         return Icons.warning_amber_rounded;
       case 'plan_completed':
         return Icons.emoji_events;
+      case 'surah_completed':
+        return Icons.auto_stories_outlined;
       case 'dismissal_warning':
         return Icons.report_problem;
+      case 'consecutive_no_recitation':
+        return Icons.menu_book_outlined;
+      case 'student_expelled':
+        return Icons.person_off_outlined;
       case 'general':
       default:
         return Icons.info_outline;
@@ -78,8 +113,14 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         return Colors.red;
       case 'plan_completed':
         return const Color(0xFF10B981);
+      case 'surah_completed':
+        return const Color(0xFF0D9488);
       case 'dismissal_warning':
         return Colors.deepOrange;
+      case 'consecutive_no_recitation':
+        return Colors.amber.shade800;
+      case 'student_expelled':
+        return Colors.red.shade800;
       case 'general':
       default:
         return Colors.blue;
@@ -102,48 +143,51 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : RefreshIndicator(
-              onRefresh: _loadData,
-              child: _notifications.isEmpty
-                  ? Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.notifications_off_outlined,
-                            size: 64,
-                            color: Colors.grey[400],
-                          ),
-                          const SizedBox(height: 16),
-                          Text(
-                            'سجل الإشعارات فارغ حالياً',
-                            style: TextStyle(
-                              color: Colors.grey[600],
-                              fontSize: 15,
-                            ),
-                          ),
-                        ],
-                      ),
-                    )
-                  : ListView.builder(
+          : Column(
+              children: [
+                _buildFilters(),
+                Expanded(
+                  child: RefreshIndicator(
+                    onRefresh: _loadData,
+                    child: _visibleNotifications.isEmpty
+                        ? ListView(
+                            physics: const AlwaysScrollableScrollPhysics(),
+                            children: [
+                              SizedBox(height: MediaQuery.of(context).size.height * 0.2),
+                              Icon(
+                                Icons.notifications_off_outlined,
+                                size: 64,
+                                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                              ),
+                              const SizedBox(height: 12),
+                              Text(
+                                _notifications.isEmpty
+                                    ? 'سجل الإشعارات فارغ حاليًا'
+                                    : 'لا توجد نتائج مطابقة للفلتر',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
+                              ),
+                            ],
+                          )
+                        : ListView.builder(
                       padding: const EdgeInsets.all(16),
-                      itemCount: _notifications.length,
+                      itemCount: _visibleNotifications.length,
                       itemBuilder: (context, index) {
-                        final notification = _notifications[index];
+                        final notification = _visibleNotifications[index];
                         final color = _getNotificationColor(notification.type);
                         final icon = _getNotificationIcon(notification.type);
                         
                         return Card(
                           margin: const EdgeInsets.only(bottom: 12),
-                          elevation: notification.read ? 0 : 2,
+                          elevation: 0,
                           color: notification.read
                               ? Theme.of(context).cardTheme.color
-                              : color.withOpacity(0.05),
+                              : color.withValues(alpha: 0.05),
                           child: ListTile(
                             leading: Container(
                               padding: const EdgeInsets.all(8),
                               decoration: BoxDecoration(
-                                color: color.withOpacity(0.15),
+                                color: color.withValues(alpha: 0.15),
                                 shape: BoxShape.circle,
                               ),
                               child: Icon(
@@ -191,35 +235,28 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                                           .textTheme
                                           .bodyMedium
                                           ?.color
-                                          ?.withOpacity(0.8),
+                                          ?.withValues(alpha: 0.8),
                                     ),
                                   ),
                                   const SizedBox(height: 8),
-                                  Row(
+                                  Wrap(
+                                    spacing: 8,
+                                    runSpacing: 4,
+                                    alignment: WrapAlignment.spaceBetween,
                                     children: [
-                                      Expanded(
-                                        child: Text(
-                                          'الطالب: ${_getStudentName(notification.studentId)}',
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: const TextStyle(
-                                            fontSize: 11,
-                                            fontWeight: FontWeight.bold,
-                                          ),
+                                      Text(
+                                        'الطالب: ${_getStudentName(notification.studentId)}',
+                                        style: const TextStyle(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.bold,
                                         ),
                                       ),
-                                      const SizedBox(width: 8),
-                                      Flexible(
-                                        child: Text(
-                                          intl.DateFormat('yyyy/MM/dd HH:mm')
-                                              .format(notification.createdAt),
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          textAlign: TextAlign.end,
-                                          style: TextStyle(
-                                            fontSize: 10,
-                                            color: Colors.grey,
-                                          ),
+                                      Text(
+                                        intl.DateFormat('yyyy/MM/dd HH:mm')
+                                            .format(notification.createdAt),
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          color: Theme.of(context).colorScheme.onSurfaceVariant,
                                         ),
                                       ),
                                     ],
@@ -235,8 +272,69 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                           ),
                         );
                       },
-                    ),
+                      ),
+                  ),
+                ),
+              ],
             ),
     );
   }
+
+  Widget _buildFilters() {
+    final unread = _notifications.where((item) => !item.read).length;
+    return Material(
+      color: Theme.of(context).colorScheme.surface,
+      elevation: 0,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    onChanged: (value) => setState(() => _query = value),
+                    decoration: const InputDecoration(
+                      hintText: 'ابحث باسم الطالب أو نص التنبيه',
+                      prefixIcon: Icon(Icons.search),
+                      isDense: true,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Chip(
+                  avatar: const Icon(Icons.notifications_active_outlined, size: 17),
+                  label: Text('$unread جديد'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              height: 42,
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                children: [
+                  _filterChip('غير المقروء', 'unread'),
+                  _filterChip('الكل', 'all'),
+                  _filterChip('الحضور والغياب', 'attendance'),
+                  _filterChip('الأداء', 'performance'),
+                  _filterChip('الخطط', 'plans'),
+                  _filterChip('المقروء', 'read'),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _filterChip(String label, String value) => Padding(
+        padding: const EdgeInsetsDirectional.only(end: 7),
+        child: ChoiceChip(
+          label: Text(label),
+          selected: _filter == value,
+          onSelected: (_) => setState(() => _filter = value),
+        ),
+      );
 }

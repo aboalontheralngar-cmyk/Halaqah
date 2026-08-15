@@ -4,6 +4,32 @@ const HIJRI_MONTHS = [
   "محرم", "صفر", "ربيع الأول", "ربيع الثاني", "جمادى الأولى", "جمادى الثانية",
   "رجب", "شعبان", "رمضان", "شوال", "ذو القعدة", "ذو الحجة",
 ];
+/**
+ * Returns a YYYY-MM-DD key using the browser/device local calendar date.
+ * Never use toISOString() for business date fields: it converts to UTC first
+ * and can move users in UTC+ time zones to the previous calendar day.
+ */
+export function localDateKey(date: Date = new Date()): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+/** Creates a local calendar date from a YYYY-MM-DD key without UTC parsing. */
+export function localDateFromKey(value: string): Date {
+  const [year, month, day] = value.split("-").map(Number);
+  if (!year || !month || !day) return new Date(NaN);
+  return new Date(year, month - 1, day);
+}
+
+/** Returns a local YYYY-MM-DD key offset by whole calendar days. */
+export function localDateKeyOffset(days: number, from: Date = new Date()): string {
+  const date = new Date(from.getFullYear(), from.getMonth(), from.getDate());
+  date.setDate(date.getDate() + days);
+  return localDateKey(date);
+}
+
 
 /**
  * حساب التاريخ الهجري الحقيقي بتقويم أم القرى عبر Intl API

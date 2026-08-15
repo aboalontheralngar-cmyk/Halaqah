@@ -10,6 +10,9 @@ class Student {
   String planType;
   int planAmount;
   int reviewPlanAmount;
+  String reviewPlanType;
+  String reviewSystem;
+  bool talaqqinEnabled;
   int totalMemorized;
   DateTime joinDate;
   String status;
@@ -34,6 +37,9 @@ class Student {
     this.planType = 'ayahs',
     this.planAmount = 5,
     this.reviewPlanAmount = 10,
+    this.reviewPlanType = 'ayahs',
+    this.reviewSystem = 'adaptive_spaced',
+    this.talaqqinEnabled = false,
     this.totalMemorized = 0,
     DateTime? joinDate,
     this.status = 'active',
@@ -90,6 +96,9 @@ class Student {
         'plan_type': planType,
         'plan_amount': planAmount,
         'review_plan_amount': reviewPlanAmount,
+        'review_plan_type': reviewPlanType,
+        'review_system': reviewSystem,
+        'talaqqin_enabled': talaqqinEnabled ? 1 : 0,
         'total_memorized': totalMemorized,
         'join_date': joinDate.toIso8601String(),
         'status': status,
@@ -115,6 +124,9 @@ class Student {
         planType: map['plan_type'] ?? 'ayahs',
         planAmount: map['plan_amount'] ?? 5,
         reviewPlanAmount: map['review_plan_amount'] ?? 10,
+        reviewPlanType: map['review_plan_type'] ?? map['plan_type'] ?? 'ayahs',
+        reviewSystem: map['review_system'] ?? 'adaptive_spaced',
+        talaqqinEnabled: (map['talaqqin_enabled'] ?? 0) == 1 || map['talaqqin_enabled'] == true,
         totalMemorized: map['total_memorized'] ?? 0,
         joinDate: DateTime.parse(map['join_date']),
         status: map['status'] ?? 'active',
@@ -137,6 +149,9 @@ class Student {
     String? planType,
     int? planAmount,
     int? reviewPlanAmount,
+    String? reviewPlanType,
+    String? reviewSystem,
+    bool? talaqqinEnabled,
     int? totalMemorized,
     String? status,
     String? photoPath,
@@ -160,6 +175,9 @@ class Student {
       planType: planType ?? this.planType,
       planAmount: planAmount ?? this.planAmount,
       reviewPlanAmount: reviewPlanAmount ?? this.reviewPlanAmount,
+      reviewPlanType: reviewPlanType ?? this.reviewPlanType,
+      reviewSystem: reviewSystem ?? this.reviewSystem,
+      talaqqinEnabled: talaqqinEnabled ?? this.talaqqinEnabled,
       totalMemorized: totalMemorized ?? this.totalMemorized,
       joinDate: joinDate,
       status: status ?? this.status,

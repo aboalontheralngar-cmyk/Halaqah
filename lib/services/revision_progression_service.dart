@@ -13,10 +13,12 @@ class RevisionProgressionService {
     required bool ascending,
     required RevisionSurahLookup getSurah,
     Map<int, MemorizedAyahRange> memorizedRanges = const {},
+    bool preserveInputOrder = false,
   }) {
     if (memorizedSurahIds.isEmpty) return null;
-    final ordered = memorizedSurahIds.toSet().toList()..sort();
-    if (!ascending) {
+    final ordered = memorizedSurahIds.toSet().toList();
+    if (!preserveInputOrder) ordered.sort();
+    if (!preserveInputOrder && !ascending) {
       final descending = ordered.reversed.toList();
       ordered
         ..clear()

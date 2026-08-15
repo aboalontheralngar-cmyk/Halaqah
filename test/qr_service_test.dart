@@ -13,13 +13,12 @@ void main() {
     expect(QrService.decodeQrData(encoded), token);
   });
 
-  test('continues to read QR cards printed by older Android releases', () {
+  test('normal builds reject legacy signed cards without a migration secret', () {
     const studentId = 'a7d2ae45-0500-4cd4-b50b-1e0a708dfac8';
     const timestamp = '1710000000000';
-    const secret = 'HalaqahApp2024!';
-    const signedData = '$studentId|$timestamp';
+    const secret = 'test-only-legacy-secret';
     final checksum = Hmac(sha256, utf8.encode(secret))
-        .convert(utf8.encode(signedData))
+        .convert(utf8.encode('$studentId|$timestamp'))
         .toString()
         .substring(0, 16);
     final legacy = base64Encode(utf8.encode(jsonEncode({
@@ -28,7 +27,39 @@ void main() {
       'cs': checksum,
     })));
 
-    expect(QrService.decodeQrData(legacy), studentId);
+    expect(QrService.decodeQrData(legacy), isNull);
+    expect(
+      QrService.decodeQrData(
+        legacy,
+        now: DateTime(2026, 8, 12),
+        legacySecretOverrideForTesting: secret,
+      ),
+      studentId,
+    );
+  });
+
+  test('legacy migration path rejects implausible timestamps', () {
+    const studentId = 'a7d2ae45-0500-4cd4-b50b-1e0a708dfac8';
+    const timestamp = '946684800000'; // 2000-01-01
+    const secret = 'test-only-legacy-secret';
+    final checksum = Hmac(sha256, utf8.encode(secret))
+        .convert(utf8.encode('$studentId|$timestamp'))
+        .toString()
+        .substring(0, 16);
+    final legacy = base64Encode(utf8.encode(jsonEncode({
+      'sid': studentId,
+      'ts': timestamp,
+      'cs': checksum,
+    })));
+
+    expect(
+      QrService.decodeQrData(
+        legacy,
+        now: DateTime(2026, 8, 12),
+        legacySecretOverrideForTesting: secret,
+      ),
+      isNull,
+    );
   });
 
   test('rejects unrelated text', () {

@@ -1,0 +1,8 @@
+BUILD76_VALIDATION_REPORT.md
+CHANGELOG.md
+P1.27_BUILD76_INSTALL_NOTE.md
+docs/P1.27_BUILD76_HOTFIX1.md
+lib/screens/competition/peer_level_groups_screen.dart
+lib/screens/memorization/memorization_screen.dart
+website/scripts/run-all-validations.mjs
+website/scripts/validate-build76-hotfix1.mjs

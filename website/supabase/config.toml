@@ -1,2 +1,5 @@
 [functions.student-portal]
 verify_jwt = false
+
+[functions.guardian-report-worker]
+verify_jwt = false

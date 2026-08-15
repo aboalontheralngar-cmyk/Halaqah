@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { 
   Calendar as CalendarIcon, 
   CheckCircle, 
@@ -17,32 +18,84 @@ import { useStore, AttendanceRecord } from "@/store/useStore";
 import { getHijriDate } from "@/utils/dateUtils";
 import Link from "next/link";
 import { MetricCard, PageHeader, SearchField, Surface } from "@/components/ui/AppDesign";
+import { isWeeklyHoliday } from "@/lib/dailyClosing";
 
 function formatDate(date: Date): string {
-  return date.toISOString().split("T")[0];
+  return localDateKey(date);
 }
 
 export default function AttendancePage() {
-  const { students, attendance, vacations, addAttendance, updateAttendance, suspendedDates = [], fetchSuspendedDates, toggleSuspendedDate } = useStore();
+  const {
+    students,
+    attendance,
+    vacations,
+    addAttendance,
+    updateAttendance,
+    suspendedDates = [],
+    studySuspensions,
+    weeklyHolidayDays,
+    fetchSuspendedDates,
+    fetchCenterSettings,
+    toggleSuspendedDate
+  } = useStore(
+    useShallow((state) => ({
+      students: state.students,
+      attendance: state.attendance,
+      vacations: state.vacations,
+      addAttendance: state.addAttendance,
+      updateAttendance: state.updateAttendance,
+      suspendedDates: state.suspendedDates,
+      studySuspensions: state.studySuspensions,
+      weeklyHolidayDays: state.weeklyHolidayDays,
+      fetchSuspendedDates: state.fetchSuspendedDates,
+      fetchCenterSettings: state.fetchCenterSettings,
+      toggleSuspendedDate: state.toggleSuspendedDate,
+    })),
+  );
   const [selectedDate, setSelectedDate] = useState(formatDate(new Date()));
   const [search, setSearch] = useState("");
   const [showDetailModal, setShowDetailModal] = useState<{studentId: string, status: AttendanceRecord['status']} | null>(null);
   const [extraData, setExtraData] = useState({ arrivalTime: "", absenceReason: "", notes: "" });
+  const [showSuspensionModal, setShowSuspensionModal] = useState(false);
+  const [suspensionReason, setSuspensionReason] = useState("");
+  const [savingSuspension, setSavingSuspension] = useState(false);
 
-  const isSuspended = suspendedDates.includes(selectedDate);
+  const isExplicitlySuspended = suspendedDates.includes(selectedDate);
+  const isWeeklyDayOff = isWeeklyHoliday(selectedDate, weeklyHolidayDays);
+  const isSuspended = isExplicitlySuspended || isWeeklyDayOff;
+  const activeSuspension = studySuspensions.find((item) => item.date === selectedDate);
 
-  const getAttendanceStatus = (studentId: string, date: string) => {
+  const getAttendanceStatus = useCallback((studentId: string, date: string) => {
     const record = attendance.find(a => a.studentId === studentId && a.date === date);
     return record?.status;
-  };
+  }, [attendance]);
 
-  const isStudentOnVacation = (studentId: string, date: string) => {
+  const isStudentOnVacation = useCallback((studentId: string, date: string) => {
     return vacations.find(v => v.studentId === studentId && date >= v.startDate && date <= v.endDate);
-  };
+  }, [vacations]);
 
   useEffect(() => {
     fetchSuspendedDates();
-  }, [fetchSuspendedDates]);
+    fetchCenterSettings();
+  }, [fetchCenterSettings, fetchSuspendedDates]);
+
+  const handleSuspensionButton = async () => {
+    if (isWeeklyDayOff) return;
+    if (!isExplicitlySuspended) {
+      setSuspensionReason("");
+      setShowSuspensionModal(true);
+      return;
+    }
+    if (!window.confirm("هل تريد إلغاء تعليق الدراسة لهذا اليوم؟")) return;
+    setSavingSuspension(true);
+    try {
+      await toggleSuspendedDate(selectedDate);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "تعذر إلغاء التعليق");
+    } finally {
+      setSavingSuspension(false);
+    }
+  };
 
   useEffect(() => {
     if (isSuspended) return;
@@ -75,7 +128,7 @@ export default function AttendancePage() {
     };
 
     autoCorrectVacations();
-  }, [selectedDate, students, vacations, attendance, isSuspended, addAttendance, updateAttendance]);
+  }, [selectedDate, students, attendance, isSuspended, addAttendance, updateAttendance, getAttendanceStatus, isStudentOnVacation]);
 
   const handleQuickStatus = async (studentId: string, status: AttendanceRecord['status']) => {
     if (status === "late" || status === "absent") {
@@ -116,7 +169,7 @@ export default function AttendancePage() {
     const excused = todayAttendance.filter(a => a.status === "excused").length;
     const onVacation = students.filter(s => isStudentOnVacation(s.id, selectedDate)).length;
     return { present, absent, excused, onVacation, total: students.length };
-  }, [attendance, selectedDate, students, vacations]);
+  }, [attendance, selectedDate, students, isStudentOnVacation]);
 
   return (
     <div className="page-enter space-y-8">
@@ -128,14 +181,16 @@ export default function AttendancePage() {
         actions={
           <>
           <button
-            onClick={() => toggleSuspendedDate(selectedDate)}
+            type="button"
+            onClick={handleSuspensionButton}
+            disabled={savingSuspension || isWeeklyDayOff}
             className={`px-5 py-3 rounded-2xl text-xs font-black transition-all border flex items-center gap-2 ${
               isSuspended
-                ? "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/20 dark:text-emerald-450 dark:border-emerald-900"
+                ? "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/20 dark:text-emerald-300 dark:border-emerald-900"
                 : "bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/20 dark:text-rose-450 dark:border-rose-900"
-            }`}
+            } disabled:cursor-not-allowed disabled:opacity-70`}
           >
-            🗓️ {isSuspended ? "إلغاء تعليق الحلقة" : "تعليق الحلقة اليوم"}
+            🗓️ {isWeeklyDayOff ? "إجازة أسبوعية" : isExplicitlySuspended ? "إلغاء تعليق الحلقة" : "تعليق الحلقة اليوم"}
           </button>
 
           <div className="bg-white/60 dark:bg-gray-900/60 backdrop-blur-md border border-white dark:border-gray-800 rounded-3xl shadow-xl p-4 flex items-center gap-6">
@@ -157,7 +212,9 @@ export default function AttendancePage() {
           <AlertCircle className="w-8 h-8 text-rose-600 animate-pulse" />
           <div>
             <h4 className="font-black text-base text-rose-900 dark:text-white">الحلقة معلقة اليوم ⚠️</h4>
-            <p className="text-xs font-bold text-rose-600 dark:text-rose-405 mt-1">الحلقة معلقة اليوم لظرف طارئ أو امتحانات مدرسية. تم قفل إجراءات تسجيل الحضور ولن يحتسب هذا اليوم في نسب الغياب العامة.</p>
+            <p className="text-xs font-bold text-rose-600 dark:text-rose-300 mt-1">
+              {isWeeklyDayOff ? "إجازة أسبوعية معتمدة." : activeSuspension?.reason || "تعليق دراسة معتمد."} تم قفل الحضور ولن يحتسب اليوم في الغياب أو النقاط.
+            </p>
           </div>
         </div>
       )}
@@ -250,12 +307,55 @@ export default function AttendancePage() {
         </div>
       </Surface>
 
+      {showSuspensionModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/50 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-[2.5rem] bg-white p-8 shadow-2xl dark:bg-gray-900">
+            <h3 className="text-xl font-black text-[var(--foreground)]">تعليق الدراسة</h3>
+            <p className="mt-2 text-xs font-bold leading-6 text-gray-500">اكتب السبب ليظهر في التقارير، ولن يحتسب هذا اليوم ضمن الغياب أو عدم التسميع.</p>
+            <textarea
+              autoFocus
+              value={suspensionReason}
+              onChange={(event) => setSuspensionReason(event.target.value)}
+              placeholder="مثال: نشاط المركز، إجازة رسمية، ظرف طارئ..."
+              className="mt-5 h-28 w-full rounded-2xl border border-gray-200 bg-gray-50 px-5 py-4 text-sm font-bold outline-none focus:ring-2 focus:ring-teal-500/20 dark:border-gray-800 dark:bg-gray-800"
+            />
+            <div className="mt-6 flex gap-3">
+              <button
+                type="button"
+                onClick={() => setShowSuspensionModal(false)}
+                className="flex-1 rounded-2xl bg-gray-100 py-3 text-xs font-black text-gray-600 dark:bg-gray-800"
+              >
+                إلغاء
+              </button>
+              <button
+                type="button"
+                disabled={savingSuspension || !suspensionReason.trim()}
+                onClick={async () => {
+                  setSavingSuspension(true);
+                  try {
+                    await toggleSuspendedDate(selectedDate, suspensionReason);
+                    setShowSuspensionModal(false);
+                  } catch (error) {
+                    alert(error instanceof Error ? error.message : "تعذر تعليق الدراسة");
+                  } finally {
+                    setSavingSuspension(false);
+                  }
+                }}
+                className="flex-1 rounded-2xl bg-rose-600 py-3 text-xs font-black text-white disabled:opacity-50"
+              >
+                {savingSuspension ? "جارٍ الحفظ..." : "اعتماد التعليق"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Details Modal (For Late/Absent) */}
       {showDetailModal && (
         <div className="fixed inset-0 bg-gray-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-300">
-          <div className="bg-white dark:bg-gray-900 rounded-[2.5rem] p-10 w-full max-w-md shadow-2xl relative">
+          <div className="bg-[var(--surface)] rounded-[2.5rem] p-10 w-full max-w-md shadow-2xl relative">
             <button onClick={() => setShowDetailModal(null)} className="absolute top-8 left-8 p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors"><X className="w-6 h-6 text-gray-400" /></button>
-            <h3 className="text-2xl font-black text-gray-900 dark:text-white mb-6">
+            <h3 className="text-2xl font-black text-[var(--foreground)] mb-6">
               تفاصيل {showDetailModal.status === "late" ? "التأخر" : "الغياب"}
             </h3>
             

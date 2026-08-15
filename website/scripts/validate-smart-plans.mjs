@@ -8,7 +8,7 @@ const requireText = (source, text, label) => {
 };
 
 const model = read("lib/models/plan.dart");
-const database = read("lib/services/database_service.dart");
+const database = read("lib/services/database_service.dart") + read("lib/services/local_database_schema.dart");
 const mobile = read("lib/screens/plans/plans_screen.dart");
 const pdf = read("lib/services/pdf_service.dart");
 const sync = read("lib/services/supabase_service.dart");

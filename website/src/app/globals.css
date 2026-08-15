@@ -2,15 +2,28 @@
 
 :root {
   color-scheme: light;
-  --background: #f7f4ed;
-  --foreground: #1c2925;
-  --surface: #fffdf8;
-  --surface-soft: #f3efe6;
-  --border: #e4dfd5;
-  --primary: #1f6b5d;
-  --primary-soft: #ddefe8;
-  --gold: #a87936;
-  --focus: #1f6b5d;
+  --background: #f5f3ed;
+  --foreground: #17241f;
+  --muted: #596861;
+  --surface: #fffefa;
+  --surface-soft: #f0eee7;
+  --surface-strong: #e9e7e0;
+  --border: #e1ded5;
+  --border-strong: #c9c7bf;
+  --primary: #176b57;
+  --primary-hover: #0f5b49;
+  --primary-soft: #dcefe7;
+  --primary-ink: #0d3d32;
+  --gold: #9b6c2f;
+  --focus: #176b57;
+  --success: #157a46;
+  --warning: #9a5b11;
+  --danger: #b4232f;
+  --info: #2469a8;
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 18px;
+  --shadow-soft: 0 1px 2px rgba(23, 36, 43, 0.06);
 }
 
 @media print {
@@ -33,20 +46,31 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-tajawal), sans-serif;
-  --font-mono: var(--font-tajawal), monospace;
+  --font-sans: "Readex Pro", "Noto Sans Arabic", sans-serif;
+  --font-mono: "Readex Pro", "Noto Sans Arabic", monospace;
 }
 
 .dark {
   color-scheme: dark;
-  --background: #0b1210;
-  --foreground: #e5eee9;
-  --surface: #121a17;
-  --surface-soft: #18231f;
-  --border: #2c3934;
-  --primary: #8ed7c5;
-  --primary-soft: #1d4f44;
-  --gold: #e7c078;
+  --background: #101211;
+  --foreground: #f0f6f2;
+  --muted: #c1cec8;
+  --surface: #181b19;
+  --surface-soft: #202421;
+  --surface-strong: #292e2a;
+  --border: #373d39;
+  --border-strong: #61736b;
+  --primary: #83d6be;
+  --primary-hover: #9de4cf;
+  --primary-soft: #174c3e;
+  --primary-ink: #b7f4e0;
+  --gold: #e4bd73;
+  --focus: #83d6be;
+  --success: #63d79a;
+  --warning: #f0c26b;
+  --danger: #ff8993;
+  --info: #91c8ff;
+  --shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.22);
 }
 
 html {
@@ -59,15 +83,16 @@ body {
   margin: 0;
   background: var(--background);
   color: var(--foreground);
-  font-family: "Tajawal", "Noto Sans Arabic", sans-serif;
+  font-family: "Readex Pro", "Noto Sans Arabic", sans-serif;
   font-weight: 400;
   line-height: 1.55;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
 }
 
 ::selection {
-  background: rgba(13, 148, 136, 0.22);
+  background: rgba(59, 139, 117, 0.22);
 }
 
 :focus-visible {
@@ -82,6 +107,55 @@ select,
 textarea {
   font: inherit;
   -webkit-tap-highlight-color: transparent;
+}
+
+button,
+[role="button"] {
+  touch-action: manipulation;
+}
+
+input,
+select,
+textarea {
+  color: var(--foreground);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: color-mix(in srgb, var(--muted) 74%, transparent);
+}
+
+.app-shell {
+  background: var(--background);
+  color: var(--foreground);
+}
+
+.app-main {
+  width: 100%;
+  max-width: 88rem;
+  margin-inline: auto;
+  padding: 1rem;
+}
+
+@media (min-width: 64rem) {
+  .app-main {
+    padding: 1.5rem 2rem 2.5rem;
+  }
+}
+
+.app-page {
+  animation: page-enter 170ms ease-out both;
+}
+
+.app-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-soft);
+}
+
+.app-muted {
+  color: var(--muted);
 }
 
 .safe-top {
@@ -103,18 +177,86 @@ textarea {
 }
 
 .page-enter {
-  animation: page-enter 360ms ease-out both;
+  animation: page-enter 170ms ease-out both;
 }
 
 @keyframes page-enter {
   from {
     opacity: 0;
-    transform: translateY(8px);
+    transform: translateY(4px);
   }
   to {
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+/*
+ * تطبيع الصفحات القديمة من مستوى النظام: الزوايا والظلال الضخمة كانت تجعل
+ * الشاشات تبدو كقالب ويب مختلف عن تطبيق الهاتف.
+ */
+:where(
+  .rounded-\[2rem\],
+  .rounded-\[2\.25rem\],
+  .rounded-\[2\.5rem\],
+  .rounded-\[3rem\],
+  .rounded-\[3\.5rem\],
+  .rounded-\[4rem\]
+) {
+  border-radius: var(--radius-lg) !important;
+}
+
+:where(.rounded-3xl) {
+  border-radius: 18px !important;
+}
+
+:where(.rounded-2xl) {
+  border-radius: var(--radius-md) !important;
+}
+
+:where(.shadow-lg, .shadow-xl, .shadow-2xl) {
+  box-shadow: var(--shadow-soft) !important;
+}
+
+:where(.p-10) {
+  padding: 1.75rem !important;
+}
+
+:where(.p-8) {
+  padding: 1.5rem !important;
+}
+
+:where(.gap-10) {
+  gap: 1.5rem !important;
+}
+
+:where(.gap-8) {
+  gap: 1.25rem !important;
+}
+
+.space-y-10 > :not(:last-child) {
+  margin-block-end: 1.5rem !important;
+}
+
+.space-y-8 > :not(:last-child) {
+  margin-block-end: 1.25rem !important;
+}
+
+/* حماية تباين عامة لأي صفحة قديمة لم تضف dark:text صراحة. */
+.dark :where(.text-gray-400, .text-gray-500) {
+  color: #b7c5bf !important;
+}
+
+.dark :where(.text-gray-600, .text-gray-700, .text-gray-800) {
+  color: #d2ddd8 !important;
+}
+
+.dark :where(.border-gray-100, .border-gray-200) {
+  border-color: var(--border) !important;
+}
+
+.dark :where(.bg-gray-50, .bg-gray-100) {
+  background-color: var(--surface-soft) !important;
 }
 
 @media (prefers-reduced-motion: reduce) {

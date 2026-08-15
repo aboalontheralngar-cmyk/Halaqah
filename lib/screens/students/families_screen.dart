@@ -106,14 +106,16 @@ class _FamiliesScreenState extends State<FamiliesScreen> {
           padding: const EdgeInsets.all(32),
           child: Column(
             children: [
-              Icon(Icons.family_restroom, size: 52, color: Colors.grey[400]),
+              Icon(Icons.family_restroom, size: 52, color: Theme.of(context).colorScheme.onSurfaceVariant),
               const SizedBox(height: 12),
               const Text('لا توجد عائلات مسجلة'),
               const SizedBox(height: 6),
-              const Text(
+              Text(
                 'أنشئ عائلة ثم اربط بها الإخوة وأولياء أمورهم دون الاعتماد على تشابه الأسماء.',
                 textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.grey),
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
               ),
             ],
           ),
@@ -469,9 +471,12 @@ class _FamilyDetailScreenState extends State<FamilyDetailScreen> {
                   ),
                 ),
                 const SizedBox(height: 8),
-                const Text(
+                Text(
                   'تغيير الرقم يلغي جميع الجلسات السابقة، ولا يُحفظ الرقم بصورته الأصلية.',
-                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
                 ),
                 if (enabled) ...[
                   const SizedBox(height: 12),
@@ -673,7 +678,7 @@ class _FamilyDetailScreenState extends State<FamilyDetailScreen> {
                 ),
                 const SizedBox(height: 10),
                 DropdownButtonFormField<String>(
-                  value: relationship,
+                  initialValue: relationship,
                   decoration: const InputDecoration(labelText: 'صلة القرابة'),
                   items: const [
                     DropdownMenuItem(value: 'father', child: Text('الأب')),

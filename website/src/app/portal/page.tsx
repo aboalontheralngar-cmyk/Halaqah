@@ -7,11 +7,13 @@ import {
   Clock3,
   Eye,
   EyeOff,
+  FileClock,
   FileDown,
   GraduationCap,
   Loader2,
   LogOut,
   RefreshCw,
+  ShieldAlert,
   ShieldCheck,
   Sparkles,
   Star,
@@ -55,6 +57,7 @@ const unitLabel = (unit: string) => ({
   ayahs: "آيات",
   pages: "صفحات",
   lines: "أسطر",
+  hizbs: "أحزاب",
 }[unit] || unit);
 
 const attendanceLabel = (status: string) => ({
@@ -119,15 +122,19 @@ export default function StudentPortalPage() {
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [periodDays, setPeriodDays] = useState(30);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   const loadDashboard = useCallback(async (
     token: string,
     kind: PortalKind,
     days: number,
     studentId?: string,
+    silent = false,
   ) => {
-    setLoading(true);
-    setMessage(null);
+    if (!silent) {
+      setLoading(true);
+      setMessage(null);
+    }
     try {
       if (kind === "family") {
         const data = await loadFamilyPortalDashboard(token, days, studentId);
@@ -140,14 +147,17 @@ export default function StudentPortalPage() {
       }
       setSessionToken(token);
       setSessionKind(kind);
+      setLastUpdated(new Date());
     } catch (error) {
-      sessionStorage.removeItem(SESSION_KEY);
-      setDashboard(null);
-      setFamilyDashboard(null);
-      setSessionToken(null);
-      setMessage(errorMessage(error));
+      if (!silent) {
+        sessionStorage.removeItem(SESSION_KEY);
+        setDashboard(null);
+        setFamilyDashboard(null);
+        setSessionToken(null);
+        setMessage(errorMessage(error));
+      }
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, []);
 
@@ -159,6 +169,29 @@ export default function StudentPortalPage() {
     }, 0);
     return () => window.clearTimeout(timer);
   }, [loadDashboard]);
+
+  useEffect(() => {
+    if (!sessionToken || !dashboard) return;
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") {
+        void loadDashboard(
+          sessionToken,
+          sessionKind,
+          periodDays,
+          familyDashboard?.selected_student_id,
+          true,
+        );
+      }
+    }, 60_000);
+    return () => window.clearInterval(timer);
+  }, [
+    dashboard,
+    familyDashboard?.selected_student_id,
+    loadDashboard,
+    periodDays,
+    sessionKind,
+    sessionToken,
+  ]);
 
   const handleLogin = async (event: FormEvent) => {
     event.preventDefault();
@@ -212,6 +245,9 @@ export default function StudentPortalPage() {
     if (!dashboard) return 0;
     return Object.values(dashboard.summary.attendance).reduce((total, count) => total + Number(count), 0);
   }, [dashboard]);
+  const unresolvedViolations = dashboard?.summary.unresolved_violations ?? 0;
+  const recentBehavior = dashboard?.recent_behavior ?? [];
+  const automaticReports = familyDashboard?.automatic_reports ?? [];
 
   if (loading) {
     return (
@@ -327,6 +363,9 @@ export default function StudentPortalPage() {
               {familyDashboard && (
                 <span dir="ltr">{formatFamilyCode(familyDashboard.family.family_code)}</span>
               )}
+              {lastUpdated && (
+                <span>تحديث آني · {lastUpdated.toLocaleTimeString("ar", { hour: "2-digit", minute: "2-digit" })}</span>
+              )}
             </div>
           </div>
           <div className="print:hidden flex flex-wrap items-center gap-2">
@@ -382,11 +421,109 @@ export default function StudentPortalPage() {
             <p className="text-xs font-bold text-[#1f6b5d]">يمكنك التبديل بين الأبناء من أعلى الصفحة.</p>
           </section>
         )}
+        {familyDashboard && (
+          <section className="rounded-3xl border border-[#d9d2c4] bg-white p-5 sm:p-6 break-inside-avoid">
+            <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <FileClock className="h-6 w-6 text-[#1f6b5d]" />
+                <div>
+                  <h2 className="text-xl font-extrabold">التقارير الدورية المنشورة</h2>
+                  <p className="mt-1 text-xs text-gray-500">
+                    تُحفظ تلقائيًا داخل حساب العائلة بحسب الجدولة المعتمدة من الحلقة.
+                  </p>
+                </div>
+              </div>
+              <span className="rounded-full bg-[#eef6f2] px-3 py-1 text-xs font-extrabold text-[#1f6b5d]">
+                {automaticReports.length} تقرير
+              </span>
+            </div>
+            {automaticReports.length === 0 ? (
+              <p className="rounded-2xl border border-dashed border-[#ded8cb] bg-[#fbfaf6] p-4 text-sm font-bold text-gray-500">
+                لم يُنشر تقرير دوري بعد. تبقى البيانات الآنية أعلاه متاحة دائمًا.
+              </p>
+            ) : (
+              <div className="grid gap-3 md:grid-cols-2">
+                {automaticReports.map((report) => {
+                  const studentReport = report.report.students.find(
+                    (item) =>
+                      item.student.student_code === dashboard.student.student_code,
+                  );
+                  const attendance = studentReport?.summary.attendance;
+                  const attendanceTotal = attendance
+                    ? Object.values(attendance).reduce(
+                        (total, count) => total + Number(count),
+                        0,
+                      )
+                    : 0;
+                  return (
+                    <article
+                      key={report.id}
+                      className="rounded-2xl border border-[#eee9df] bg-[#fbfaf6] p-4"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="font-extrabold">
+                            {report.frequency === "weekly"
+                              ? "تقرير أسبوعي"
+                              : "تقرير شهري"}
+                          </p>
+                          <p className="mt-1 text-xs text-gray-500">
+                            {formatDate(report.period_start)} —{" "}
+                            {formatDate(report.period_end)}
+                          </p>
+                        </div>
+                        <span className="rounded-full bg-white px-2.5 py-1 text-xs font-extrabold text-[#1f6b5d]">
+                          منشور
+                        </span>
+                      </div>
+                      {studentReport ? (
+                        <div className="mt-4 grid grid-cols-2 gap-2 text-center">
+                          <div className="rounded-xl bg-white p-3">
+                            <p className="text-xl font-extrabold">
+                              {attendanceTotal}
+                            </p>
+                            <p className="text-xs text-gray-500">أيام الرصد</p>
+                          </div>
+                          <div className="rounded-xl bg-white p-3">
+                            <p className="text-xl font-extrabold">
+                              {studentReport.summary.points_balance}
+                            </p>
+                            <p className="text-xs text-gray-500">رصيد النقاط</p>
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="mt-4 text-xs font-bold text-gray-500">
+                          لا يحتوي هذا الإصدار من التقرير على سجل للطالب المحدد.
+                        </p>
+                      )}
+                      <p className="mt-3 text-xs text-gray-400">
+                        نُشر في{" "}
+                        {new Date(report.published_at).toLocaleString("ar", {
+                          dateStyle: "medium",
+                          timeStyle: "short",
+                        })}
+                        {report.external_status === "sent"
+                          ? " · أُرسل عبر المزود الخارجي"
+                          : ""}
+                      </p>
+                    </article>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        )}
         <section className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           <SummaryCard icon={BookOpen} label="مقرر الحفظ" value={`${dashboard.student.plan_amount} ${unitLabel(dashboard.student.plan_type)}`} />
-          <SummaryCard icon={RefreshCw} label="مقرر المراجعة" value={`${dashboard.student.review_plan_amount} ${unitLabel(dashboard.student.plan_type)}`} />
+          <SummaryCard icon={RefreshCw} label="مقرر المراجعة" value={`${dashboard.student.review_plan_amount} ${unitLabel(dashboard.student.review_plan_type ?? dashboard.student.plan_type)}`} />
           <SummaryCard icon={Star} label="رصيد النقاط" value={`${dashboard.summary.points_balance}`} />
-          <SummaryCard icon={CalendarCheck} label="أيام الرصد" value={`${attendanceTotal} يومًا`} />
+          <SummaryCard
+            icon={unresolvedViolations > 0 ? ShieldAlert : CalendarCheck}
+            label={unresolvedViolations > 0 ? "تنبيهات تحتاج متابعة" : "أيام الرصد"}
+            value={unresolvedViolations > 0
+              ? `${unresolvedViolations}`
+              : `${attendanceTotal} يومًا`}
+          />
         </section>
 
         <section className="grid lg:grid-cols-3 gap-5">
@@ -397,7 +534,7 @@ export default function StudentPortalPage() {
                 <PlanLine label="الفترة" value={`${formatDate(dashboard.active_plan.start_date)} — ${formatDate(dashboard.active_plan.end_date)}`} />
                 <PlanLine label="النوع" value={dashboard.active_plan.period === "weekly" ? "خطة أسبوعية" : "خطة شهرية"} />
                 <PlanLine label="الحفظ اليومي" value={`${dashboard.active_plan.new_amount} ${unitLabel(dashboard.active_plan.unit)}`} />
-                <PlanLine label="المراجعة اليومية" value={`${dashboard.active_plan.review_amount} ${unitLabel(dashboard.active_plan.unit)}`} />
+                <PlanLine label="المراجعة اليومية" value={`${dashboard.active_plan.review_amount} ${unitLabel(dashboard.active_plan.review_unit ?? dashboard.active_plan.unit)}`} />
                 {dashboard.active_plan.notes && <div className="sm:col-span-2"><PlanLine label="ملاحظة المعلم" value={dashboard.active_plan.notes} /></div>}
               </div>
             ) : (
@@ -443,6 +580,51 @@ export default function StudentPortalPage() {
               ))}
             </div>
           </article>
+        </section>
+
+        <section className="bg-white rounded-3xl border border-[#e3ded2] p-5 sm:p-6 break-inside-avoid">
+          <div className="flex items-center justify-between gap-4 mb-5">
+            <div className="flex items-center gap-3">
+              <ShieldAlert className="w-6 h-6 text-[#1f6b5d]" />
+              <h2 className="text-xl font-extrabold">السلوك والتنبيهات</h2>
+            </div>
+            {unresolvedViolations > 0 && (
+              <span className="rounded-full bg-rose-50 border border-rose-100 px-3 py-1 text-xs font-extrabold text-rose-700">
+                {unresolvedViolations} تحتاج متابعة
+              </span>
+            )}
+          </div>
+          {recentBehavior.length === 0 ? (
+            <p className="rounded-2xl bg-emerald-50 border border-emerald-100 p-4 text-sm font-bold text-emerald-700">
+              لا توجد ملاحظات سلوكية منشورة خلال الفترة المحددة.
+            </p>
+          ) : (
+            <div className="grid gap-3 sm:grid-cols-2">
+              {recentBehavior.map((entry, index) => (
+                <article key={`${entry.date}-${entry.reason}-${index}`} className="rounded-2xl bg-[#fbfaf6] border border-[#eee9df] p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="font-extrabold">{entry.reason}</p>
+                      {entry.notes && <p className="mt-1 text-xs leading-6 text-gray-500">{entry.notes}</p>}
+                    </div>
+                    <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-extrabold ${
+                      entry.amount < 0 ? "bg-rose-50 text-rose-700" : "bg-emerald-50 text-emerald-700"
+                    }`}>
+                      {entry.amount > 0 ? `+${entry.amount}` : entry.amount}
+                    </span>
+                  </div>
+                  <div className="mt-3 flex items-center justify-between text-xs text-gray-500">
+                    <span>{formatDate(entry.date)}</span>
+                    {entry.amount < 0 && (
+                      <span className={entry.resolved ? "text-emerald-700" : "font-bold text-rose-700"}>
+                        {entry.resolved ? "تمت المعالجة" : "قيد المتابعة"}
+                      </span>
+                    )}
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
         </section>
 
         <footer className="text-center text-xs text-gray-500 pb-8">من أجل الحرص على ابنكم ومتابعة تقدمه، ننتظر ملاحظاتكم وتعاونكم.</footer>

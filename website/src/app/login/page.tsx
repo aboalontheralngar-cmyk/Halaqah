@@ -1,7 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { useRouter } from "next/navigation";
+import type { User } from "@supabase/supabase-js";
 import { 
   Mail, 
   Lock, 
@@ -9,23 +11,72 @@ import {
   BookOpen, 
   Loader2,
   Eye,
-  EyeOff
+  EyeOff,
+  Chrome
 } from "lucide-react";
 import { useStore } from "@/store/useStore";
-import { supabase } from "@/lib/supabase";
+import { supabase, supabaseConfiguration } from "@/lib/supabase";
 
 export default function AuthPage() {
   const router = useRouter();
   const [isLogin, setIsLogin] = useState(true);
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const { setUser } = useStore();
+  const [configurationError, setConfigurationError] = useState("");
+  const {
+    setUser
+  } = useStore(
+    useShallow((state) => ({
+      setUser: state.setUser,
+    })),
+  );
 
   const [formData, setFormData] = useState({
     email: "",
     password: "",
     confirmPassword: ""
   });
+
+  useEffect(() => {
+    if (!supabase) return;
+
+    const finishOAuthLogin = (user: User) => {
+      setUser(user);
+      router.replace("/select-center");
+    };
+
+    void supabase.auth.getSession().then(({ data }) => {
+      if (data.session?.user) finishOAuthLogin(data.session.user);
+    });
+
+    const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) finishOAuthLogin(session.user);
+    });
+
+    return () => authListener.subscription.unsubscribe();
+  }, [router, setUser]);
+
+  const handleGoogleLogin = async () => {
+    if (!supabase) {
+      setConfigurationError(
+        "تسجيل الدخول غير متاح لأن إعدادات Supabase العامة غير مكتملة. راجع مسؤول النشر.",
+      );
+      return;
+    }
+    setLoading(true);
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: `${window.location.origin}/login?oauth=google`,
+        },
+      });
+      if (error) throw error;
+    } catch (error: unknown) {
+      alert(error instanceof Error ? error.message : "تعذر تسجيل الدخول باستخدام Google");
+      setLoading(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -38,12 +89,10 @@ export default function AuthPage() {
     setLoading(true);
     
     if (!supabase) {
-      // Mock for demo
-      setTimeout(() => {
-        setLoading(false);
-        setUser({ id: "mock-user", email: formData.email, name: "مشرف الحلقة" });
-        router.push("/onboarding");
-      }, 1500);
+      setConfigurationError(
+        "تسجيل الدخول غير متاح لأن إعدادات Supabase العامة غير مكتملة. راجع مسؤول النشر.",
+      );
+      setLoading(false);
       return;
     }
 
@@ -77,10 +126,10 @@ export default function AuthPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-950 flex flex-col lg:flex-row transition-colors duration-500" dir="rtl">
+    <div className="min-h-screen bg-[var(--background)] flex flex-col lg:flex-row transition-colors duration-500" dir="rtl">
       {/* Visual Side */}
       <div className="lg:w-1/2 relative overflow-hidden bg-teal-900 hidden lg:flex flex-col justify-center p-20 text-white">
-        <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/islamic-art.png')] opacity-10" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(255,255,255,0.12),transparent_28%),radial-gradient(circle_at_80%_70%,rgba(45,212,191,0.16),transparent_32%)]" />
         <div className="absolute top-0 right-0 w-full h-full bg-gradient-to-br from-teal-500/20 to-transparent" />
         
         <div className="relative z-10 space-y-8">
@@ -99,18 +148,28 @@ export default function AuthPage() {
       </div>
 
       {/* Form Side */}
-      <div className="flex-1 flex flex-col justify-center p-8 lg:p-24 relative bg-white dark:bg-gray-950">
+      <div className="flex-1 flex flex-col justify-center p-8 lg:p-24 relative bg-[var(--surface)]">
         <div className="max-w-md w-full mx-auto space-y-10">
           <div className="space-y-4">
-            <h2 className="text-4xl font-black text-gray-900 dark:text-white tracking-tight">
+            <h2 className="text-4xl font-black text-[var(--foreground)] tracking-tight">
               {isLogin ? "مرحباً بعودتك 👋" : "إنشاء حساب جديد ✨"}
             </h2>
-            <p className="text-gray-500 dark:text-gray-400 font-medium text-lg">
+            <p className="text-[var(--muted)] font-medium text-lg">
               {isLogin ? "سجل دخولك لإدارة حلقاتك القرآنية." : "انضم لمئات المراكز التي تستخدم حلقتي."}
             </p>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-6">
+            {!supabaseConfiguration.isConfigured && (
+              <div role="alert" className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-bold leading-6 text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
+                إعداد الاتصال السحابي غير مكتمل. لن ينشئ النظام مستخدمًا تجريبيًا ولن يسمح بالدخول حتى تُضبط متغيرات Supabase العامة.
+              </div>
+            )}
+            {configurationError && (
+              <p role="alert" className="rounded-2xl bg-red-50 p-4 text-sm font-bold text-red-700 dark:bg-red-950/40 dark:text-red-300">
+                {configurationError}
+              </p>
+            )}
             <div className="relative group">
               <Mail className="absolute right-6 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 group-focus-within:text-teal-600 transition-colors" />
               <input 
@@ -156,9 +215,28 @@ export default function AuthPage() {
               </div>
             )}
 
+            {isLogin && (
+              <>
+                <button
+                  type="button"
+                  onClick={handleGoogleLogin}
+                  disabled={loading || !supabaseConfiguration.isConfigured}
+                  className="w-full py-4 border-2 border-[var(--border)] rounded-2xl font-black hover:border-teal-500 transition-all flex items-center justify-center gap-3"
+                >
+                  <Chrome className="w-5 h-5" />
+                  المتابعة باستخدام Google
+                </button>
+                <div className="flex items-center gap-3 text-xs font-bold text-[var(--muted)]">
+                  <span className="h-px flex-1 bg-[var(--border)]" />
+                  أو بالبريد وكلمة المرور
+                  <span className="h-px flex-1 bg-[var(--border)]" />
+                </div>
+              </>
+            )}
+
             <button 
               type="submit" 
-              disabled={loading}
+              disabled={loading || !supabaseConfiguration.isConfigured}
               className="w-full py-5 bg-teal-600 text-white rounded-2xl font-black text-lg hover:bg-teal-700 shadow-xl shadow-teal-500/20 dark:shadow-none transition-all flex items-center justify-center gap-3 group"
             >
               {loading ? (
@@ -175,12 +253,12 @@ export default function AuthPage() {
               <button 
                 type="button"
                 onClick={() => setIsLogin(!isLogin)}
-                className="text-sm font-bold text-gray-500 dark:text-gray-400 hover:text-teal-600 transition-colors"
+                className="text-sm font-bold text-[var(--muted)] hover:text-teal-600 transition-colors"
               >
                 {isLogin ? "ليس لديك حساب؟ إنشاء حساب جديد ✨" : "لديك حساب بالفعل؟ سجل دخولك 👋"}
               </button>
             </div>
-            <div className="text-center border-t border-gray-100 dark:border-gray-800 pt-5">
+            <div className="text-center border-t border-[var(--border)] pt-5">
               <button
                 type="button"
                 onClick={() => router.push("/portal")}

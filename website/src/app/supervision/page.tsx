@@ -1,17 +1,21 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { useRouter } from "next/navigation";
 import {
   ArrowRight,
   BarChart3,
   BookOpen,
   Building2,
+  CalendarClock,
   Check,
   ClipboardCheck,
   Copy,
   Link2,
   Loader2,
+  MapPinned,
+  Plus,
   Printer,
   RefreshCw,
   ShieldCheck,
@@ -22,6 +26,9 @@ import {
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useStore } from "@/store/useStore";
+import { localDateKey } from "@/utils/dateUtils";
+import { acceptSupervisorTeamInvitation, createSupervisedCenter, fetchSupervisionHealth, supervisionErrorMessage } from "@/services/supervisionService";
+import { logOperationalError } from "@/lib/operationalLog";
 
 type SupervisorRole = "owner" | "admin" | "analyst";
 
@@ -67,6 +74,17 @@ type SupervisorMember = {
   joined_at: string;
 };
 
+type SupervisionVisit = {
+  id: string;
+  center_id: string;
+  scheduled_at: string;
+  status: "planned" | "completed" | "cancelled";
+  guidance: string;
+  findings?: string | null;
+  recommendations?: string | null;
+  follow_up_date?: string | null;
+};
+
 const roleLabels: Record<SupervisorRole, string> = {
   owner: "مالك الجهة",
   admin: "مدير إشرافي",
@@ -74,21 +92,13 @@ const roleLabels: Record<SupervisorRole, string> = {
 };
 
 function todayKey() {
-  return new Date().toISOString().slice(0, 10);
+  return localDateKey();
 }
 
 function monthStartKey() {
   return `${todayKey().slice(0, 7)}-01`;
 }
 
-function invitationError(error: unknown) {
-  const message = error instanceof Error ? error.message : String(error ?? "");
-  if (message.includes("supervisor_manager_required")) return "هذه العملية متاحة لمالك الجهة أو المدير الإشرافي فقط.";
-  if (message.includes("center_already_linked")) return "المركز مرتبط بجهة إشرافية أخرى. افصل الربط القديم أولًا.";
-  if (message.includes("invalid_or_expired")) return "الدعوة غير صحيحة أو انتهت صلاحيتها أو استُخدمت من قبل.";
-  if (message.includes("center_owner_required")) return "لا يستطيع ربط المركز إلا مالكه.";
-  return "تعذر إتمام العملية. تأكد من تنفيذ SQL المرحلة P7.3 ومن صلاحيات الحساب.";
-}
 
 export default function SupervisionPage() {
   const router = useRouter();
@@ -96,8 +106,13 @@ export default function SupervisionPage() {
     user,
     currentSupervisor,
     fetchProfile,
-    acceptSupervisorMemberInvitation,
-  } = useStore();
+  } = useStore(
+    useShallow((state) => ({
+      user: state.user,
+      currentSupervisor: state.currentSupervisor,
+      fetchProfile: state.fetchProfile,
+    })),
+  );
   const [startDate, setStartDate] = useState(monthStartKey);
   const [endDate, setEndDate] = useState(todayKey);
   const [dashboard, setDashboard] = useState<SupervisionDashboard | null>(null);
@@ -113,6 +128,15 @@ export default function SupervisionPage() {
   const [memberInvite, setMemberInvite] = useState("");
   const [joinCode, setJoinCode] = useState("");
   const [copied, setCopied] = useState<"center" | "member" | null>(null);
+  const [visits, setVisits] = useState<SupervisionVisit[]>([]);
+  const [visitCenterId, setVisitCenterId] = useState("");
+  const [visitDate, setVisitDate] = useState(todayKey);
+  const [visitGuidance, setVisitGuidance] = useState("");
+  const [newCenterName, setNewCenterName] = useState("");
+  const [newCenterType, setNewCenterType] = useState<"men" | "women" | "mixed">("men");
+  const [newCenterAddress, setNewCenterAddress] = useState("");
+  const [newHalaqahName, setNewHalaqahName] = useState("الحلقة الرئيسية");
+  const [newTeacherName, setNewTeacherName] = useState("");
 
   const canManage = currentSupervisor?.role === "owner" || currentSupervisor?.role === "admin";
 
@@ -138,18 +162,85 @@ export default function SupervisionPage() {
       p_end_date: endDate,
     });
     if (error) {
-      setErrorMessage(invitationError(error));
+      const health = await fetchSupervisionHealth();
+      logOperationalError("supervision.dashboard", error);
+      setErrorMessage(supervisionErrorMessage(error, health));
       setLoading(false);
       return;
     }
-    setDashboard(data as SupervisionDashboard);
+    const nextDashboard = data as SupervisionDashboard;
+    setDashboard(nextDashboard);
+    const { data: visitRows, error: visitsError } = await supabase
+      .from("supervision_visits")
+      .select("id, center_id, scheduled_at, status, guidance, findings, recommendations, follow_up_date")
+      .eq("supervisor_id", currentSupervisor.id)
+      .order("scheduled_at", { ascending: false })
+      .limit(100);
+    if (visitsError) {
+      logOperationalError("supervision.visits.fetch", visitsError);
+      setVisits([]);
+    } else {
+      setVisits((visitRows ?? []) as SupervisionVisit[]);
+    }
     try {
       await fetchMembers();
     } catch (memberError) {
-      console.error("Unable to fetch supervisor members", memberError);
+      logOperationalError("supervision.members.fetch", memberError);
     }
     setLoading(false);
   }, [currentSupervisor, startDate, endDate, fetchMembers]);
+
+  const createVisit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!supabase || !currentSupervisor || !canManage || !visitCenterId || !visitGuidance.trim()) return;
+    setActionLoading(true);
+    setErrorMessage("");
+    const { error } = await supabase.from("supervision_visits").insert({
+      supervisor_id: currentSupervisor.id,
+      center_id: visitCenterId,
+      scheduled_at: `${visitDate}T09:00:00`,
+      guidance: visitGuidance.trim(),
+      status: "planned",
+      created_by: user?.id,
+    });
+    setActionLoading(false);
+    if (error) {
+      const health = await fetchSupervisionHealth();
+      logOperationalError("supervision.visit.create", error);
+      setErrorMessage(supervisionErrorMessage(error, health));
+      return;
+    }
+    setVisitGuidance("");
+    await fetchDashboard();
+  };
+
+  const updateVisitStatus = async (
+    visit: SupervisionVisit,
+    status: SupervisionVisit["status"],
+  ) => {
+    if (!supabase || !canManage) return;
+    const findings = status === "completed"
+      ? window.prompt("أبرز ما شوهد في الزيارة (اختياري):", visit.findings ?? "")
+      : visit.findings;
+    if (status === "completed" && findings === null) return;
+    setActionLoading(true);
+    const { error } = await supabase
+      .from("supervision_visits")
+      .update({
+        status,
+        findings: findings || null,
+        completed_at: status === "completed" ? new Date().toISOString() : null,
+      })
+      .eq("id", visit.id);
+    setActionLoading(false);
+    if (error) {
+      const health = await fetchSupervisionHealth();
+      logOperationalError("supervision.visit.update", error);
+      setErrorMessage(supervisionErrorMessage(error, health));
+      return;
+    }
+    await fetchDashboard();
+  };
 
   useEffect(() => {
     if (user && !currentSupervisor) {
@@ -181,6 +272,33 @@ export default function SupervisionPage() {
     window.setTimeout(() => setCopied(null), 1800);
   };
 
+  const createCenter = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!currentSupervisor || !canManage || !newCenterName.trim()) return;
+    setActionLoading(true);
+    setErrorMessage("");
+    const { error } = await createSupervisedCenter({
+      supervisorId: currentSupervisor.id,
+      name: newCenterName,
+      type: newCenterType,
+      address: newCenterAddress,
+      halaqahName: newHalaqahName,
+      teacherName: newTeacherName,
+    });
+    setActionLoading(false);
+    if (error) {
+      const health = await fetchSupervisionHealth();
+      logOperationalError("supervision.center.create", error);
+      setErrorMessage(supervisionErrorMessage(error, health));
+      return;
+    }
+    setNewCenterName("");
+    setNewCenterAddress("");
+    setNewTeacherName("");
+    setNewHalaqahName("الحلقة الرئيسية");
+    await fetchDashboard();
+  };
+
   const createCenterInvitation = async () => {
     if (!supabase || !currentSupervisor || !canManage) return;
     setActionLoading(true);
@@ -192,7 +310,7 @@ export default function SupervisionPage() {
     });
     setActionLoading(false);
     if (error) {
-      setErrorMessage(invitationError(error));
+      setErrorMessage(supervisionErrorMessage(error));
       return;
     }
     const invitation = data as { code: string; expires_at: string };
@@ -213,7 +331,7 @@ export default function SupervisionPage() {
     });
     setActionLoading(false);
     if (error) {
-      setErrorMessage(invitationError(error));
+      setErrorMessage(supervisionErrorMessage(error));
       return;
     }
     setMemberInvite((data as { code: string }).code);
@@ -222,10 +340,14 @@ export default function SupervisionPage() {
   const acceptTeamInvitation = async (event: React.FormEvent) => {
     event.preventDefault();
     setActionLoading(true);
-    const success = await acceptSupervisorMemberInvitation(joinCode);
+    const { data, error } = await acceptSupervisorTeamInvitation(joinCode);
     setActionLoading(false);
-    if (!success) {
-      setErrorMessage("تعذر قبول الدعوة. يجب أن يطابق بريد الحساب البريد الذي حدده مدير الجهة.");
+    if (error || !(data as { success?: boolean } | null)?.success) {
+      const health = await fetchSupervisionHealth();
+      if (error) logOperationalError("supervision.member_invitation.accept", error);
+      setErrorMessage(error
+        ? supervisionErrorMessage(error, health)
+        : "لم تؤكد قاعدة البيانات قبول الدعوة. شغّل فحص جاهزية Build 75 ثم أعد المحاولة.");
       return;
     }
     setJoinCode("");
@@ -243,7 +365,7 @@ export default function SupervisionPage() {
     });
     setActionLoading(false);
     if (error) {
-      setErrorMessage(invitationError(error));
+      setErrorMessage(supervisionErrorMessage(error));
       return;
     }
     await fetchMembers();
@@ -261,7 +383,7 @@ export default function SupervisionPage() {
     });
     setActionLoading(false);
     if (error) {
-      setErrorMessage(invitationError(error));
+      setErrorMessage(supervisionErrorMessage(error));
       return;
     }
     await fetchDashboard();
@@ -286,7 +408,7 @@ export default function SupervisionPage() {
             <ShieldCheck className="h-8 w-8" />
           </div>
           <h1 className="mt-6 text-3xl font-black">قبول دعوة جهة إشرافية</h1>
-          <p className="mt-3 leading-8 text-gray-500 dark:text-gray-400">ألصق الدعوة التي أرسلها مدير الجهة. الدعوة مرتبطة ببريد حسابك وتعمل مرة واحدة فقط.</p>
+          <p className="mt-3 leading-8 text-[var(--muted)]">ألصق الدعوة التي أرسلها مدير الجهة. الدعوة مرتبطة ببريد حسابك وتعمل مرة واحدة فقط.</p>
           {errorMessage && <p className="mt-5 rounded-2xl bg-rose-50 p-4 text-sm font-bold text-rose-700 dark:bg-rose-900/20 dark:text-rose-300">{errorMessage}</p>}
           <form onSubmit={acceptTeamInvitation} className="mt-8 space-y-4">
             <input
@@ -367,7 +489,26 @@ export default function SupervisionPage() {
         </section>
 
         {canManage && (
-          <section className="supervision-no-print grid gap-5 lg:grid-cols-2">
+          <section className="supervision-no-print grid gap-5 lg:grid-cols-3">
+            <article className="rounded-[2rem] border border-[var(--border)] bg-[var(--surface)] p-6 sm:p-8">
+              <h2 className="flex items-center gap-2 text-xl font-black"><Building2 className="h-6 w-6 text-teal-600" /> إضافة مركز تابع</h2>
+              <p className="mt-2 text-sm leading-7 text-gray-500">ينشئ المركز ويربطه بهذه الجهة مباشرة. يمكنك إنشاء الحلقة الأولى معه، ثم يتابع في تقارير الجهة فورًا.</p>
+              <form onSubmit={createCenter} className="mt-5 space-y-3">
+                <input required minLength={2} maxLength={160} value={newCenterName} onChange={(event) => setNewCenterName(event.target.value)} placeholder="اسم المركز" className="w-full rounded-2xl border border-[var(--border)] bg-[var(--background)] px-4 py-3 text-sm" />
+                <div className="grid grid-cols-2 gap-3">
+                  <select value={newCenterType} onChange={(event) => setNewCenterType(event.target.value as "men" | "women" | "mixed")} className="rounded-2xl border border-[var(--border)] bg-[var(--background)] px-4 py-3 text-sm font-bold">
+                    <option value="men">رجال</option><option value="women">نساء</option><option value="mixed">مختلط</option>
+                  </select>
+                  <input value={newCenterAddress} onChange={(event) => setNewCenterAddress(event.target.value)} placeholder="العنوان (اختياري)" className="min-w-0 rounded-2xl border border-[var(--border)] bg-[var(--background)] px-4 py-3 text-sm" />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <input value={newHalaqahName} onChange={(event) => setNewHalaqahName(event.target.value)} placeholder="اسم الحلقة الأولى" className="min-w-0 rounded-2xl border border-[var(--border)] bg-[var(--background)] px-4 py-3 text-sm" />
+                  <input value={newTeacherName} onChange={(event) => setNewTeacherName(event.target.value)} placeholder="اسم المعلم (اختياري)" className="min-w-0 rounded-2xl border border-[var(--border)] bg-[var(--background)] px-4 py-3 text-sm" />
+                </div>
+                <button disabled={actionLoading || !newCenterName.trim()} className="w-full rounded-2xl bg-teal-700 px-5 py-3.5 text-sm font-black text-white disabled:opacity-50"><Plus className="ml-2 inline h-4 w-4" /> إنشاء وربط المركز</button>
+              </form>
+            </article>
+
             <article className="rounded-[2rem] border border-[var(--border)] bg-[var(--surface)] p-6 sm:p-8">
               <div className="flex items-start justify-between gap-4">
                 <div>
@@ -428,7 +569,7 @@ export default function SupervisionPage() {
           </div>
 
           {sortedCenters.length === 0 ? (
-            <div className="p-16 text-center text-sm font-bold text-gray-400">لا توجد مراكز مرتبطة بعد. أنشئ دعوة وأرسلها لمالك المركز.</div>
+            <div className="p-16 text-center text-sm font-bold text-gray-400">لا توجد مراكز مرتبطة بعد. يمكنك إضافة مركز تابع مباشرة أو إرسال دعوة ربط لمالك مركز قائم.</div>
           ) : (
             <div className="grid gap-4 p-5 lg:grid-cols-2 sm:p-7">
               {sortedCenters.map((center, index) => (
@@ -458,10 +599,107 @@ export default function SupervisionPage() {
                     <p className="rounded-xl bg-rose-50 p-3 dark:bg-rose-900/20">الغياب: {center.absent_records}</p>
                     <p className="rounded-xl bg-amber-50 p-3 dark:bg-amber-900/20">النقاط: +{center.positive_points} / -{center.negative_points}</p>
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => router.push(`/supervision/centers/${center.id}?start=${startDate}&end=${endDate}`)}
+                    className="supervision-no-print mt-4 flex w-full items-center justify-center gap-2 rounded-2xl bg-teal-700 px-4 py-3 text-sm font-black text-white transition hover:bg-teal-800"
+                  >
+                    <BarChart3 className="h-4 w-4" />
+                    تفاصيل الحلقات والطلاب
+                  </button>
                 </article>
               ))}
             </div>
           )}
+        </section>
+
+        <section className="supervision-print-card rounded-[2rem] border border-[var(--border)] bg-[var(--surface)] p-6 sm:p-8">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="flex items-center gap-2 text-2xl font-black">
+                <MapPinned className="h-7 w-7 text-teal-600" />
+                التوجيه والزيارات الإشرافية
+              </h2>
+              <p className="mt-2 text-sm text-gray-500">جدولة زيارة للمركز، تسجيل هدف التوجيه، ثم توثيق الإكمال والمشاهدات.</p>
+            </div>
+            <span className="rounded-full bg-teal-50 px-4 py-2 text-xs font-black text-teal-700 dark:bg-teal-900/20 dark:text-teal-300">
+              {visits.filter((visit) => visit.status === "planned").length} قادمة
+            </span>
+          </div>
+
+          {canManage && sortedCenters.length > 0 && (
+            <form onSubmit={createVisit} className="supervision-no-print mt-6 grid gap-3 rounded-2xl bg-[var(--background)] p-4 lg:grid-cols-[1fr_180px_2fr_auto]">
+              <select
+                required
+                value={visitCenterId}
+                onChange={(event) => setVisitCenterId(event.target.value)}
+                className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-sm font-bold"
+              >
+                <option value="">اختر المركز</option>
+                {sortedCenters.map((center) => <option key={center.id} value={center.id}>{center.name}</option>)}
+              </select>
+              <input
+                required
+                type="date"
+                value={visitDate}
+                min={todayKey()}
+                onChange={(event) => setVisitDate(event.target.value)}
+                className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-sm font-bold"
+              />
+              <input
+                required
+                value={visitGuidance}
+                onChange={(event) => setVisitGuidance(event.target.value)}
+                placeholder="هدف التوجيه أو محور الزيارة"
+                maxLength={500}
+                className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-sm"
+              />
+              <button disabled={actionLoading} className="inline-flex items-center justify-center gap-2 rounded-xl bg-teal-600 px-5 py-3 text-sm font-black text-white disabled:opacity-50">
+                <Plus className="h-5 w-5" /> جدولة
+              </button>
+            </form>
+          )}
+
+          <div className="mt-6 grid gap-3 lg:grid-cols-2">
+            {visits.length === 0 && (
+              <p className="lg:col-span-2 rounded-2xl bg-[var(--background)] p-8 text-center text-sm font-bold text-gray-400">
+                لا توجد زيارات موثقة بعد.
+              </p>
+            )}
+            {visits.map((visit) => {
+              const center = sortedCenters.find((item) => item.id === visit.center_id);
+              return (
+                <article key={visit.id} className="rounded-2xl border border-[var(--border)] bg-[var(--background)] p-5">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="font-black">{center?.name ?? "مركز مرتبط"}</p>
+                      <p className="mt-2 flex items-center gap-2 text-xs font-bold text-gray-500">
+                        <CalendarClock className="h-4 w-4" />
+                        {new Date(visit.scheduled_at).toLocaleDateString("ar")}
+                      </p>
+                    </div>
+                    <span className={`rounded-full px-3 py-1 text-xs font-black ${
+                      visit.status === "completed"
+                        ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300"
+                        : visit.status === "cancelled"
+                          ? "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300"
+                          : "bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-300"
+                    }`}>
+                      {visit.status === "completed" ? "مكتملة" : visit.status === "cancelled" ? "ملغاة" : "مجدولة"}
+                    </span>
+                  </div>
+                  <p className="mt-4 text-sm leading-7">{visit.guidance}</p>
+                  {visit.findings && <p className="mt-3 rounded-xl bg-[var(--surface)] p-3 text-xs leading-6 text-gray-600 dark:text-gray-300">المشاهدات: {visit.findings}</p>}
+                  {canManage && visit.status === "planned" && (
+                    <div className="supervision-no-print mt-4 flex gap-2">
+                      <button onClick={() => updateVisitStatus(visit, "completed")} disabled={actionLoading} className="rounded-xl bg-emerald-600 px-4 py-2 text-xs font-black text-white disabled:opacity-50">إتمام وتوثيق</button>
+                      <button onClick={() => updateVisitStatus(visit, "cancelled")} disabled={actionLoading} className="rounded-xl bg-gray-100 px-4 py-2 text-xs font-black text-gray-600 disabled:opacity-50 dark:bg-gray-800 dark:text-gray-300">إلغاء</button>
+                    </div>
+                  )}
+                </article>
+              );
+            })}
+          </div>
         </section>
 
         {canManage && (

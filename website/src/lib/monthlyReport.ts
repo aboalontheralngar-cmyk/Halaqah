@@ -1,4 +1,5 @@
 import type { Student, AttendanceRecord, HomeworkGrade, PointRecord } from "@/store/useStore";
+import { isWeeklyHoliday } from "@/lib/dailyClosing";
 
 const GRADE_LABEL: Record<string, string> = {
   excellent: "ممتاز",
@@ -28,6 +29,7 @@ export interface MonthlyReportInput {
   grades: HomeworkGrade[];
   points: PointRecord[];
   suspendedDates?: string[];
+  weeklyHolidayDays?: number[];
   centerName?: string;
   centerType?: "men" | "women" | "mixed";
 }
@@ -40,12 +42,15 @@ function stars(avg: number): string {
 
 /** يبني نص تقرير شهري منسّق لإرساله عبر واتساب لولي الأمر */
 export function buildMonthlyReportMessage(input: MonthlyReportInput): string {
-  const { student, month, suspendedDates = [], centerName } = input;
+  const { student, month, suspendedDates = [], weeklyHolidayDays = [], centerName } = input;
   const [yearStr, monthStr] = month.split("-");
   const monthIndex = parseInt(monthStr, 10) - 1;
   const monthLabel = `${ARABIC_MONTHS[monthIndex] ?? monthStr} ${yearStr}`;
 
-  const inMonth = (date: string) => date.startsWith(month) && !suspendedDates.includes(date);
+  const inMonth = (date: string) =>
+    date.startsWith(month) &&
+    !suspendedDates.includes(date) &&
+    !isWeeklyHoliday(date, weeklyHolidayDays);
 
   // الحضور
   const att = input.attendance.filter(a => a.studentId === student.id && inMonth(a.date));

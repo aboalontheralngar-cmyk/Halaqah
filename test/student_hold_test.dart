@@ -29,4 +29,29 @@ void main() {
     expect(hold.isActiveAt(DateTime(2026, 7, 12)), isTrue);
     expect(hold.isActiveAt(DateTime(2026, 7, 13)), isFalse);
   });
+
+  test('full pause exempts both attendance and recitation', () {
+    final hold = StudentHold(
+      studentId: 'student-1',
+      startDate: DateTime(2026, 8, 1),
+      endDate: DateTime(2026, 8, 31),
+      reason: 'دراسة',
+      scope: StudentHoldScope.fullPause,
+    );
+
+    expect(hold.exemptsAttendance, isTrue);
+    expect(hold.exemptsRecitation, isTrue);
+  });
+
+  test('recitation-only hold still requires attendance', () {
+    final hold = StudentHold(
+      studentId: 'student-1',
+      startDate: DateTime(2026, 8, 1),
+      endDate: DateTime(2026, 8, 31),
+      reason: 'ظرف مؤقت',
+    );
+
+    expect(hold.exemptsAttendance, isFalse);
+    expect(hold.exemptsRecitation, isTrue);
+  });
 }

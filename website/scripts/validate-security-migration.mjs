@@ -67,10 +67,10 @@ for (const fragment of [
 }
 
 for (const fragment of [
-  "await _syncExamTemplates(centerId, halaqahId)",
+  "await _syncExamTemplates(centerId, halaqahId, direction)",
   "client.from('exam_templates').upsert",
   "client.from('exam_questions').upsert",
-  "await _syncStudentHolds(centerId, halaqahId)",
+  "await _syncStudentHolds(centerId, halaqahId, direction)",
   "client.from('student_holds').upsert",
 ]) {
   if (!androidService.includes(fragment)) {

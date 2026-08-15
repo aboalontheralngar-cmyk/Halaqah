@@ -1,23 +1,100 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { Palmtree, Plus, Trash2, CheckCircle, Clock, X, CalendarRange, Pencil } from "lucide-react";
+import { useShallow } from "zustand/react/shallow";
+import { Palmtree, Plus, Trash2, CheckCircle, Clock, X, CalendarRange, Pencil, Search, SlidersHorizontal } from "lucide-react";
 import { useStore, type Vacation } from "@/store/useStore";
 import { supabase } from "@/lib/supabase";
 import { getHijriDate } from "@/utils/dateUtils";
 
 export default function VacationsPage() {
-  const { students, vacations, addVacation, deleteVacation, fetchVacations, fetchAttendance } = useStore();
+  const {
+    students,
+    vacations,
+    addVacation,
+    deleteVacation,
+    fetchVacations,
+    fetchAttendance
+  } = useStore(
+    useShallow((state) => ({
+      students: state.students,
+      vacations: state.vacations,
+      addVacation: state.addVacation,
+      deleteVacation: state.deleteVacation,
+      fetchVacations: state.fetchVacations,
+      fetchAttendance: state.fetchAttendance,
+    })),
+  );
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState({ studentId: "", startDate: "", endDate: "", reason: "" });
+  const [periodFilter, setPeriodFilter] = useState<"all" | "week" | "month" | "custom">("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "upcoming" | "expired" | "pending" | "approved">("all");
+  const [studentFilter, setStudentFilter] = useState("");
+  const [reasonFilter, setReasonFilter] = useState("");
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo, setCustomTo] = useState("");
 
-  const today = new Date().toISOString().split("T")[0];
+  const today = localDateKey();
 
-  const sorted = useMemo(
-    () => [...vacations].sort((a, b) => b.startDate.localeCompare(a.startDate)),
-    [vacations]
+  const sortedStudents = useMemo(
+    () => [...students].sort((left, right) =>
+      left.name.localeCompare(right.name, "ar", { sensitivity: "base" }),
+    ),
+    [students],
   );
+
+  const filteredVacations = useMemo(() => {
+    const dateToInput = (date: Date) => {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, "0");
+      const day = String(date.getDate()).padStart(2, "0");
+      return `${year}-${month}-${day}`;
+    };
+    const now = new Date();
+    const saturdayOffset = (now.getDay() + 1) % 7;
+    const weekStartDate = new Date(now);
+    weekStartDate.setDate(now.getDate() - saturdayOffset);
+    const weekEndDate = new Date(weekStartDate);
+    weekEndDate.setDate(weekStartDate.getDate() + 6);
+    const monthStart = `${today.slice(0, 7)}-01`;
+    const monthEndDate = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+
+    let rangeStart = "";
+    let rangeEnd = "";
+    if (periodFilter === "week") {
+      rangeStart = dateToInput(weekStartDate);
+      rangeEnd = dateToInput(weekEndDate);
+    } else if (periodFilter === "month") {
+      rangeStart = monthStart;
+      rangeEnd = dateToInput(monthEndDate);
+    } else if (periodFilter === "custom") {
+      rangeStart = customFrom;
+      rangeEnd = customTo;
+    }
+
+    const normalizedReason = reasonFilter.trim().toLocaleLowerCase("ar");
+    return [...vacations]
+      .filter(vacation => !studentFilter || vacation.studentId === studentFilter)
+      .filter(vacation =>
+        !normalizedReason || vacation.reason.toLocaleLowerCase("ar").includes(normalizedReason),
+      )
+      .filter(vacation => {
+        if (statusFilter === "active") return vacation.approved && vacation.startDate <= today && vacation.endDate >= today;
+        if (statusFilter === "upcoming") return vacation.approved && vacation.startDate > today;
+        if (statusFilter === "expired") return vacation.endDate < today;
+        if (statusFilter === "pending") return !vacation.approved;
+        if (statusFilter === "approved") return vacation.approved;
+        return true;
+      })
+      .filter(vacation => {
+        if (!rangeStart && !rangeEnd) return true;
+        if (rangeStart && vacation.endDate < rangeStart) return false;
+        if (rangeEnd && vacation.startDate > rangeEnd) return false;
+        return true;
+      })
+      .sort((left, right) => right.startDate.localeCompare(left.startDate));
+  }, [customFrom, customTo, periodFilter, reasonFilter, statusFilter, studentFilter, today, vacations]);
 
   const stats = useMemo(() => {
     const active = vacations.filter((v) => today >= v.startDate && today <= v.endDate);
@@ -151,8 +228,8 @@ export default function VacationsPage() {
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div>
-          <h1 className="text-3xl font-black text-gray-900 dark:text-white tracking-tight">إدارة الإجازات</h1>
-          <p className="text-gray-500 dark:text-gray-400 mt-2 font-medium">
+          <h1 className="text-3xl font-black text-[var(--foreground)] tracking-tight">إدارة الإجازات</h1>
+          <p className="text-[var(--muted)] mt-2 font-medium">
             تسجيل إجازات الطلاب واعتمادها — تظهر تلقائياً في سجل الحضور.
           </p>
         </div>
@@ -171,22 +248,84 @@ export default function VacationsPage() {
           { label: "في إجازة الآن", value: stats.active, icon: Palmtree, color: "text-blue-600", bg: "bg-blue-50 dark:bg-blue-900/20" },
           { label: "بانتظار الاعتماد", value: stats.pending, icon: Clock, color: "text-amber-600", bg: "bg-amber-50 dark:bg-amber-900/20" },
         ].map((item, i) => (
-          <div key={i} className="bg-white dark:bg-gray-900 rounded-[2rem] border border-gray-100 dark:border-gray-800 p-6 flex flex-col items-center text-center shadow-sm">
+          <div key={i} className="bg-[var(--surface)] rounded-[2rem] border border-[var(--border)] p-6 flex flex-col items-center text-center shadow-sm">
             <div className={`w-10 h-10 ${item.bg} rounded-2xl flex items-center justify-center mb-3`}>
               <item.icon className={`w-5 h-5 ${item.color}`} />
             </div>
-            <p className="text-2xl font-black text-gray-900 dark:text-white">{item.value}</p>
+            <p className="text-2xl font-black text-[var(--foreground)]">{item.value}</p>
             <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{item.label}</p>
           </div>
         ))}
       </div>
 
+      <div className="rounded-[2rem] border border-gray-100 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <SlidersHorizontal className="h-5 w-5 text-teal-600" />
+            <div>
+              <h2 className="text-sm font-black text-[var(--foreground)]">تنظيم سجل الإجازات</h2>
+              <p className="text-[11px] font-bold text-gray-400">{filteredVacations.length} نتيجة مطابقة</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setPeriodFilter("all");
+              setStatusFilter("all");
+              setStudentFilter("");
+              setReasonFilter("");
+              setCustomFrom("");
+              setCustomTo("");
+            }}
+            className="rounded-xl bg-gray-100 px-4 py-2 text-xs font-black text-gray-600 dark:bg-gray-800 dark:text-gray-300"
+          >
+            مسح الفلاتر
+          </button>
+        </div>
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <select value={periodFilter} onChange={event => setPeriodFilter(event.target.value as typeof periodFilter)} className="rounded-2xl bg-gray-50 px-4 py-3 text-xs font-black outline-none dark:bg-gray-800">
+            <option value="all">كل الفترات</option>
+            <option value="week">الأسبوع الحالي (السبت–الجمعة)</option>
+            <option value="month">الشهر الحالي</option>
+            <option value="custom">فترة مخصصة</option>
+          </select>
+          <select value={statusFilter} onChange={event => setStatusFilter(event.target.value as typeof statusFilter)} className="rounded-2xl bg-gray-50 px-4 py-3 text-xs font-black outline-none dark:bg-gray-800">
+            <option value="all">كل الحالات</option>
+            <option value="active">سارية الآن</option>
+            <option value="upcoming">قادمة</option>
+            <option value="expired">منتهية</option>
+            <option value="pending">بانتظار الاعتماد</option>
+            <option value="approved">معتمدة</option>
+          </select>
+          <select value={studentFilter} onChange={event => setStudentFilter(event.target.value)} className="rounded-2xl bg-gray-50 px-4 py-3 text-xs font-black outline-none dark:bg-gray-800">
+            <option value="">كل الطلاب</option>
+            {sortedStudents.map(student => <option key={student.id} value={student.id}>{student.name}</option>)}
+          </select>
+          <label className="flex items-center gap-2 rounded-2xl bg-gray-50 px-4 dark:bg-gray-800">
+            <Search className="h-4 w-4 shrink-0 text-gray-400" />
+            <input value={reasonFilter} onChange={event => setReasonFilter(event.target.value)} placeholder="ابحث في السبب…" className="min-w-0 flex-1 bg-transparent py-3 text-xs font-bold outline-none" />
+          </label>
+        </div>
+        {periodFilter === "custom" && (
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <label className="rounded-2xl bg-gray-50 px-4 py-2 text-[10px] font-black text-gray-400 dark:bg-gray-800">
+              من تاريخ
+              <input type="date" value={customFrom} onChange={event => setCustomFrom(event.target.value)} className="mt-1 block w-full bg-transparent py-1 text-xs font-bold text-gray-800 outline-none dark:text-gray-100" />
+            </label>
+            <label className="rounded-2xl bg-gray-50 px-4 py-2 text-[10px] font-black text-gray-400 dark:bg-gray-800">
+              إلى تاريخ
+              <input type="date" min={customFrom || undefined} value={customTo} onChange={event => setCustomTo(event.target.value)} className="mt-1 block w-full bg-transparent py-1 text-xs font-bold text-gray-800 outline-none dark:text-gray-100" />
+            </label>
+          </div>
+        )}
+      </div>
+
       {/* List */}
       <div className="bg-white/60 dark:bg-gray-900/60 backdrop-blur-md rounded-[3rem] border border-white dark:border-gray-800 shadow-xl overflow-hidden">
-        {sorted.length === 0 ? (
+        {filteredVacations.length === 0 ? (
           <div className="p-16 flex flex-col items-center text-center gap-4 opacity-50">
             <Palmtree className="w-16 h-16 text-gray-300" />
-            <p className="font-bold text-gray-400">لا توجد إجازات مسجلة بعد</p>
+            <p className="font-bold text-gray-400">لا توجد إجازات مطابقة للفلاتر الحالية</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -201,7 +340,7 @@ export default function VacationsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50 dark:divide-gray-800">
-                {sorted.map((v) => {
+                {filteredVacations.map((v) => {
                   const isActive = today >= v.startDate && today <= v.endDate;
                   return (
                     <tr key={v.id} className="hover:bg-teal-50/20 dark:hover:bg-teal-900/10 transition-colors">
@@ -219,7 +358,7 @@ export default function VacationsPage() {
                         </p>
                         <p className="text-[10px] text-gray-400 mt-1">{getHijriDate(new Date(v.startDate)).full}</p>
                       </td>
-                      <td className="px-8 py-6 text-xs font-bold text-gray-500 dark:text-gray-400">{v.reason || "—"}</td>
+                      <td className="px-8 py-6 text-xs font-bold text-[var(--muted)]">{v.reason || "—"}</td>
                       <td className="px-8 py-6 text-center">
                         <button
                           onClick={() => toggleApproval(v.id, v.approved)}
@@ -263,7 +402,7 @@ export default function VacationsPage() {
       {/* Add/Edit Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-gray-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-300">
-          <div className="bg-white dark:bg-gray-900 rounded-[2.5rem] p-10 w-full max-w-md shadow-2xl relative">
+          <div className="bg-[var(--surface)] rounded-[2.5rem] p-10 w-full max-w-md shadow-2xl relative">
             <button
               onClick={() => {
                 setShowModal(false);
@@ -275,7 +414,7 @@ export default function VacationsPage() {
             >
               <X className="w-6 h-6 text-gray-400" />
             </button>
-            <h3 className="text-2xl font-black text-gray-900 dark:text-white mb-6">
+            <h3 className="text-2xl font-black text-[var(--foreground)] mb-6">
               {editingId ? "تعديل تفاصيل الإجازة" : "تسجيل إجازة جديدة"}
             </h3>
 
@@ -288,7 +427,7 @@ export default function VacationsPage() {
                   className="w-full bg-gray-50 dark:bg-gray-800 border-none rounded-2xl px-6 py-4 font-bold outline-none"
                 >
                   <option value="">اختر الطالب...</option>
-                  {students.map((s) => (
+                  {sortedStudents.map((s) => (
                     <option key={s.id} value={s.id}>{s.name}</option>
                   ))}
                 </select>
