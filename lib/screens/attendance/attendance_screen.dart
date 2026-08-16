@@ -473,11 +473,16 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     if (!mounted) return;
     final action = await showModalBottomSheet<String>(
       context: context,
+      isScrollControlled: true,
       showDragHandle: true,
       builder: (context) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-          child: Column(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.sizeOf(context).height * 0.82,
+          ),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -505,7 +510,8 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                   _qrAction(context, 'vacation', 'إجازة', Icons.beach_access_outlined, Colors.orange),
                 ],
               ),
-            ],
+              ],
+            ),
           ),
         ),
       ),

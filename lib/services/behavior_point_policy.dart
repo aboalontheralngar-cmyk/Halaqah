@@ -6,7 +6,7 @@ class BehaviorPointPolicy {
 
   static String? validate({
     required String type,
-    required int points,
+    required num points,
     required String reason,
     required String studentStatus,
   }) {

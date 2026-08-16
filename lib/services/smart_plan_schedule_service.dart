@@ -20,6 +20,7 @@ class SmartPlanDailyAssignment {
   final String recitationRange;
   final bool isStudyDay;
   final String? dayStatus;
+  final bool isCatchupDay;
 
   const SmartPlanDailyAssignment({
     required this.date,
@@ -28,6 +29,7 @@ class SmartPlanDailyAssignment {
     required this.recitationRange,
     this.isStudyDay = true,
     this.dayStatus,
+    this.isCatchupDay = false,
   });
 }
 
@@ -43,8 +45,13 @@ class SmartPlanScheduleException implements Exception {
 class _PlanCalendarDay {
   final DateTime date;
   final String? status;
+  final bool catchupOnly;
 
-  const _PlanCalendarDay(this.date, {this.status});
+  const _PlanCalendarDay(
+    this.date, {
+    this.status,
+    this.catchupOnly = false,
+  });
 
   bool get isStudyDay => status == null;
 }
@@ -164,6 +171,35 @@ class SmartPlanScheduleService {
         );
         continue;
       }
+      if (calendarDay.catchupOnly) {
+        final recitation = _rangeFromCursor(
+          cursor: recitationCursor,
+          unit: plan.unit,
+          amount: plan.recitationAmount,
+          ascending: ascendingMemorization,
+        );
+        if (recitation == null) {
+          throw SmartPlanScheduleException(
+            'تعذر إنشاء نطاق السرد الدقيق للطالب ${student.name}.',
+          );
+        }
+        result.add(
+          SmartPlanDailyAssignment(
+            date: day,
+            memorizationRange: 'تدارك الفائت — لا مقرر حفظ جديد',
+            reviewRange: 'تدارك الفائت — راجع ما لم يكتمل فقط',
+            recitationRange: _rangeLabel(recitation),
+            dayStatus: 'الجمعة: تدارك الفائت + سرد تلاوة',
+            isCatchupDay: true,
+          ),
+        );
+        recitationCursor = _afterRange(
+          recitation,
+          ascending: ascendingMemorization,
+          cycle: true,
+        );
+        continue;
+      }
       final memorization = revisionOnly
           ? null
           : _rangeFromCursor(
@@ -262,19 +298,37 @@ class SmartPlanScheduleService {
         }
       }
       String? status;
+      var catchupOnly = false;
       if (suspendedDates.contains(key)) {
         final reason = suspensionReasons[key]?.trim();
         status = reason == null || reason.isEmpty
             ? 'تعليق الدراسة'
             : 'تعليق الدراسة: $reason';
-      } else if (settings.holidayWeekdays.contains(day.weekday)) {
-        status = 'إجازة أسبوعية';
       } else if (activeVacation != null) {
         status = 'إجازة الطالب: ${VacationReason.getLabel(activeVacation.reason)}';
       } else if (activeHold != null) {
         status = 'الطالب موقوف: ${activeHold.reason}';
+      } else if (day.weekday == DateTime.friday) {
+        // Friday follows the plan's explicit policy even when the center's
+        // weekly-holiday settings differ. This keeps each student's plan
+        // predictable and lets Friday remain a catch-up/recitation day.
+        if (plan.fridayMode == 'full_plan') {
+          status = null;
+        } else if (plan.fridayMode == 'catchup_recitation') {
+          catchupOnly = true;
+        } else {
+          status = 'إجازة أسبوعية';
+        }
+      } else if (settings.holidayWeekdays.contains(day.weekday)) {
+        status = 'إجازة أسبوعية';
       }
-      result.add(_PlanCalendarDay(day, status: status));
+      result.add(
+        _PlanCalendarDay(
+          day,
+          status: status,
+          catchupOnly: catchupOnly,
+        ),
+      );
     }
     return result;
   }

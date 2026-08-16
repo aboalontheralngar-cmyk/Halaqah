@@ -9,9 +9,9 @@ import 'package:sqflite/sqflite.dart';
 class LocalDatabaseSchema {
   const LocalDatabaseSchema();
 
-  // Build 76 adds the durable local delete outbox and structured exam link.
-  // Previous release database version: 24.
-  static const int version = 25;
+  // Build 78 adds per-plan Friday policy.
+  // Previous release database version: 25.
+  static const int version = 26;
 
   Future<void> onCreate(Database db, int version) async {
     await db.execute('''
@@ -89,7 +89,7 @@ class LocalDatabaseSchema {
         student_id TEXT NOT NULL,
         type TEXT NOT NULL,
         reason TEXT NOT NULL,
-        points INTEGER NOT NULL,
+        points REAL NOT NULL,
         date TEXT NOT NULL,
         resolved INTEGER DEFAULT 0,
         resolved_date TEXT,
@@ -164,6 +164,7 @@ class LocalDatabaseSchema {
     await _upgradeToVersion23(db);
     await _upgradeToVersion24(db);
     await _upgradeToVersion25(db);
+    await _upgradeToVersion26(db);
   }
 
   Future<void> onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -239,6 +240,30 @@ class LocalDatabaseSchema {
     if (oldVersion < 25) {
       await _upgradeToVersion25(db);
     }
+    if (oldVersion < 26) {
+      await _upgradeToVersion26(db);
+    }
+  }
+
+
+  Future<void> _upgradeToVersion26(Database db) async {
+    final planColumns = await db.rawQuery('PRAGMA table_info(plans)');
+    if (!planColumns.any((column) => column['name'] == 'friday_mode')) {
+      await db.execute(
+        "ALTER TABLE plans ADD COLUMN friday_mode TEXT NOT NULL DEFAULT 'catchup_recitation'",
+      );
+    }
+    await db.execute(
+      "UPDATE plans SET friday_mode = 'catchup_recitation' "
+      "WHERE friday_mode IS NULL OR friday_mode NOT IN ('catchup_recitation','full_plan','holiday')",
+    );
+    // Build 78 introduces true fractional recitation rewards. Existing installs
+    // used nearest as the old default; migrate that default to exact while
+    // preserving explicit floor/ceil choices.
+    await db.execute(
+      "UPDATE settings SET value = 'exact' "
+      "WHERE key = 'recitation_points_rounding' AND value = 'nearest'",
+    );
   }
 
 
@@ -340,6 +365,16 @@ class LocalDatabaseSchema {
     String? remoteKey3,
     String? remoteValue3,
   }) async {
+    final tableRows = await db.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
+      [localTable],
+    );
+    if (tableRows.isEmpty) {
+      debugPrint(
+        '[schema.v25] skip delete outbox trigger; missing optional table: $localTable',
+      );
+      return;
+    }
     final trigger = 'sync_delete_outbox_${localTable}_delete';
     String sqlLiteral(String? value) =>
         value == null ? 'NULL' : "'${value.replaceAll("'", "''")}'";
@@ -960,7 +995,7 @@ class LocalDatabaseSchema {
         action TEXT NOT NULL,
         reason TEXT NOT NULL,
         point_reason_snapshot TEXT NOT NULL,
-        points_snapshot INTEGER NOT NULL,
+        points_snapshot REAL NOT NULL,
         created_at TEXT NOT NULL,
         FOREIGN KEY (point_id) REFERENCES behavior_points (id) ON DELETE SET NULL,
         FOREIGN KEY (original_student_id) REFERENCES students (id) ON DELETE CASCADE,
@@ -1102,6 +1137,7 @@ class LocalDatabaseSchema {
         new_amount INTEGER NOT NULL DEFAULT 5,
         review_amount INTEGER NOT NULL DEFAULT 10,
         recitation_amount INTEGER NOT NULL DEFAULT 1,
+        friday_mode TEXT NOT NULL DEFAULT 'catchup_recitation',
         status TEXT NOT NULL DEFAULT 'active',
         test_status TEXT NOT NULL DEFAULT 'not_required',
         completion_exam_id TEXT,

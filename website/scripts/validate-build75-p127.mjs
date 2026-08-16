@@ -20,10 +20,10 @@ function assert(condition, message) {
 const pubspec = read("pubspec.yaml");
 const buildInfo = read("lib/app/build_info.dart");
 const whatsNew = read("lib/screens/settings/whats_new_screen.dart");
-assert(pubspec.includes("version: 4.3.0-alpha.22+76"), "pubspec version is not Build 75");
-assert(buildInfo.includes("versionName = '4.3.0-alpha.22'") && buildInfo.includes("buildNumber = 76") && buildInfo.includes("releaseLabel = 'P1.27'"), "AppBuildInfo is not P1.27 Build 75");
+assert(pubspec.includes("version: 4.3.0-alpha.24+80"), "pubspec version is not Build 75");
+assert(buildInfo.includes("versionName = '4.3.0-alpha.24'") && buildInfo.includes("buildNumber = 80") && buildInfo.includes("releaseLabel = 'P1.27'"), "AppBuildInfo is not P1.27 Build 75");
 assert(whatsNew.includes("v4.3.0-alpha.21 · P1.27 Build 75"), "What's New does not document Build 75");
-assert(read("lib/services/local_database_schema.dart").includes("static const int version = 25"), "SQLite schema version must stay 24");
+assert(read("lib/services/local_database_schema.dart").includes("static const int version = 26"), "SQLite schema version must stay 24");
 
 // 1) Proportional recitation points.
 const pointsPolicy = read("lib/services/recitation_points_policy.dart");
@@ -79,7 +79,7 @@ assert(read("website/src/store/useStore.ts").includes("'monthly_plan'"), "web mo
 assert(exists("test/monthly_plan_exam_service_test.dart"), "monthly plan exam test missing");
 
 // 7) Peer-level competition groups.
-assert(read("lib/screens/competition/competitions_screen.dart").includes("PeerLevelGroupsScreen"), "peer groups are not reachable from competitions");
+assert(read("lib/screens/home/home_screen.dart").includes("PeerLevelGroupsScreen"), "peer groups are not reachable from home");
 assert(read("lib/services/peer_level_grouping_service.dart").includes("groupCount.clamp(1, students.length)"), "peer grouping count is not safely constrained");
 assert(read("lib/screens/competition/peer_level_groups_screen.dart").includes("getStudentMemorizedRanges"), "peer grouping is not based on canonical memorization");
 assert(exists("test/peer_level_grouping_service_test.dart"), "peer grouping test missing");

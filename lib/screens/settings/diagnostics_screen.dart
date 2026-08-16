@@ -215,6 +215,12 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
         _detailRow('آخر اتجاه', data.lastSyncDirection),
         _detailRow('آخر رفع', _date(data.lastCloudUploadAt)),
         _detailRow('آخر تنزيل', _date(data.lastCloudDownloadAt)),
+        if (data.lastCloudSyncFailedStage?.isNotEmpty == true)
+          _detailRow('مرحلة الفشل', data.lastCloudSyncFailedStage!),
+        if (data.lastCloudSyncErrorCode?.isNotEmpty == true)
+          _detailRow('رمز التشخيص', data.lastCloudSyncErrorCode!),
+        if (data.lastCloudSyncFailedAt != null)
+          _detailRow('وقت آخر فشل', _date(data.lastCloudSyncFailedAt)),
       ],
     );
   }

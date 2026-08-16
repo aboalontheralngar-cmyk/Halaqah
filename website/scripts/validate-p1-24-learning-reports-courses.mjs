@@ -17,18 +17,18 @@ const requireAll = (path, fragments) => {
 };
 
 requireAll("pubspec.yaml", [
-  "version: 4.3.0-alpha.22+76",
+  "version: 4.3.0-alpha.24+80",
   "assets/fonts/Tajawal-400.ttf",
   "assets/fonts/Tajawal-700.ttf",
   "family: Tajawal",
 ]);
 requireAll("lib/app/build_info.dart", [
-  "versionName = '4.3.0-alpha.22'",
-  "buildNumber = 76",
+  "versionName = '4.3.0-alpha.24'",
+  "buildNumber = 80",
   "releaseLabel = 'P1.27'",
 ]);
 requireAll("lib/services/database_service.dart", [
-  "version: 24",
+  "static const int version = 26",
   "_upgradeToVersion23",
   "_upgradeToVersion23",
   "review_plan_type",
@@ -184,7 +184,7 @@ requireAll("lib/services/supabase_service.dart", ["_syncQuranCourses"]);
 
 requireAll("lib/services/recitation_points_policy.dart", [
   "final rawReward = safeCompletionReward * ratio",
-  "var proportionalReward = switch (roundingMode)",
+  "double proportionalReward = switch (roundingMode)",
   "completionPoints: proportionalReward",
   "bonusPoints: completed && exceeded ? safeExtraReward",
   "workloadPoints: 0",

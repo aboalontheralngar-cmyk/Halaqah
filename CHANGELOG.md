@@ -1,3 +1,60 @@
+
+## P1.27 Build 80 Hotfix 5 — 2026-08-16
+
+- Disaster-recovery cloud backup discovery across all authenticated-user center folders.
+- Automatic sync pause/grace window around atomic backup restoration.
+- Memorization sync no longer fails the whole run on one legacy malformed cloud row.
+- Build number 80 plus an ADB downgrade guard to prevent destructive Flutter uninstall fallback.
+
+## P1.27 Build 78 Hotfix 4 — 2026-08-16
+
+- Fixed `SYNC_EXAMS_23503` by synchronizing exam templates before dependent exams and cleaning deleted templates after references are reconciled.
+- Automatic cloud sync falls back to upload-only when no backup passphrase is configured, avoiding repeated pre-sync backup failures.
+- Restored backwards-compatible DiagnosticSnapshot construction and added regression coverage.
+
+## [غير مُصدر] — P1.27 Build 78 Hotfix 3 — مزامنة سحابية قابلة للتشخيص وأخف استهلاكًا — 2026-08-16
+
+- أصلح عقد مزامنة Supabase بإضافة `P1.27_BUILD78_HOTFIX3_APPLY.sql` و`VERIFY.sql` للقيود الفريدة التي تعتمد عليها upserts في الويب، مع حارس duplicates غير مدمر.
+- جعل رفع `mushaf_progress` و`daily_achievements` على Flutter idempotent بالمفتاح الأساسي الثابت بدل composite conflict target.
+- أضاف progress stages ورموز فشل آمنة ومركز تشخيص يحفظ المرحلة/الرمز/الوقت دون بيانات شخصية.
+- أوقف فحص الشبكة كل 12 ثانية واستبدله بمزامنة foreground-only + adaptive retry عند أخطاء الاتصال فقط؛ وخفّض الاستعلامات المتكررة بذاكرة نطاق وTTL للهوية.
+- شدد فشل المزامنة: أخطاء رفع النقاط/الصندوق/الخطط/قوالب الاختبارات لم تعد تُخفى ثم تُعلن العملية ناجحة.
+- بدأ فصل بنية المزامنة في `lib/services/sync/` ووحد نافذة تقدم المزامنة في Widget مشترك، وأضيف فهرس توثيق ومعمارية حالية.
+- لا ترقية SQLite ولا تغيير dependency pins أو رقم Build.
+
+## P1.27 Build 78 Hotfix 1 — Flutter compile + bounded sync — 2026-08-16
+
+- أصلح 8 أخطاء Flutter ظهرت على جهاز المالك بعد Build78: أنواع النقاط العشرية، استيراد Helpers، API إعدادات المصالحة، PDF والـtests.
+- المزامنة تقوم الآن بفحص اتصال سريع قبل البدء، وتضع مهلة 12 ثانية على RPC الإجازات العارضة مع إعادة محاولة واحدة للأخطاء الشبكية المؤقتة.
+- أضيف fingerprint محلي للإجازات العارضة حتى لا يعاد إرسال كل أيام التعليق في كل مزامنة دون تغيير.
+- رسائل المزامنة لا تعرض ClientException أو رابط Supabase الخام للمستخدم؛ تبقى بيانات SQLite محلية ويعاد المحاولة لاحقًا.
+- لا SQL جديد، ولا تغيير في SQLite أو dependency pins؛ نتيجة VERIFY Build78 الحية تظل صالحة.
+- أضيف validator واختبار regression لرسالة فشل المزامنة.
+
+## P1.27 Build 78 — 4.3.0-alpha.24+78 — 2026-08-15
+
+- أصبحت مجموعات المستوى قابلة للطباعة، وحفظ الفعاليات، وإنشاء مسابقة محصورة على أعضاء المجموعة.
+- أضيف استثناء فعلي قبل PDF الجماعي مع زر استبعاد المستجدين، وملخص طالب من صفحة واحدة.
+- أضيفت مدفوعات الطالب وتفصيل صفحات الحفظ/المراجعة/السرد إلى تقارير الفترة وPDF.
+- أضيف منتقي فترة هجري/ميلادي، وسياسة الجمعة: تدارك+سرد أو خطة كاملة أو إجازة.
+- أضيفت مصالحة لمرة واحدة لمحفوظ الطلاب القدامى من سجلات الحفظ، ومقترحات المراجعة أصبحت قابلة للإلغاء.
+- أضيف تحذير/تصحيح عند محاولة تسميع طالب مستأذن.
+- أصبحت نقاط الإنجاز تدعم الكسور الحقيقية مثل 2.5، مع مزامنة `points.amount NUMERIC(10,2)`.
+- أضيف نظام مسابقات الجهة الإشرافية: مواسم وفئات وترشيح المراكز والتحكيم والنتائج مع RLS/RPCs محمية.
+- رُفع SQLite إلى 26، ولم تتغير dependency pins المعروفة نجاحها على جهاز المالك.
+- أضيفت بوابات Build78 واختبارات runtime، وأصبح مجموع validators 66.
+
+## P1.27 Build 77 — 4.3.0-alpha.23+77 — 2026-08-15
+
+- peer-level groups now have direct Home/Drawer access and Quran-range/juz-band names;
+- aggregate reports can exclude selected/new students from top ranking without removing their metrics;
+- aggregate halaqah PDF and management summary are single-page A4 landscape layouts with high-contrast text;
+- reports dashboard, revision suggestion ordering, and fund transaction editing were improved;
+- QR, raffle, point-rule, and daily-excellence overflow regressions were hardened;
+- startup failure is retryable and theme/database startup is non-fatal; sync icon contrast is explicit;
+- dependency pins remain unchanged; no Build 77 SQL migration is required;
+- added Build 77 source/runtime validators and explicit remaining-work documentation.
+
 ## P1.27 Build 76 Hotfix 1 — Flutter compile fixes — 2026-08-15
 
 - أصلح خطأ `num → int` في شاشة مجموعات التنافس.

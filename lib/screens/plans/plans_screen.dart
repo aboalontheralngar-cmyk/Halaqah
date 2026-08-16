@@ -11,6 +11,7 @@ import '../../services/review_plan_policy.dart';
 import '../../services/smart_plan_schedule_service.dart';
 import '../../services/student_learning_policy.dart';
 import '../../utils/helpers.dart';
+import '../../widgets/dual_calendar_date_picker.dart';
 import 'plan_recitation_screen.dart';
 
 class PlansScreen extends StatefulWidget {
@@ -104,6 +105,7 @@ class _PlansScreenState extends State<PlansScreen> {
     var newAmount = existing?.newAmount ?? 5;
     var reviewAmount = existing?.reviewAmount ?? 10;
     var recitationAmount = existing?.recitationAmount ?? 1;
+    var fridayMode = existing?.fridayMode ?? 'catchup_recitation';
     var startDate = existing?.startDate ?? _day(DateTime.now());
     var endDate = existing?.endDate ?? _day(DateTime.now()).add(const Duration(days: 6));
     var notes = existing?.notes ?? '';
@@ -343,6 +345,42 @@ class _PlansScreenState extends State<PlansScreen> {
                       setSheetState(() => recitationAmount = value),
                 ),
                 const SizedBox(height: 14),
+                DropdownButtonFormField<String>(
+                  initialValue: fridayMode,
+                  decoration: const InputDecoration(
+                    labelText: 'برنامج يوم الجمعة',
+                    prefixIcon: Icon(Icons.auto_stories_outlined),
+                  ),
+                  items: const [
+                    DropdownMenuItem(
+                      value: 'catchup_recitation',
+                      child: Text('تدارك الفائت + سرد تلاوة'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'full_plan',
+                      child: Text('حفظ + مراجعة + سرد كأي يوم'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'holiday',
+                      child: Text('إجازة كاملة'),
+                    ),
+                  ],
+                  onChanged: (value) {
+                    if (value != null) setSheetState(() => fridayMode = value);
+                  },
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  fridayMode == 'catchup_recitation'
+                      ? 'لا يتقدم مقرر الحفظ أو المراجعة يوم الجمعة؛ يخصص اليوم لتعويض ما فات مع استمرار السرد.'
+                      : fridayMode == 'full_plan'
+                          ? 'يُعامل الجمعة كيوم خطة كامل حتى لو كان من أيام عطلة الحلقة.'
+                          : 'لا يضاف أي مقرر يوم الجمعة.',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                ),
+                const SizedBox(height: 14),
                 Wrap(
                   spacing: 8,
                   runSpacing: 8,
@@ -376,7 +414,7 @@ class _PlansScreenState extends State<PlansScreen> {
                   subtitle: Text('${_date(startDate)} — ${_date(endDate)}'),
                   trailing: const Icon(Icons.edit_calendar),
                   onTap: () async {
-                    final selected = await showDateRangePicker(
+                    final selected = await showDualCalendarDateRangePicker(
                       context: context,
                       firstDate: DateTime(2020),
                       lastDate: DateTime.now().add(const Duration(days: 730)),
@@ -384,6 +422,7 @@ class _PlansScreenState extends State<PlansScreen> {
                         start: startDate,
                         end: endDate,
                       ),
+                      title: 'مدة الخطة',
                     );
                     if (selected != null) {
                       setSheetState(() {
@@ -423,6 +462,7 @@ class _PlansScreenState extends State<PlansScreen> {
                                     newAmount: newAmount,
                                     reviewAmount: reviewAmount,
                                     recitationAmount: recitationAmount,
+                                    fridayMode: fridayMode,
                                     notes: notes.trim().isEmpty
                                         ? null
                                         : notes.trim(),
@@ -436,6 +476,7 @@ class _PlansScreenState extends State<PlansScreen> {
                                   newAmount: newAmount,
                                   reviewAmount: reviewAmount,
                                   recitationAmount: recitationAmount,
+                                  fridayMode: fridayMode,
                                   notes: notes.trim(),
                                   clearNotes: notes.trim().isEmpty,
                                 );
@@ -610,7 +651,11 @@ class _PlansScreenState extends State<PlansScreen> {
       );
       await Printing.layoutPdf(onLayout: (_) async => bytes);
     } catch (error) {
-      _message('تعذرت طباعة الخطة: $error', error: true);
+      final message = error
+          .toString()
+          .replaceFirst(RegExp(r'^Bad state:\s*'), '')
+          .replaceFirst(RegExp(r'^Exception:\s*'), '');
+      _message('تعذرت طباعة الخطة: $message', error: true);
     }
   }
 
@@ -637,6 +682,7 @@ class _PlansScreenState extends State<PlansScreen> {
     var period = 'weekly';
     var startDate = _day(DateTime.now());
     var endDate = startDate.add(const Duration(days: 6));
+    var fridayMode = 'catchup_recitation';
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
@@ -672,7 +718,7 @@ class _PlansScreenState extends State<PlansScreen> {
                 title: const Text('مدة الخطط'),
                 subtitle: Text('${_date(startDate)} — ${_date(endDate)}'),
                 onTap: () async {
-                  final range = await showDateRangePicker(
+                  final range = await showDualCalendarDateRangePicker(
                     context: dialogContext,
                     firstDate: DateTime(2020),
                     lastDate: DateTime.now().add(const Duration(days: 730)),
@@ -680,6 +726,7 @@ class _PlansScreenState extends State<PlansScreen> {
                       start: startDate,
                       end: endDate,
                     ),
+                    title: 'مدة خطط جميع الطلاب',
                   );
                   if (range == null) return;
                   setDialogState(() {
@@ -687,6 +734,22 @@ class _PlansScreenState extends State<PlansScreen> {
                     endDate = _day(range.end);
                     period = range.duration.inDays <= 7 ? 'weekly' : 'monthly';
                   });
+                },
+              ),
+              const SizedBox(height: 8),
+              DropdownButtonFormField<String>(
+                initialValue: fridayMode,
+                decoration: const InputDecoration(
+                  labelText: 'برنامج الجمعة لجميع الخطط',
+                  prefixIcon: Icon(Icons.auto_stories_outlined),
+                ),
+                items: const [
+                  DropdownMenuItem(value: 'catchup_recitation', child: Text('تدارك الفائت + سرد')),
+                  DropdownMenuItem(value: 'full_plan', child: Text('خطة كاملة')),
+                  DropdownMenuItem(value: 'holiday', child: Text('إجازة كاملة')),
+                ],
+                onChanged: (value) {
+                  if (value != null) setDialogState(() => fridayMode = value);
                 },
               ),
             ],
@@ -732,6 +795,7 @@ class _PlansScreenState extends State<PlansScreen> {
           newAmount: student.planAmount,
           reviewAmount: student.reviewPlanAmount,
           recitationAmount: student.planAmount,
+          fridayMode: fridayMode,
           notes: StudentLearningPolicy.hasCompletedQuran(student)
               ? 'خطة خاتم: مراجعة وسرد/تلاوة فقط'
               : 'أُنشئت تلقائيًا من المقرر الافتراضي في ملف الطالب',

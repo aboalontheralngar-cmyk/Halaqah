@@ -766,7 +766,7 @@ class _AddMemorizationScreenState extends State<AddMemorizationScreen> {
           SnackBar(
             content: Text(
               completedSurahNames.isNotEmpty
-                  ? 'تم إتمام ${completedSurahNames.map((name) => 'سورة $name').join('، ')}، وأضيفت للمراجعة الإلزامية'
+                  ? 'تم إتمام ${completedSurahNames.map((name) => 'سورة $name').join('، ')}، وأضيفت إلى مقترحات المراجعة'
                   : pointsResult.totalPoints > 0
                       ? 'تم حفظ التسجيل، ورصيد إنجاز اليوم ${pointsResult.totalPoints} نقاط 🎉'
                       : 'تم حفظ التسجيل بنجاح',

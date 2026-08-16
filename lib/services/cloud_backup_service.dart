@@ -76,18 +76,72 @@ class CloudBackupService {
     }
   }
 
+  /// Lists every encrypted backup owned by the signed-in account.
+  ///
+  /// Backups are normally stored under `<user>/<center>/<file>`. After an
+  /// Android uninstall the local `sync_center_id` is gone, so limiting the
+  /// listing to the current local center can make a perfectly valid disaster
+  /// recovery backup appear to be missing. Recovery therefore discovers all
+  /// center folders below the authenticated user's private root and keeps the
+  /// current center first when it is known.
   Future<List<CloudBackupEntry>> listBackups() async {
-    final scope = await _scope();
-    final objects = await _client.storage.from(bucket).list(path: scope.prefix);
-    final entries = objects
-        .where((item) => item.name.endsWith('.halaqah'))
-        .map(
-          (item) => CloudBackupEntry(
-            name: item.name,
-            remotePath: '${scope.prefix}/${item.name}',
-          ),
-        )
-        .toList()
+    final userId = _authenticatedUserId();
+    final storage = _client.storage.from(bucket);
+    final entriesByPath = <String, CloudBackupEntry>{};
+
+    Future<void> collectPrefix(String prefix) async {
+      final objects = await storage.list(path: prefix);
+      for (final item in objects) {
+        if (!item.name.endsWith('.halaqah')) continue;
+        final remotePath = '$prefix/${item.name}';
+        entriesByPath[remotePath] = CloudBackupEntry(
+          name: item.name,
+          remotePath: remotePath,
+        );
+      }
+    }
+
+    final configuredCenter =
+        (await _database.getSetting('sync_center_id'))?.trim() ?? '';
+    if (configuredCenter.isNotEmpty) {
+      try {
+        await collectPrefix('$userId/$configuredCenter');
+      } catch (_) {
+        // Recovery discovery below is the fallback for stale/missing scope.
+      }
+    }
+
+    try {
+      final rootObjects = await storage.list(path: userId);
+      for (final item in rootObjects) {
+        final childName = item.name.trim();
+        if (childName.isEmpty) continue;
+
+        // Older/manual layouts may have placed a backup directly below the
+        // user root. Keep supporting them.
+        if (childName.endsWith('.halaqah')) {
+          final remotePath = '$userId/$childName';
+          entriesByPath[remotePath] = CloudBackupEntry(
+            name: childName,
+            remotePath: remotePath,
+          );
+          continue;
+        }
+
+        try {
+          await collectPrefix('$userId/$childName');
+        } catch (_) {
+          // Ignore an unrelated/non-folder object and continue discovering
+          // other recovery folders owned by this account.
+        }
+      }
+    } catch (_) {
+      // If the current scoped folder was readable, keep those entries rather
+      // than turning a recoverable backup into a hard failure.
+      if (entriesByPath.isEmpty) rethrow;
+    }
+
+    final entries = entriesByPath.values.toList()
       ..sort((a, b) => b.name.compareTo(a.name));
     return entries;
   }
@@ -116,8 +170,9 @@ class CloudBackupService {
   }
 
   Future<String> download(CloudBackupEntry entry) async {
+    final userId = _authenticatedUserId();
+    _validateEntryUserScope(entry, userId);
     final scope = await _scope();
-    _validateEntryScope(entry, scope.prefix);
     final bytes = await _client.storage.from(bucket).download(entry.remotePath);
     final directory = await getApplicationDocumentsDirectory();
     final safeName = _safeFileName(entry.name);
@@ -133,8 +188,9 @@ class CloudBackupService {
   }
 
   Future<void> delete(CloudBackupEntry entry) async {
+    final userId = _authenticatedUserId();
+    _validateEntryUserScope(entry, userId);
     final scope = await _scope();
-    _validateEntryScope(entry, scope.prefix);
     await _client.storage.from(bucket).remove(<String>[entry.remotePath]);
     await _record(
       eventType: 'backup.cloud_deleted',
@@ -159,8 +215,16 @@ class CloudBackupService {
     );
   }
 
-  void _validateEntryScope(CloudBackupEntry entry, String prefix) {
-    if (!entry.remotePath.startsWith('$prefix/') ||
+  String _authenticatedUserId() {
+    final user = _client.auth.currentUser;
+    if (user == null) {
+      throw StateError('يلزم تسجيل الدخول قبل استخدام النسخ السحابي');
+    }
+    return user.id;
+  }
+
+  void _validateEntryUserScope(CloudBackupEntry entry, String userId) {
+    if (!entry.remotePath.startsWith('$userId/') ||
         entry.name.contains('/') ||
         entry.name.contains(r'\')) {
       throw const FormatException('مسار النسخة السحابية غير صالح');

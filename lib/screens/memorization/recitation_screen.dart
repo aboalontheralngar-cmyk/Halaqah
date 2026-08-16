@@ -1592,9 +1592,9 @@ class _RecitationScreenState extends State<RecitationScreen> {
           SnackBar(
             content: Text(
               '${completedSurahNames.isNotEmpty
-                  ? 'تم إتمام ${completedSurahNames.map((name) => 'سورة $name').join('، ')}، وأضيفت للمراجعة الإلزامية'
+                  ? 'تم إتمام ${completedSurahNames.map((name) => 'سورة $name').join('، ')}، وأضيفت إلى مقترحات المراجعة'
                   : pointsResult != null && pointsResult.totalPoints > 0
-                      ? 'تم حفظ التقييم، ورصيد إنجاز اليوم ${pointsResult.totalPoints} نقاط 🎉'
+                      ? 'تم حفظ التقييم، ورصيد إنجاز اليوم ${Helpers.formatNumber(pointsResult.totalPoints)} نقاط 🎉'
                       : 'تم حفظ التقييم بنجاح'}'
               '${shareFailed ? '، لكن تعذرت المشاركة؛ يمكنك مشاركته من السجل لاحقًا' : ''}',
             ),

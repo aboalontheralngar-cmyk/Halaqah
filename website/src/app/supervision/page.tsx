@@ -20,6 +20,7 @@ import {
   RefreshCw,
   ShieldCheck,
   TrendingUp,
+  Trophy,
   Unlink,
   UserPlus,
   Users,
@@ -450,6 +451,9 @@ export default function SupervisionPage() {
               <p className="mt-3 text-sm font-medium text-teal-100">{roleLabels[currentSupervisor.role]} · تقرير عربي مجمّع من اليمين إلى اليسار</p>
             </div>
             <div className="supervision-no-print flex flex-wrap gap-3">
+              <button onClick={() => router.push("/supervision/competitions")} className="inline-flex items-center gap-2 rounded-2xl bg-amber-400 px-5 py-3 text-sm font-black text-amber-950 hover:bg-amber-300">
+                <Trophy className="h-5 w-5" /> مسابقات الجهة
+              </button>
               <button onClick={() => window.print()} className="inline-flex items-center gap-2 rounded-2xl bg-white/15 px-5 py-3 text-sm font-black backdrop-blur hover:bg-white/25">
                 <Printer className="h-5 w-5" /> طباعة / PDF
               </button>

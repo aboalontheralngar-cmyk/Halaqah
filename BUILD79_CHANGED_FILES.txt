@@ -1,0 +1,69 @@
+# Build 79 changed files versus Build 78
+
+Added: 9
+Modified: 51
+Deleted: 0
+
+## Added
+.vscode/settings.json
+BUILD79_CHANGED_FILES.txt
+BUILD79_VALIDATION_REPORT.md
+P1.27_BUILD79_INSTALL_NOTE.md
+docs/P1.27_BUILD79_ANDROID_PERFORMANCE.md
+tools/android_release_size_report.dart
+tools/android_size_baseline.example.json
+website/.vscode/settings.json
+website/scripts/validate-build79-performance.mjs
+
+## Modified
+.github/workflows/build-apk.yml
+CHANGELOG.md
+P1.27_INSTALL_NOTE.md
+README.md
+android/gradle.properties
+docs/P1.27_FEATURE_AUDIT.md
+docs/P1.27_IMPLEMENTATION_LOG.md
+docs/P1.27_REMAINING_PLAN.md
+docs/compatibility_and_size.md
+docs/release_notes.md
+lib/app/build_info.dart
+lib/screens/behavior/add_point_screen.dart
+lib/screens/home/home_screen.dart
+lib/screens/honor_board/honor_board_screen.dart
+lib/screens/reports/halaqah_period_report_screen.dart
+lib/screens/settings/settings_screen.dart
+lib/screens/settings/whats_new_screen.dart
+lib/services/legacy_memorized_reconciliation_service.dart
+lib/services/pdf_service.dart
+lib/services/supabase_service.dart
+lib/utils/constants.dart
+pubspec.yaml
+test/halaqah_period_report_service_test.dart
+tools/build_lean_android.ps1
+tools/build_lean_android.sh
+website/package.json
+website/scripts/run-all-validations.mjs
+website/scripts/validate-build74-hardening.mjs
+website/scripts/validate-build75-hotfix2.mjs
+website/scripts/validate-build75-p127.mjs
+website/scripts/validate-build76-completion.mjs
+website/scripts/validate-build77-ux-reports.mjs
+website/scripts/validate-build78-completion.mjs
+website/scripts/validate-data-privacy.mjs
+website/scripts/validate-operational-diagnostics.mjs
+website/scripts/validate-p1-16-plan-recitation.mjs
+website/scripts/validate-p1-17-1-qr-direct-entry.mjs
+website/scripts/validate-p1-17-2-settings-hub.mjs
+website/scripts/validate-p1-17-learning-workspace.mjs
+website/scripts/validate-p1-18-plan-qr-ui.mjs
+website/scripts/validate-p1-19-1-flutter-build-hotfix.mjs
+website/scripts/validate-p1-19-ui-refresh.mjs
+website/scripts/validate-p1-20-comprehensive.mjs
+website/scripts/validate-p1-21-completion.mjs
+website/scripts/validate-p1-22-daily-operations.mjs
+website/scripts/validate-p1-23-ui-pdf-modernization.mjs
+website/scripts/validate-p1-24-learning-reports-courses.mjs
+website/scripts/validate-p1-25-cloud-pdf-performance.mjs
+website/scripts/validate-p1-26-competition-contrast-bootstrap.mjs
+website/scripts/validate-staged-release.mjs
+website/scripts/validate-unified-identity.mjs

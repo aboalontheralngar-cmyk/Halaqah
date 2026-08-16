@@ -69,7 +69,7 @@ assertIncludes(
 
 assertIncludes(
   read("pubspec.yaml"),
-  ["version: 4.3.0-alpha.22+76"],
+  ["version: 4.3.0-alpha.24+80"],
   "Flutter staged-release version",
 );
 

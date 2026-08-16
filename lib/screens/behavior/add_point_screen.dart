@@ -3,6 +3,7 @@ import '../../services/database_service.dart';
 import '../../models/student.dart';
 import '../../models/behavior_point.dart';
 import '../../models/settings.dart';
+import '../../utils/helpers.dart';
 
 class AddPointScreen extends StatefulWidget {
   final Student? student;
@@ -258,10 +259,11 @@ class _AddPointScreenState extends State<AddPointScreen> {
               overflow: TextOverflow.ellipsis,
             ),
             if (selected.length == 1)
-              FutureBuilder<int>(
+              FutureBuilder<double>(
                 future: _db.getStudentTotalPoints(selected.first.id),
-                builder: (context, snapshot) =>
-                    Text('الرصيد الحالي: ${snapshot.data ?? 0} نقطة'),
+                builder: (context, snapshot) => Text(
+                  'الرصيد الحالي: ${Helpers.formatNumber(snapshot.data ?? 0)} نقطة',
+                ),
               ),
           ],
         ),

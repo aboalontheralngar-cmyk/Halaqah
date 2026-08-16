@@ -12,11 +12,11 @@ const assert = (condition, message) => {
 };
 
 // Release identity / local migration.
-assert(read("pubspec.yaml").includes("version: 4.3.0-alpha.22+76"), "pubspec is not Build 76");
+assert(read("pubspec.yaml").includes("version: 4.3.0-alpha.24+80"), "pubspec is not Build 76");
 const buildInfo = read("lib/app/build_info.dart");
-assert(buildInfo.includes("versionName = '4.3.0-alpha.22'") && buildInfo.includes("buildNumber = 76"), "AppBuildInfo is not Build 76");
+assert(buildInfo.includes("versionName = '4.3.0-alpha.24'") && buildInfo.includes("buildNumber = 80"), "AppBuildInfo is not Build 76");
 const schema = read("lib/services/local_database_schema.dart");
-assert(schema.includes("static const int version = 25"), "SQLite v25 migration missing");
+assert(schema.includes("static const int version = 26"), "SQLite v25 migration missing");
 assert(schema.includes("CREATE TABLE IF NOT EXISTS sync_delete_outbox"), "local durable delete outbox missing");
 for (const table of [
   "family_guardians", "homework_grades", "memorization_progress", "behavior_points", "daily_achievements", "vacations", "fund_transactions",
@@ -40,7 +40,7 @@ assert(sync.includes("delete_student_for_sync"), "student delete is not guarded 
 const tombstoneReplay = read("lib/services/cloud_tombstone_local_service.dart");
 assert(tombstoneReplay.includes("sync_remote_delete_replay") && tombstoneReplay.includes("case 'mushaf_progress'"), "cloud delete replay guard/coverage missing");
 const autoSync = read("lib/services/cloud_auto_sync_coordinator.dart");
-assert(autoSync.includes("_networkProbeTimer") && autoSync.includes("_retryWhenNetworkReturns") && autoSync.includes("authStateChanges"), "network-return/auth automatic retry missing");
+assert(autoSync.includes("_networkRetryTimer") && autoSync.includes("_scheduleNetworkRetry") && autoSync.includes("_retryWhenNetworkReturns") && autoSync.includes("authStateChanges"), "adaptive network-return/auth automatic retry missing");
 assert(read("lib/services/diagnostic_center_service.dart").includes("'حذف بانتظار المزامنة': 'sync_delete_outbox'"), "pending delete outbox is not visible in diagnostics");
 
 // Supervision drill-down.

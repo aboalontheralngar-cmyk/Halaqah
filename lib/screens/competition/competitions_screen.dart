@@ -4,7 +4,6 @@ import '../../models/competition.dart';
 import '../../services/database_service.dart';
 import '../../widgets/app_design_widgets.dart';
 import 'competition_judge_screen.dart';
-import 'peer_level_groups_screen.dart';
 
 class CompetitionsScreen extends StatefulWidget {
   const CompetitionsScreen({super.key});
@@ -66,14 +65,6 @@ class _CompetitionsScreenState extends State<CompetitionsScreen> {
                           'أنشئ فئات المسابقة، ولّد الأسئلة، وحكّم المتسابقين بدرجة حية من 100.',
                       icon: Icons.emoji_events_outlined,
                       actions: [
-                        OutlinedButton.icon(
-                          onPressed: () => Navigator.push(
-                            context,
-                            MaterialPageRoute(builder: (_) => const PeerLevelGroupsScreen()),
-                          ),
-                          icon: const Icon(Icons.groups_2_outlined),
-                          label: const Text('مجموعات متقاربة'),
-                        ),
                         FilledButton.icon(
                           onPressed: _createEvent,
                           icon: const Icon(Icons.add),

@@ -16,6 +16,9 @@ void main() {
       lastCloudUploadAt: null,
       lastCloudDownloadAt: null,
       lastSyncDirection: 'upload',
+      lastCloudSyncFailedStage: 'exams',
+      lastCloudSyncErrorCode: 'SYNC_EXAMS_23503',
+      lastCloudSyncFailedAt: DateTime.utc(2026, 7, 18, 11, 30),
       hasAutomaticBackupError: false,
       lastBackgroundBackupWorkerAt: DateTime.utc(2026, 7, 18, 2),
       backgroundBackupWorkerStatus: 'success',
@@ -47,6 +50,8 @@ void main() {
     expect(report, contains('الطلاب: 25'));
     expect(report, contains('0123456789abcdef'));
     expect(report, contains('حالة التشغيل الخلفي: success'));
+    expect(report, contains('آخر مرحلة مزامنة فاشلة: exams'));
+    expect(report, contains('رمز خطأ المزامنة: SYNC_EXAMS_23503'));
     expect(report, contains('سلامة البيانات المحلية'));
     expect(report, contains('قواعد الفحص المكتملة: 7'));
     expect(report, isNot(contains('/Users/private')));

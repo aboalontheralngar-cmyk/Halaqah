@@ -1,0 +1,29 @@
+# Build 78 Hotfix 1 changed files
+
+New: 4
+Modified: 13
+Deleted: 0
+
+## New
+P1.27_BUILD78_HOTFIX1_INSTALL_NOTE.md
+docs/P1.27_BUILD78_HOTFIX1.md
+test/cloud_sync_failure_message_test.dart
+website/scripts/validate-build78-hotfix1.mjs
+
+## Modified
+BUILD78_VALIDATION_REPORT.md
+CHANGELOG.md
+docs/release_notes.md
+lib/screens/behavior/add_point_screen.dart
+lib/screens/home/home_screen.dart
+lib/screens/honor_board/honor_board_screen.dart
+lib/screens/reports/halaqah_period_report_screen.dart
+lib/screens/settings/settings_screen.dart
+lib/services/legacy_memorized_reconciliation_service.dart
+lib/services/pdf_service.dart
+lib/services/supabase_service.dart
+test/halaqah_period_report_service_test.dart
+website/scripts/run-all-validations.mjs
+
+## Deleted
+(none)

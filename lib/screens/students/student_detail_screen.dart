@@ -45,7 +45,7 @@ class _StudentDetailScreenState extends State<StudentDetailScreen>
   List<BehaviorPoint> _behaviorPoints = [];
   List<HomeworkGrade> _homeworkGrades = [];
   List<StudentAdminAction> _adminActions = [];
-  int _totalPoints = 0;
+  double _totalPoints = 0;
   Map<String, dynamic> _stats = {};
   int _uniquePagesCount = 0;
   int _uniqueAyahsCount = 0;
@@ -90,7 +90,7 @@ class _StudentDetailScreenState extends State<StudentDetailScreen>
       ]);
       final records = results[0] as List<DailyRecord>;
       final points = results[1] as List<BehaviorPoint>;
-      final totalPoints = results[2] as int;
+      final totalPoints = (results[2] as num).toDouble();
       final stats = results[3] as Map<String, dynamic>;
       final grades = results[4] as List<HomeworkGrade>;
       final adminActions = results[5] as List<StudentAdminAction>;
@@ -387,7 +387,7 @@ class _StudentDetailScreenState extends State<StudentDetailScreen>
               children: [
                 _buildStatChip(
                   'النقاط',
-                  '$_totalPoints',
+                  Helpers.formatNumber(_totalPoints),
                   _totalPoints >= 0 ? Colors.green : Colors.red,
                 ),
                 const SizedBox(width: 16),
@@ -452,7 +452,7 @@ class _StudentDetailScreenState extends State<StudentDetailScreen>
         _buildStatCard('مقرر الحفظ', '${_student.planAmount} ${_getPlanLabel(_student.planType)}', Icons.book, Colors.orange),
         _buildStatCard('مقرر المراجعة', '${_student.reviewPlanAmount} ${_getPlanLabel(_student.reviewPlanType)}', Icons.replay, Colors.teal),
         _buildStatCard('إجمالي المحفوظ', '${_student.totalMemorized} آية', Icons.auto_stories, Colors.indigo),
-        _buildStatCard('النقاط', '$_totalPoints', Icons.stars, _totalPoints >= 0 ? Colors.amber : Colors.red),
+        _buildStatCard('النقاط', Helpers.formatNumber(_totalPoints), Icons.stars, _totalPoints >= 0 ? Colors.amber : Colors.red),
       ],
     );
   }
@@ -932,7 +932,7 @@ class _StudentDetailScreenState extends State<StudentDetailScreen>
             child: Column(
               children: [
                 Text(
-                  '$_totalPoints',
+                  Helpers.formatNumber(_totalPoints),
                   style: TextStyle(
                     fontSize: 48,
                     fontWeight: FontWeight.bold,
@@ -984,7 +984,7 @@ class _StudentDetailScreenState extends State<StudentDetailScreen>
                   title: Text(BehaviorReason.getLabel(point.reason)),
                   subtitle: Text(Helpers.getFullHijriDate(point.date)),
                   trailing: Text(
-                    '${point.points > 0 ? '+' : ''}${point.points}',
+                    '${point.points > 0 ? '+' : ''}${Helpers.formatNumber(point.points)}',
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
                       color: point.isPositive ? Colors.green : Colors.red,

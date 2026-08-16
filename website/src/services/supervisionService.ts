@@ -197,3 +197,88 @@ export async function fetchSupervisionCenterDetail(input: {
     p_end_date: input.endDate,
   });
 }
+
+export type SupervisorCompetition = {
+  id: string;
+  supervisor_id: string;
+  title: string;
+  season_year: number;
+  description?: string | null;
+  starts_on?: string | null;
+  ends_on?: string | null;
+  status: "draft" | "open" | "judging" | "published" | "closed";
+  created_at: string;
+};
+
+export type SupervisorCompetitionCategory = {
+  id: string;
+  competition_id: string;
+  name: string;
+  from_surah?: number | null;
+  to_surah?: number | null;
+  maximum_score: number;
+  sort_order: number;
+};
+
+export type SupervisorCompetitionEntry = {
+  id: string;
+  competition_id: string;
+  category_id: string;
+  center_id: string;
+  student_id: string;
+  student_name_snapshot: string;
+  status: "submitted" | "accepted" | "rejected" | "withdrawn";
+  submitted_at: string;
+  center?: { name?: string | null } | null;
+  category?: { name?: string | null; maximum_score?: number | null } | null;
+  score?: Array<{
+    score: number;
+    obvious_errors: number;
+    subtle_errors: number;
+    prompt_count: number;
+    stop_count: number;
+    tajweed_errors: number;
+    notes?: string | null;
+  }> | null;
+};
+
+export async function submitSupervisorCompetitionEntry(input: {
+  competitionId: string;
+  categoryId: string;
+  studentId: string;
+}) {
+  if (!supabase) return { data: null, error: new Error("supabase_not_configured") };
+  return supabase.rpc("submit_supervisor_competition_entry", {
+    p_competition_id: input.competitionId,
+    p_category_id: input.categoryId,
+    p_student_id: input.studentId,
+  });
+}
+
+export async function withdrawSupervisorCompetitionEntry(entryId: string) {
+  if (!supabase) return { data: null, error: new Error("supabase_not_configured") };
+  return supabase.rpc("withdraw_supervisor_competition_entry", { p_entry_id: entryId });
+}
+
+export async function scoreSupervisorCompetitionEntry(input: {
+  entryId: string;
+  score: number;
+  obviousErrors?: number;
+  subtleErrors?: number;
+  promptCount?: number;
+  stopCount?: number;
+  tajweedErrors?: number;
+  notes?: string;
+}) {
+  if (!supabase) return { data: null, error: new Error("supabase_not_configured") };
+  return supabase.rpc("score_supervisor_competition_entry", {
+    p_entry_id: input.entryId,
+    p_score: input.score,
+    p_obvious_errors: input.obviousErrors ?? 0,
+    p_subtle_errors: input.subtleErrors ?? 0,
+    p_prompt_count: input.promptCount ?? 0,
+    p_stop_count: input.stopCount ?? 0,
+    p_tajweed_errors: input.tajweedErrors ?? 0,
+    p_notes: input.notes?.trim() || null,
+  });
+}

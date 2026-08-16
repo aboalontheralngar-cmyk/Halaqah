@@ -1,0 +1,25 @@
+P1.27 Build 80 Hotfix 5 — changed files
+
+Core recovery/sync:
+- lib/services/cloud_backup_service.dart
+- lib/services/cloud_auto_sync_coordinator.dart
+- lib/services/supabase_service.dart
+- lib/services/diagnostic_center_service.dart
+- lib/screens/settings/settings_screen.dart
+
+Build/data-safety:
+- pubspec.yaml
+- lib/app/build_info.dart
+- tools/verify_source_prerequisites.ps1
+
+Documentation:
+- P1.27_BUILD80_HOTFIX5_INSTALL_NOTE.md
+- docs/P1.27_BUILD80_HOTFIX5_RECOVERY.md
+- docs/release_notes.md
+- docs/INDEX.md
+- CHANGELOG.md
+
+Validation:
+- website/scripts/validate-build80-hotfix5.mjs
+- website/scripts/run-all-validations.mjs
+- validators that pin the current release build were advanced from +78/buildNumber 78 to +80/buildNumber 80.

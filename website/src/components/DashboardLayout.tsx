@@ -115,6 +115,10 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
       items.push({ id: "audit-log", label: "سجل التدقيق", icon: ShieldCheck, href: "/audit-log", section: "management" });
     }
 
+    if (profile?.role === 'center_admin' || currentSupervisor) {
+      items.push({ id: "supervisor-competitions", label: "مسابقات الجهة", icon: Trophy, href: "/supervision/competitions", section: "management" });
+    }
+
     if (currentSupervisor) {
       items.push({ id: "supervision", label: "لوحة الإشراف", icon: Building2, href: "/supervision", section: "management" });
     }

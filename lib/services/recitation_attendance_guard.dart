@@ -7,9 +7,11 @@ import 'database_service.dart';
 class RecitationAttendanceGuard {
   const RecitationAttendanceGuard._();
 
-  /// يمنع تحويل الغياب إلى حضور بصمت عند تسجيل تسميع فعلي.
+  /// يمنع وجود تسميع فعلي مع حالة حضور متعارضة.
   ///
-  /// يعرض القرار للمعلم فقط إذا كان الطالب مسجلًا غائبًا في اليوم نفسه.
+  /// إذا كان الطالب غائبًا أو مستأذنًا في اليوم نفسه، يطلب من المعلم
+  /// تأكيد تحويله إلى حاضر قبل اعتماد التسميع. هذا يمنع بقاء سجل تسميع
+  /// مع غياب/استئذان في اليوم نفسه.
   static Future<bool> confirmPresentIfAbsent(
     BuildContext context, {
     required DatabaseService database,
@@ -18,16 +20,19 @@ class RecitationAttendanceGuard {
   }) async {
     final target = date ?? DateTime.now();
     final existing = await database.getDailyRecord(student.id, target);
-    if (existing?.attendance != 'absent') return true;
+    final attendance = existing?.attendance;
+    if (attendance != 'absent' && attendance != 'excused') return true;
     if (!context.mounted) return false;
 
     final confirm = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('الطالب مسجل غائبًا'),
+        title: Text(attendance == 'excused'
+            ? 'الطالب مسجل مستأذنًا'
+            : 'الطالب مسجل غائبًا'),
         content: Text(
-          '${student.name} مسجل غائبًا في ${Helpers.formatPlanDate(target)}. لا يمكن اعتماد تسميع له مع إبقاء الغياب.\n\nهل تود تحضيره؟',
+          '${student.name} مسجل ${attendance == 'excused' ? 'مستأذنًا' : 'غائبًا'} في ${Helpers.formatPlanDate(target)}. لا يمكن اعتماد تسميع فعلي مع إبقاء هذه الحالة.\n\nهل تود تحويله إلى حاضر؟',
         ),
         actions: [
           TextButton(

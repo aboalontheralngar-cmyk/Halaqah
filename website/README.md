@@ -61,7 +61,7 @@ npm run build
 - نفّذ migration P6.2 قبل فتح `/audit-log` أو تفعيل النسخ السحابي في Android.
 - نفّذ migration بوابة الطالب ثم انشر `supabase/functions/student-portal` قبل فتح `/portal` للمستخدمين.
 - نفّذ migration P7.2.1 ثم أعد نشر Edge Function قبل تفعيل حساب ولي الأمر متعدد الأبناء.
-- قاعدة المالك اجتازت Build 75. للترقية الحالية شغّل **فقط** `supabase/P1.27_BUILD76_APPLY.sql` ثم `supabase/P1.27_BUILD76_VERIFY.sql`. Build 76 يضيف drill-down للمركز، حذف طالب ذريًا، وtombstones لخريطة المصحف؛ لا تعاود Build75/P7.3.
+- قاعدة المالك اجتازت Build 76 APPLY/VERIFY بنجاح. **Build 77 لا يضيف SQL جديدًا**؛ لا تعاود Build 76 APPLY ولا Build75/P7.3 بسبب هذه الدفعة.
 - نفّذ migration P1.7 قبل حفظ جلسة تسميع ويب تعبر أكثر من سورة؛ انسخ محتوى الملف لا اسمه.
 - Build 74 يعيد مصالحة عقد `supervision_visits` المطلوب للزيارات؛ P1.20 يبقى مطلوبًا فقط لبيئة جديدة لم تمر بالمراحل السابقة.
 - نفّذ migration P1.21 ثم أعد نشر `student-portal` قبل تفعيل تقارير ولي الأمر الدورية.

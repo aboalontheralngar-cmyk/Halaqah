@@ -12,6 +12,8 @@ class SmartPlan {
   final int reviewAmount;
   /// مقرر السرد اليومي: تلاوة متصلة بلا اختبار حفظ.
   final int recitationAmount;
+  /// سياسة يوم الجمعة داخل الخطة: catchup_recitation, full_plan, holiday.
+  final String fridayMode;
   final String status; // 'active', 'completed', 'cancelled'
   final String testStatus; // 'not_required', 'pending', 'passed', 'failed'
   final String? completionExamId;
@@ -31,6 +33,7 @@ class SmartPlan {
     this.newAmount = 5,
     this.reviewAmount = 10,
     this.recitationAmount = 1,
+    this.fridayMode = 'catchup_recitation',
     this.status = 'active',
     this.testStatus = 'not_required',
     this.completionExamId,
@@ -57,6 +60,7 @@ class SmartPlan {
     int? newAmount,
     int? reviewAmount,
     int? recitationAmount,
+    String? fridayMode,
     String? status,
     String? testStatus,
     String? completionExamId,
@@ -78,6 +82,7 @@ class SmartPlan {
         newAmount: newAmount ?? this.newAmount,
         reviewAmount: reviewAmount ?? this.reviewAmount,
         recitationAmount: recitationAmount ?? this.recitationAmount,
+        fridayMode: fridayMode ?? this.fridayMode,
         status: status ?? this.status,
         testStatus: testStatus ?? this.testStatus,
         completionExamId:
@@ -99,6 +104,7 @@ class SmartPlan {
         'new_amount': newAmount,
         'review_amount': reviewAmount,
         'recitation_amount': recitationAmount,
+        'friday_mode': fridayMode,
         'status': status,
         'test_status': testStatus,
         'completion_exam_id': completionExamId,
@@ -119,6 +125,10 @@ class SmartPlan {
         newAmount: map['new_amount'] ?? 5,
         reviewAmount: map['review_amount'] ?? 10,
         recitationAmount: map['recitation_amount'] ?? 1,
+        fridayMode: const {'catchup_recitation', 'full_plan', 'holiday'}
+                .contains(map['friday_mode'])
+            ? map['friday_mode']
+            : 'catchup_recitation',
         status: map['status'] ?? 'active',
         testStatus: map['test_status'] ?? 'not_required',
         completionExamId: map['completion_exam_id'],

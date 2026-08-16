@@ -27,13 +27,13 @@ function assert(condition, message) {
 }
 
 const pubspec = read("pubspec.yaml");
-assert(pubspec.includes("version: 4.3.0-alpha.22+76"), "Flutter version must be Build 74");
+assert(pubspec.includes("version: 4.3.0-alpha.24+80"), "Flutter version must be Build 74");
 assert(!/^\s*[A-Za-z0-9_]+:\s*\^/m.test(pubspec), "direct Flutter dependencies must not use caret ranges");
 
 const buildInfo = read("lib/app/build_info.dart");
 const constants = read("lib/utils/constants.dart");
-assert(buildInfo.includes("versionName = '4.3.0-alpha.22'") && buildInfo.includes("buildNumber = 76"), "AppBuildInfo must match Build 74");
-assert(constants.includes("appVersion = '4.3.0-alpha.22'"), "appVersion must match Build 74");
+assert(buildInfo.includes("versionName = '4.3.0-alpha.24'") && buildInfo.includes("buildNumber = 80"), "AppBuildInfo must match Build 74");
+assert(constants.includes("appVersion = '4.3.0-alpha.24'"), "appVersion must match Build 74");
 const analyzerOptions = read("analysis_options.yaml");
 assert(analyzerOptions.includes("avoid_print: error"), "Flutter analyzer must reject raw print logging");
 assert(!analyzerOptions.includes("avoid_relative_lib_imports"), "hotfix lint baseline must not invalidate existing relative imports");
@@ -83,7 +83,7 @@ assert(qrService.includes("_legacyMaxAge"), "legacy QR age validation missing");
 const dbService = read("lib/services/database_service.dart");
 const localSchema = read("lib/services/local_database_schema.dart");
 assert(dbService.includes("LocalDatabaseSchema.version"), "DatabaseService must delegate schema lifecycle");
-assert(localSchema.includes("static const int version = 25"), "SQLite schema version changed unexpectedly");
+assert(localSchema.includes("static const int version = 26"), "SQLite schema version changed unexpectedly");
 assert(dbService.split("\n").length < 5200, "DatabaseService modularization regressed");
 
 const parents = read("website/src/app/parents/page.tsx");

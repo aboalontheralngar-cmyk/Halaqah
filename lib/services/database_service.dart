@@ -39,7 +39,7 @@ import 'cloud_tombstone_local_service.dart';
 import 'local_sync_delete_outbox.dart';
 
 class StudentBehaviorSummary {
-  final int totalPoints;
+  final double totalPoints;
   final int unresolvedViolations;
 
   const StudentBehaviorSummary({
@@ -1706,14 +1706,14 @@ class DatabaseService {
     return rows.map(BehaviorPoint.fromMap).toList();
   }
 
-  Future<int> getStudentTotalPoints(String studentId) async {
+  Future<double> getStudentTotalPoints(String studentId) async {
     final db = await database;
     final result = await db.rawQuery('''
       SELECT COALESCE(SUM(points), 0) as total 
       FROM behavior_points 
       WHERE student_id = ?
     ''', [studentId]);
-    return (result.first['total'] as int?) ?? 0;
+    return (result.first['total'] as num?)?.toDouble() ?? 0;
   }
 
   Future<Map<String, StudentBehaviorSummary>> getBehaviorSummaries() async {
@@ -1730,7 +1730,7 @@ class DatabaseService {
     return {
       for (final row in rows)
         row['student_id'].toString(): StudentBehaviorSummary(
-          totalPoints: (row['total_points'] as num?)?.toInt() ?? 0,
+          totalPoints: (row['total_points'] as num?)?.toDouble() ?? 0,
           unresolvedViolations:
               (row['unresolved_count'] as num?)?.toInt() ?? 0,
         ),
@@ -1838,7 +1838,8 @@ class DatabaseService {
           effectiveUnit = storedUnit!;
         }
         final storedRounding = snapshotMatch.group(5);
-        if (storedRounding == 'nearest' ||
+        if (storedRounding == 'exact' ||
+            storedRounding == 'nearest' ||
             storedRounding == 'floor' ||
             storedRounding == 'ceil') {
           roundingMode = storedRounding!;
@@ -1867,7 +1868,7 @@ class DatabaseService {
     final details =
         'المسمّع ${result.actualAmount.toStringAsFixed(2)} من '
         '${result.planAmount.toStringAsFixed(2)} $effectiveUnit$courseLabel؛ '
-        '${result.completionPoints} نقطة بحسب إنجاز ${result.completionPercent}% من المقرر (تقريب $roundingMode) و${result.bonusPoints} للزيادة الفعلية '
+        '${result.completionPoints.toStringAsFixed(result.completionPoints % 1 == 0 ? 0 : 2)} نقطة بحسب إنجاز ${result.completionPercent}% من المقرر (سياسة $roundingMode) و${result.bonusPoints.toStringAsFixed(result.bonusPoints % 1 == 0 ? 0 : 2)} للزيادة الفعلية '
         '$ruleSnapshot';
 
     await db.transaction((txn) async {
@@ -2552,6 +2553,15 @@ class DatabaseService {
     final deletedIds = decoded.map((id) => id.toString()).toSet()
       ..add(templateId);
     await db.transaction((txn) async {
+      // Older SQLite schemas intentionally allowed exams to retain template_id
+      // after a template was removed. Clear those references first so the next
+      // cloud upload cannot violate exams_template_id_fkey.
+      await txn.update(
+        'exams',
+        {'template_id': null},
+        where: 'template_id = ?',
+        whereArgs: [templateId],
+      );
       await txn.delete(
         'exam_templates',
         where: 'id = ?',

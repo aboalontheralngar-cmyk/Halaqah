@@ -5,7 +5,7 @@ class BehaviorPoint {
   final String studentId;
   final String type;
   final String reason;
-  final int points;
+  final double points;
   final DateTime date;
   bool resolved;
   DateTime? resolvedDate;
@@ -17,13 +17,14 @@ class BehaviorPoint {
     required this.studentId,
     required this.type,
     required this.reason,
-    required this.points,
+    required num points,
     required this.date,
     this.resolved = false,
     this.resolvedDate,
     this.notes,
     DateTime? createdAt,
-  })  : id = id ?? const Uuid().v4(),
+  })  : points = points.toDouble(),
+        id = id ?? const Uuid().v4(),
         createdAt = createdAt ?? DateTime.now();
 
   bool get isPositive => points > 0;
@@ -48,7 +49,7 @@ class BehaviorPoint {
         studentId: map['student_id'],
         type: map['type'],
         reason: map['reason'],
-        points: map['points'],
+        points: (map['points'] as num?)?.toDouble() ?? 0,
         date: DateTime.parse(map['date']),
         resolved: map['resolved'] == 1,
         resolvedDate: map['resolved_date'] != null

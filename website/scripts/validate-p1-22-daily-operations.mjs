@@ -24,14 +24,14 @@ const requireFile = (path) => {
   }
 };
 
-requireAll("pubspec.yaml", ["version: 4.3.0-alpha.22+76"]);
+requireAll("pubspec.yaml", ["version: 4.3.0-alpha.24+80"]);
 requireAll("lib/app/build_info.dart", [
-  "versionName = '4.3.0-alpha.22'",
-  "buildNumber = 76",
+  "versionName = '4.3.0-alpha.24'",
+  "buildNumber = 80",
   "releaseLabel = 'P1.27'",
 ]);
 requireAll("lib/services/database_service.dart", [
-  "version: 24",
+  "static const int version = 26",
   "_upgradeToVersion22",
   "activity_type",
   "recitation_exempt",
@@ -135,7 +135,9 @@ requireAll("lib/screens/memorization/recitation_screen.dart", [
 ]);
 requireAll("lib/services/recitation_attendance_guard.dart", [
   "الطالب مسجل غائبًا",
-  "هل تود تحضيره؟",
+  "الطالب مسجل مستأذنًا",
+  "هل تود تحويله إلى حاضر؟",
+  "attendance != 'absent' && attendance != 'excused'",
   "نعم، تحضيره",
 ]);
 

@@ -3,8 +3,10 @@ import 'package:intl/intl.dart' as intl;
 import '../../models/fund_transaction.dart';
 import '../../models/student.dart';
 import '../../services/database_service.dart';
+import '../../services/fund_transaction_service.dart';
 import '../../models/settings.dart';
 import '../../models/behavior_point.dart';
+import '../../utils/helpers.dart';
 
 class FundScreen extends StatefulWidget {
   const FundScreen({super.key});
@@ -15,6 +17,8 @@ class FundScreen extends StatefulWidget {
 
 class _FundScreenState extends State<FundScreen> {
   final DatabaseService _db = DatabaseService();
+  late final FundTransactionService _fundEdits =
+      FundTransactionService(database: _db);
   double _balance = 0.0;
   List<FundTransaction> _transactions = [];
   List<Student> _students = [];
@@ -237,7 +241,7 @@ class _FundScreenState extends State<FundScreen> {
                             (point) => DropdownMenuItem(
                               value: point.id,
                               child: Text(
-                                '${BehaviorReason.getLabel(point.reason)} (${point.points})',
+                                '${BehaviorReason.getLabel(point.reason)} (${Helpers.formatNumber(point.points)})',
                                 overflow: TextOverflow.ellipsis,
                               ),
                             ),
@@ -331,6 +335,178 @@ class _FundScreenState extends State<FundScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> _showEditTransactionDialog(FundTransaction transaction) async {
+    final amountController = TextEditingController(
+      text: transaction.amount.toStringAsFixed(2),
+    );
+    final noteController = TextEditingController(text: transaction.note ?? '');
+    var selectedDate = transaction.date;
+    final formKey = GlobalKey<FormState>();
+
+    final accepted = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      showDragHandle: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, setSheetState) => Padding(
+          padding: EdgeInsets.fromLTRB(
+            20,
+            0,
+            20,
+            MediaQuery.viewInsetsOf(sheetContext).bottom + 20,
+          ),
+          child: Form(
+            key: formKey,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Expanded(
+                        child: Text(
+                          'تعديل المعاملة المالية',
+                          style: TextStyle(
+                            fontSize: 19,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () => Navigator.pop(sheetContext, false),
+                        icon: const Icon(Icons.close),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    '${_getTypeLabel(transaction.type)} · '
+                    '${_getStudentName(transaction.studentId)}',
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: amountController,
+                    autofocus: true,
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                    decoration: InputDecoration(
+                      labelText: 'المبلغ (${_settings.currencySymbol})',
+                      prefixIcon: const Icon(Icons.payments_outlined),
+                    ),
+                    validator: (value) {
+                      final amount = double.tryParse((value ?? '').trim());
+                      if (amount == null || amount <= 0) {
+                        return 'أدخل مبلغًا صحيحًا أكبر من صفر';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.calendar_month_outlined),
+                    title: const Text('تاريخ المعاملة'),
+                    subtitle:
+                        Text(intl.DateFormat('yyyy/MM/dd').format(selectedDate)),
+                    trailing: const Icon(Icons.edit_calendar_outlined),
+                    onTap: () async {
+                      final picked = await showDatePicker(
+                        context: sheetContext,
+                        initialDate: selectedDate,
+                        firstDate: DateTime(2020),
+                        lastDate: DateTime.now().add(const Duration(days: 1)),
+                        confirmText: 'اعتماد',
+                      );
+                      if (picked != null && sheetContext.mounted) {
+                        setSheetState(() => selectedDate = picked);
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  TextFormField(
+                    controller: noteController,
+                    maxLines: 2,
+                    decoration: const InputDecoration(
+                      labelText: 'ملاحظات / بيان السبب',
+                      prefixIcon: Icon(Icons.note_alt_outlined),
+                    ),
+                  ),
+                  if (transaction.settledNegativePoints > 0) ...[
+                    const SizedBox(height: 10),
+                    Text(
+                      'تنبيه: تعديل المبلغ لا يغيّر عدد النقاط السلبية التي '
+                      'سُوّيت بهذه المعاملة '
+                      '(${transaction.settledNegativePoints}).',
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 18),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      onPressed: () {
+                        if (formKey.currentState?.validate() != true) return;
+                        Navigator.pop(sheetContext, true);
+                      },
+                      icon: const Icon(Icons.save_outlined),
+                      label: const Text('حفظ التعديل'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    if (accepted != true) {
+      amountController.dispose();
+      noteController.dispose();
+      return;
+    }
+    final amount = double.parse(amountController.text.trim());
+    final note = noteController.text.trim();
+    try {
+      await _fundEdits.update(
+        transaction.copyWith(
+          amount: amount,
+          date: selectedDate,
+          note: note,
+          clearNote: note.isEmpty,
+        ),
+      );
+      if (!mounted) return;
+      await _loadData();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('تم تحديث المعاملة المالية')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('تعذر تحديث المعاملة: $error'),
+          backgroundColor: Theme.of(context).colorScheme.error,
+        ),
+      );
+    } finally {
+      // نؤجل التخلص من المتحكمات حتى تنتهي دورة إغلاق الـbottom sheet؛
+      // التخلص المبكر منها كان يستطيع تفجير Widget أثناء الرجوع.
+      await Future<void>.delayed(Duration.zero);
+      amountController.dispose();
+      noteController.dispose();
+    }
   }
 
   IconData _getTypeIcon(String type) {
@@ -552,6 +728,11 @@ class _FundScreenState extends State<FundScreen> {
                                       ),
                                     ),
                                   ],
+                                ),
+                                trailing: IconButton(
+                                  tooltip: 'تعديل المبلغ والبيان',
+                                  onPressed: () => _showEditTransactionDialog(tx),
+                                  icon: const Icon(Icons.edit_outlined),
                                 ),
                                 subtitle: Padding(
                                   padding: const EdgeInsets.only(top: 4),

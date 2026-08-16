@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../services/database_service.dart';
 import '../../services/quran_service.dart';
 import '../../services/mushaf_service.dart';
+import '../../services/legacy_memorized_reconciliation_service.dart';
 import '../../models/student.dart';
 import '../../models/mushaf_progress.dart';
 import '../../models/ayah.dart';
@@ -34,6 +35,10 @@ class _MushafVisualizerScreenState extends State<MushafVisualizerScreen> {
     setState(() => _isLoading = true);
     try {
       final student = widget.student;
+      // إصلاح الطلاب القدامى عند فتح الخريطة أيضًا، حتى لو لم تكن مصالحة
+      // بدء التطبيق قد اكتملت بعد. العملية idempotent وتضيف الناقص فقط.
+      await LegacyMemorizedReconciliationService(database: _db)
+          .reconcileStudent(student.id);
       if (student.preMemorizedStartSurah != null &&
           student.preMemorizedStartAyah != null &&
           student.preMemorizedEndSurah != null &&

@@ -9,10 +9,13 @@ class HalaqahStudentSummary {
   final int memorizedAyahs;
   final int revisedAyahs;
   final double memorizedPages;
+  final double revisedPages;
+  final double recitedPages;
+  final double paidAmount;
   final int noRecitationDays;
   final int absentDays;
-  final int positivePoints;
-  final int negativePoints;
+  final double positivePoints;
+  final double negativePoints;
 
   const HalaqahStudentSummary({
     required this.student,
@@ -22,13 +25,16 @@ class HalaqahStudentSummary {
     required this.memorizedAyahs,
     required this.revisedAyahs,
     required this.memorizedPages,
+    required this.revisedPages,
+    required this.recitedPages,
+    required this.paidAmount,
     required this.noRecitationDays,
     required this.absentDays,
     required this.positivePoints,
     required this.negativePoints,
   });
 
-  int get pointBalance => positivePoints - negativePoints;
+  double get pointBalance => positivePoints - negativePoints;
   bool get needsAttention =>
       attendanceRecords > 0 &&
       (performanceScore < 60 || noRecitationDays >= 2 || absentDays >= 2);
@@ -42,6 +48,9 @@ class HalaqahStudentSummary {
         memorizedAyahs: report.memorizedAyahs,
         revisedAyahs: report.revisedAyahs,
         memorizedPages: report.memorizedPages,
+        revisedPages: report.revisedPages,
+        recitedPages: report.recitedPages,
+        paidAmount: report.paidAmount,
         noRecitationDays: report.noRecitationDays,
         absentDays: report.absentDays,
         positivePoints: report.positivePoints,
@@ -56,16 +65,20 @@ class HalaqahPeriodReport {
   final int totalMemorizedAyahs;
   final int totalRevisedAyahs;
   final double totalMemorizedPages;
+  final double totalRevisedPages;
+  final double totalRecitedPages;
+  final double totalPaidAmount;
   final int presentDays;
   final int lateDays;
   final int absentDays;
   final int excusedDays;
   final int noRecitationDays;
-  final int positivePoints;
-  final int negativePoints;
+  final double positivePoints;
+  final double negativePoints;
   final int attendanceRate;
   final int performanceScore;
   final int studyDays;
+  final Set<String> rankingExcludedStudentIds;
 
   const HalaqahPeriodReport({
     required this.startDate,
@@ -74,6 +87,9 @@ class HalaqahPeriodReport {
     required this.totalMemorizedAyahs,
     required this.totalRevisedAyahs,
     required this.totalMemorizedPages,
+    required this.totalRevisedPages,
+    required this.totalRecitedPages,
+    required this.totalPaidAmount,
     required this.presentDays,
     required this.lateDays,
     required this.absentDays,
@@ -84,15 +100,19 @@ class HalaqahPeriodReport {
     required this.attendanceRate,
     required this.performanceScore,
     required this.studyDays,
+    this.rankingExcludedStudentIds = const <String>{},
   });
 
   double get totalMemorizedJuz => totalMemorizedPages / 20;
+  double get totalCompletedPages =>
+      totalMemorizedPages + totalRevisedPages + totalRecitedPages;
   int get studentCount => students.length;
   int get recitedStudentCount =>
       students.where((student) => student.memorizedAyahs > 0).length;
 
   List<HalaqahStudentSummary> get topStudents {
     final sorted = students
+        .where((student) => !rankingExcludedStudentIds.contains(student.student.id))
         .where((student) =>
             student.attendanceRecords > 0 ||
             student.memorizedAyahs > 0 ||
@@ -109,6 +129,15 @@ class HalaqahPeriodReport {
       });
     return sorted.take(5).toList();
   }
+
+  int get rankingEligibleStudentCount => students
+      .where((student) => !rankingExcludedStudentIds.contains(student.student.id))
+      .length;
+
+  int get rankingExcludedCount => rankingExcludedStudentIds.length;
+
+  bool isExcludedFromRanking(String studentId) =>
+      rankingExcludedStudentIds.contains(studentId);
 
   List<HalaqahStudentSummary> get attentionStudents {
     final flagged = students.where((student) => student.needsAttention).toList()

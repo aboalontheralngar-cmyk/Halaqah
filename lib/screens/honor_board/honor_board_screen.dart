@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../models/student.dart';
 import '../../services/database_service.dart';
+import '../../utils/helpers.dart';
 
 class HonorBoardScreen extends StatefulWidget {
   const HonorBoardScreen({super.key});
@@ -357,18 +358,18 @@ class _HonorBoardScreenState extends State<HonorBoardScreen> {
     );
   }
 
-  String _formatScore(int score) {
+  String _formatScore(num score) {
     if (_rankingMode == 'points') {
-      return '$score نقطة';
+      return '${Helpers.formatNumber(score)} نقطة';
     } else {
-      return '$score آية';
+      return '${score.round()} آية';
     }
   }
 }
 
 class StudentRankData {
   final Student student;
-  final int score;
+  final num score;
 
   StudentRankData({required this.student, required this.score});
 }

@@ -27,7 +27,7 @@ class _StudentReceiptScreenState extends State<StudentReceiptScreen> {
   final PdfService _pdf = PdfService();
 
   Map<String, dynamic>? _statistics;
-  int _points = 0;
+  double _points = 0;
   HalaqahSettings _settings = HalaqahSettings();
   bool _loading = true;
   String? _error;
@@ -58,7 +58,7 @@ class _StudentReceiptScreenState extends State<StudentReceiptScreen> {
         _statistics = Map<String, dynamic>.from(
           results[0] as Map<String, dynamic>,
         );
-        _points = results[1] as int;
+        _points = (results[1] as num).toDouble();
         _settings = results[2] as HalaqahSettings;
         _loading = false;
       });
@@ -124,7 +124,7 @@ class _StudentReceiptScreenState extends State<StudentReceiptScreen> {
                                 'أيام الغياب',
                                 '${_attendance['absent'] ?? 0}',
                               ),
-                              _row('رصيد النقاط', '$_points'),
+                              _row('رصيد النقاط', Helpers.formatNumber(_points)),
                               const Divider(height: 28),
                               const Align(
                                 alignment: AlignmentDirectional.centerStart,

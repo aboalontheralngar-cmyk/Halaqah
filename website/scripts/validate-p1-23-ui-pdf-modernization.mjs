@@ -31,17 +31,17 @@ const filesBelow = (relative, extension) => {
 };
 
 requireAll("pubspec.yaml", [
-  "version: 4.3.0-alpha.22+76",
+  "version: 4.3.0-alpha.24+80",
   "assets/fonts/Tajawal-400.ttf",
   "assets/fonts/Tajawal-700.ttf",
   "family: Tajawal",
 ]);
 requireAll("lib/app/build_info.dart", [
-  "versionName = '4.3.0-alpha.22'",
-  "buildNumber = 76",
+  "versionName = '4.3.0-alpha.24'",
+  "buildNumber = 80",
   "releaseLabel = 'P1.27'",
 ]);
-requireAll("lib/utils/constants.dart", ["appVersion = '4.3.0-alpha.22'"]);
+requireAll("lib/utils/constants.dart", ["appVersion = '4.3.0-alpha.24'"]);
 
 const pdf = requireAll("lib/services/pdf_service.dart", [
   "rootBundle.load('assets/fonts/Tajawal-400.ttf')",

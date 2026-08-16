@@ -5,6 +5,7 @@ import '../../services/backup_service.dart';
 import '../../services/backup_crypto_service.dart';
 import '../../services/background_backup_scheduler.dart';
 import '../../services/cloud_backup_service.dart';
+import '../../services/cloud_auto_sync_coordinator.dart';
 import '../../services/cloud_connection_diagnostics.dart';
 import '../../services/audit_log_service.dart';
 import '../../services/activation_policy_service.dart';
@@ -15,6 +16,7 @@ import '../../app/app.dart';
 import '../../app/build_info.dart';
 import '../../utils/prayer_time_helper.dart';
 import '../../widgets/app_design_widgets.dart';
+import '../../widgets/cloud_sync_progress_dialog.dart';
 import 'message_templates_screen.dart';
 import 'whats_new_screen.dart';
 import 'privacy_policy_screen.dart';
@@ -1002,16 +1004,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
               leading: const Icon(Icons.functions_outlined),
               title: const Text('تقريب نقاط إنجاز المقرر'),
               subtitle: Text(
-                _settings.recitationPointsRounding == 'floor'
-                    ? 'لأسفل مع ضمان نقطة عند وجود إنجاز'
-                    : _settings.recitationPointsRounding == 'ceil'
-                        ? 'لأعلى مع عدم تجاوز مكافأة الإتمام'
-                        : 'لأقرب عدد صحيح مع ضمان نقطة عند وجود إنجاز',
+                _settings.recitationPointsRounding == 'exact'
+                    ? 'يحفظ الكسر الحقيقي؛ مثل 50% من 5 = 2.5 نقطة'
+                    : _settings.recitationPointsRounding == 'floor'
+                        ? 'لأسفل مع ضمان نقطة عند وجود إنجاز'
+                        : _settings.recitationPointsRounding == 'ceil'
+                            ? 'لأعلى مع عدم تجاوز مكافأة الإتمام'
+                            : 'لأقرب عدد صحيح مع ضمان نقطة عند وجود إنجاز',
               ),
               trailing: DropdownButton<String>(
                 value: _settings.recitationPointsRounding,
                 underline: const SizedBox(),
                 items: const [
+                  DropdownMenuItem(value: 'exact', child: Text('دقيق (كسور)')),
                   DropdownMenuItem(value: 'nearest', child: Text('الأقرب')),
                   DropdownMenuItem(value: 'floor', child: Text('لأسفل')),
                   DropdownMenuItem(value: 'ceil', child: Text('لأعلى')),
@@ -2317,8 +2322,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
         title: const Text('تأكيد الاستعادة'),
         content: Text(
           '${inspection.encrypted ? 'النسخة مشفرة وسيتم التحقق من سلامتها.' : 'تحذير: هذه نسخة قديمة غير مشفرة.'}\n\n'
-          'ستُستبدل البيانات المحلية الحالية داخل معاملة واحدة. يُنصح '
-          'بإنشاء نسخة حديثة قبل المتابعة.',
+          'ستُستبدل البيانات المحلية الحالية داخل معاملة واحدة، وستتوقف '
+          'المزامنة التلقائية أثناء الاستعادة. يُنصح بإنشاء نسخة حديثة '
+          'قبل المتابعة.',
         ),
         actions: [
           TextButton(
@@ -2342,6 +2348,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       builder: (_) => const Center(child: CircularProgressIndicator()),
     );
     try {
+      await CloudAutoSyncCoordinator.instance.pauseForRecovery();
       try {
         await _backup.importBackup(file.path);
       } on BackupAuthenticationException {
@@ -2378,10 +2385,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
         progressOpen = false;
       }
       await _refreshBackupStatus();
+      final restoredStudentCount = (await _db.getStudents()).length;
+      final restoredMemorizationCount =
+          (await _db.getAllMemorizationProgress()).length;
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('تم التحقق من النسخة واستعادة البيانات بنجاح'),
+          SnackBar(
+            content: Text(
+              'تمت الاستعادة بنجاح: $restoredStudentCount طالب/طالبة، '
+              '$restoredMemorizationCount سجل حفظ ومراجعة. '
+              'لا تبدأ المزامنة قبل التأكد من الأعداد.',
+            ),
             backgroundColor: Colors.green,
           ),
         );
@@ -2390,6 +2404,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (mounted && progressOpen) Navigator.pop(context);
       if (mounted) _showDataError('فشلت الاستعادة: $error');
     } finally {
+      CloudAutoSyncCoordinator.instance.resumeAfterRecovery();
       if (mounted) setState(() => _dataActionBusy = false);
     }
   }
@@ -2468,22 +2483,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     showDialog<void>(
       context: context,
       barrierDismissible: false,
-      builder: (_) => AlertDialog(
-        content: Row(
-          children: [
-            const CircularProgressIndicator(),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Text(
-                direction == CloudSyncDirection.uploadOnly
-                    ? 'جاري رفع بيانات الجهاز...'
-                    : direction == CloudSyncDirection.downloadOnly
-                        ? 'جاري تنزيل بيانات السحابة...'
-                        : 'جاري الرفع والتنزيل...',
-              ),
-            ),
-          ],
-        ),
+      builder: (_) => CloudSyncProgressDialog(
+        service: SupabaseService.instance,
+        direction: direction,
       ),
     );
     try {
@@ -2495,17 +2497,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
         progressOpen = false;
       }
       if (!mounted) return;
+      final completedDirection = result.direction;
       setState(() {
-        if (direction.shouldUpload) {
+        if (completedDirection.shouldUpload) {
           _lastCloudUploadAt = result.completedAt;
         }
-        if (direction.shouldDownload) {
+        if (completedDirection.shouldDownload) {
           _lastCloudDownloadAt = result.completedAt;
         }
       });
-      final message = direction == CloudSyncDirection.uploadOnly
+      final message = completedDirection == CloudSyncDirection.uploadOnly
           ? 'تم الرفع فقط: الجهاز ← السحابة'
-          : direction == CloudSyncDirection.downloadOnly
+          : completedDirection == CloudSyncDirection.downloadOnly
               ? 'تم التنزيل فقط: السحابة ← الجهاز'
               : 'اكتملت المزامنة الثنائية: رفع ثم تنزيل';
       ScaffoldMessenger.of(context).showSnackBar(
@@ -2513,7 +2516,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
       );
     } catch (error) {
       if (mounted && progressOpen) Navigator.pop(context);
-      if (mounted) _showDataError('فشلت العملية السحابية: $error');
+      if (mounted) {
+        _showDataError(
+          SupabaseService.instance.describeSyncFailure(error),
+        );
+      }
     } finally {
       if (mounted) setState(() => _dataActionBusy = false);
     }
@@ -2528,14 +2535,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (!mounted) return;
       if (entries.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('لا توجد نسخ سحابية لهذا الحساب والمركز')),
+          const SnackBar(content: Text('لا توجد نسخ سحابية لهذا الحساب')),
         );
         return;
       }
       final selected = await showDialog<CloudBackupEntry>(
         context: context,
         builder: (dialogContext) => AlertDialog(
-          title: const Text('اختر نسخة سحابية'),
+          title: const Text('اختر نسخة سحابية للحساب'),
           content: SizedBox(
             width: double.maxFinite,
             child: ListView.builder(
@@ -2932,9 +2939,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 isEditing ? 'تعديل القاعدة' : 'إضافة قاعدة جديدة',
                 style: TextStyle(fontWeight: FontWeight.bold),
               ),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
+              insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
                   TextField(
                     controller: nameController,
                     decoration: InputDecoration(
@@ -2945,7 +2954,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     enabled: !isEditing,
                   ),
                   const SizedBox(height: 12),
-                  Row(
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    crossAxisAlignment: WrapCrossAlignment.center,
                     children: [
                       Text('نوع النقاط: ', style: TextStyle()),
                       ChoiceChip(
@@ -2955,7 +2967,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           setSubState(() => isPositive = true);
                         },
                       ),
-                      const SizedBox(width: 8),
                       ChoiceChip(
                         label: Text('سلبي (-)', style: TextStyle()),
                         selected: !isPositive,
@@ -2975,7 +2986,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                     keyboardType: TextInputType.number,
                   ),
-                ],
+                  ],
+                ),
               ),
               actions: [
                 TextButton(

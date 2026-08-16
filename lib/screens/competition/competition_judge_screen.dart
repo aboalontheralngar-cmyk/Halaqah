@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 
 import '../../models/competition.dart';
@@ -10,10 +12,12 @@ import '../exam/exam_generator_screen.dart';
 
 class CompetitionJudgeScreen extends StatefulWidget {
   final CompetitionEvent event;
+  final Set<String>? allowedStudentIds;
 
   const CompetitionJudgeScreen({
     super.key,
     required this.event,
+    this.allowedStudentIds,
   });
 
   @override
@@ -71,7 +75,26 @@ class _CompetitionJudgeScreenState extends State<CompetitionJudgeScreen>
         _db.getStudents(status: 'active'),
         _db.getCompetitionResults(widget.event.id),
       ]);
-      final students = values[0] as List<Student>;
+      final allStudents = values[0] as List<Student>;
+      var allowed = widget.allowedStudentIds;
+      if (allowed == null) {
+        final raw = await _db.getSetting(
+          'competition_allowed_student_ids_${widget.event.id}',
+        );
+        if (raw != null && raw.trim().isNotEmpty) {
+          try {
+            final decoded = jsonDecode(raw);
+            if (decoded is List) {
+              allowed = decoded.map((value) => value.toString()).toSet();
+            }
+          } catch (_) {
+            // A malformed legacy preference must not block competition judging.
+          }
+        }
+      }
+      final students = allowed == null
+          ? allStudents
+          : allStudents.where((student) => allowed!.contains(student.id)).toList();
       final results = values[1] as List<CompetitionResult>;
       if (!mounted) return;
       setState(() {

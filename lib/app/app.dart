@@ -5,6 +5,7 @@ import 'design_tokens.dart';
 import '../screens/home/home_screen.dart';
 import '../screens/settings/setup_wizard_screen.dart';
 import '../services/database_service.dart';
+import '../services/quran_service.dart';
 
 final ValueNotifier<ThemeMode> themeNotifier = ValueNotifier(ThemeMode.system);
 
@@ -102,13 +103,48 @@ class _HalaqahScrollBehavior extends MaterialScrollBehavior {
   }
 }
 
-class HalaqahStartupFailureApp extends StatelessWidget {
+class HalaqahStartupFailureApp extends StatefulWidget {
   final String incidentCode;
 
   const HalaqahStartupFailureApp({
     super.key,
     required this.incidentCode,
   });
+
+  @override
+  State<HalaqahStartupFailureApp> createState() =>
+      _HalaqahStartupFailureAppState();
+}
+
+class _HalaqahStartupFailureAppState extends State<HalaqahStartupFailureApp> {
+  bool _retrying = false;
+  String? _retryMessage;
+
+  Future<void> _retryStartup() async {
+    if (_retrying) return;
+    setState(() {
+      _retrying = true;
+      _retryMessage = null;
+    });
+    try {
+      await QuranService.instance.initialize();
+      try {
+        themeNotifier.value = themeModeFromSetting(
+          await DatabaseService().getSetting('theme'),
+        );
+      } catch (_) {
+        themeNotifier.value = ThemeMode.system;
+      }
+      runApp(const HalaqahApp());
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _retrying = false;
+        _retryMessage =
+            'تعذرت إعادة المحاولة. احتفظ برمز الحادثة وأعد فتح التطبيق مرة أخرى.';
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -127,7 +163,7 @@ class HalaqahStartupFailureApp extends StatelessWidget {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(
+                    const Icon(
                       Icons.health_and_safety_outlined,
                       size: 64,
                       color: Colors.red,
@@ -143,17 +179,44 @@ class HalaqahStartupFailureApp extends StatelessWidget {
                     ),
                     const SizedBox(height: 10),
                     const Text(
-                      'لم تُحذف بياناتك. أغلق التطبيق وافتحه مرة أخرى، ولا تمسح بياناته أو تعِد تثبيته قبل أخذ نسخة احتياطية.',
+                      'لم تُحذف بياناتك. جرّب إعادة المحاولة أولًا. لا تمسح بيانات التطبيق أو تعِد تثبيته قبل أخذ نسخة احتياطية.',
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 12),
                     SelectableText(
-                      'رمز الحادثة: $incidentCode',
+                      'رمز الحادثة: ${widget.incidentCode}',
                       style: const TextStyle(fontWeight: FontWeight.bold),
                     ),
+                    if (_retryMessage != null) ...[
+                      const SizedBox(height: 12),
+                      Text(
+                        _retryMessage!,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 20),
-                    FilledButton.icon(
-                      onPressed: SystemNavigator.pop,
+                    SizedBox(
+                      width: 280,
+                      child: FilledButton.icon(
+                        onPressed: _retrying ? null : _retryStartup,
+                        icon: _retrying
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Icon(Icons.refresh),
+                        label: Text(
+                          _retrying ? 'جارٍ إعادة المحاولة…' : 'إعادة المحاولة',
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    TextButton.icon(
+                      onPressed: _retrying ? null : SystemNavigator.pop,
                       icon: const Icon(Icons.close),
                       label: const Text('إغلاق التطبيق'),
                     ),
@@ -167,3 +230,4 @@ class HalaqahStartupFailureApp extends StatelessWidget {
     );
   }
 }
+

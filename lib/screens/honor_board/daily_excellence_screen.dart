@@ -370,12 +370,15 @@ class _DailyExcellenceScreenState extends State<DailyExcellenceScreen> {
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
+          insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
           title: const Text('إضافة متميز يدويًا'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
               DropdownButtonFormField<Student>(
                 initialValue: selected,
+                isExpanded: true,
                 decoration: const InputDecoration(labelText: 'الطالب'),
                 items: _students.map((student) => DropdownMenuItem(
                       value: student,
@@ -397,7 +400,8 @@ class _DailyExcellenceScreenState extends State<DailyExcellenceScreen> {
                 controller: notesController,
                 decoration: const InputDecoration(labelText: 'ملاحظة'),
               ),
-            ],
+              ],
+            ),
           ),
           actions: [
             TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('إلغاء')),

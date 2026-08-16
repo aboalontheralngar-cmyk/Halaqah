@@ -20,7 +20,7 @@ const layout = read("website/src/components/DashboardLayout.tsx");
 const migration = read("website/supabase/migrations/20260712000300_p5_daily_excellence.sql");
 
 for (const contract of [
-  "version: 24",
+  "static const int version = 26",
   "CREATE TABLE IF NOT EXISTS daily_achievements",
   "getDailyAchievements",
   "saveDailyAchievement",

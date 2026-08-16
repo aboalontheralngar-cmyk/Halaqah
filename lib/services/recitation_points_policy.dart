@@ -1,9 +1,9 @@
 class RecitationPointsResult {
   final double actualAmount;
   final double planAmount;
-  final int completionPoints;
-  final int bonusPoints;
-  final int workloadPoints;
+  final double completionPoints;
+  final double bonusPoints;
+  final double workloadPoints;
 
   const RecitationPointsResult({
     required this.actualAmount,
@@ -17,15 +17,15 @@ class RecitationPointsResult {
       planAmount <= 0 ? 0 : (actualAmount / planAmount).clamp(0, double.infinity);
   double get cappedCompletionRatio => completionRatio.clamp(0, 1).toDouble();
   int get completionPercent => (cappedCompletionRatio * 100).round();
-  int get totalPoints => completionPoints + bonusPoints + workloadPoints;
+  double get totalPoints => completionPoints + bonusPoints + workloadPoints;
 }
 
 /// سياسة النقاط التلقائية للحفظ اليومي.
 ///
 /// مكافأة الإتمام نسبية إلى ما سُمّع فعليًا من المقرر بدل حجب كل النقاط
-/// حتى بلوغ 100%. Build 76 يجعل سياسة تحويل الكسر إلى نقطة صحيحة قابلة
-/// للضبط: الأقرب، لأسفل، أو لأعلى، مع ضمان نقطة واحدة عند وجود إنجاز فعلي
-/// إذا كانت مكافأة الإتمام أكبر من صفر، ومنع تجاوز مكافأة الإتمام.
+/// حتى بلوغ 100%. Build 78 يحفظ الكسر الحقيقي افتراضيًا (مثل 2.5)،
+/// ويُبقي أوضاع التقريب القديمة اختيارية لمن يريد الأقرب أو لأسفل أو لأعلى،
+/// مع منع تجاوز مكافأة الإتمام المحددة.
 class RecitationPointsPolicy {
   const RecitationPointsPolicy._();
 
@@ -38,7 +38,7 @@ class RecitationPointsPolicy {
     String unit = 'ayahs',
     int completionReward = defaultCompletionReward,
     int extraReward = defaultExtraReward,
-    String roundingMode = 'nearest',
+    String roundingMode = 'exact',
   }) {
     final safeActual = actualAmount.clamp(0, double.infinity).toDouble();
     final safePlan = planAmount <= 0 ? 1.0 : planAmount;
@@ -49,21 +49,29 @@ class RecitationPointsPolicy {
     final exceeded = safeActual > safePlan + 0.000001;
 
     final rawReward = safeCompletionReward * ratio;
-    var proportionalReward = switch (roundingMode) {
-      'floor' => rawReward.floor(),
-      'ceil' => rawReward.ceil(),
-      _ => rawReward.round(),
+    double proportionalReward = switch (roundingMode) {
+      'floor' => rawReward.floorToDouble(),
+      'ceil' => rawReward.ceilToDouble(),
+      'nearest' => rawReward.roundToDouble(),
+      _ => (rawReward * 100).roundToDouble() / 100,
     };
-    if (safeActual > 0 && safeCompletionReward > 0 && proportionalReward == 0) {
+    // في الوضع الدقيق لا نفرض نقطة كاملة على إنجاز صغير؛ 5 أسطر من مقرر
+    // كبير تأخذ نسبتها الحقيقية. أوضاع التقريب القديمة تبقى اختيارية.
+    if (roundingMode != 'exact' &&
+        safeActual > 0 &&
+        safeCompletionReward > 0 &&
+        proportionalReward == 0) {
       proportionalReward = 1;
     }
-    proportionalReward = proportionalReward.clamp(0, safeCompletionReward).toInt();
+    proportionalReward = proportionalReward
+        .clamp(0, safeCompletionReward)
+        .toDouble();
 
     return RecitationPointsResult(
       actualAmount: safeActual,
       planAmount: safePlan,
       completionPoints: proportionalReward,
-      bonusPoints: completed && exceeded ? safeExtraReward : 0,
+      bonusPoints: completed && exceeded ? safeExtraReward.toDouble() : 0,
       workloadPoints: 0,
     );
   }

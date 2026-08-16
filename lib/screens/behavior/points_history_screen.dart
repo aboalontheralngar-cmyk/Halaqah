@@ -49,13 +49,13 @@ class _PointsHistoryScreenState extends State<PointsHistoryScreen> {
     return _points.where((p) => p.type == 'negative').toList();
   }
 
-  int get _positiveTotal =>
-      _points.where((p) => p.type == 'positive').fold(0, (sum, p) => sum + p.points);
+  double get _positiveTotal =>
+      _points.where((p) => p.type == 'positive').fold<double>(0, (sum, p) => sum + p.points);
 
-  int get _negativeTotal =>
-      _points.where((p) => p.type == 'negative').fold(0, (sum, p) => sum + p.points);
+  double get _negativeTotal =>
+      _points.where((p) => p.type == 'negative').fold<double>(0, (sum, p) => sum + p.points);
 
-  int get _netTotal => _positiveTotal + _negativeTotal;
+  double get _netTotal => _positiveTotal + _negativeTotal;
 
   @override
   Widget build(BuildContext context) {
@@ -106,11 +106,11 @@ class _PointsHistoryScreenState extends State<PointsHistoryScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
-              _buildSummaryItem('إيجابي', '+$_positiveTotal', Colors.green),
+              _buildSummaryItem('إيجابي', '+${Helpers.formatNumber(_positiveTotal)}', Colors.green),
               Container(width: 1, height: 40, color: Colors.white24),
-              _buildSummaryItem('سلبي', '$_negativeTotal', Colors.red),
+              _buildSummaryItem('سلبي', Helpers.formatNumber(_negativeTotal), Colors.red),
               Container(width: 1, height: 40, color: Colors.white24),
-              _buildSummaryItem('الصافي', '$_netTotal', Colors.white),
+              _buildSummaryItem('الصافي', Helpers.formatNumber(_netTotal), Colors.white),
             ],
           ),
         ],
@@ -204,7 +204,7 @@ class _PointsHistoryScreenState extends State<PointsHistoryScreen> {
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Text(
-                    '${isPositive ? '+' : ''}${point.points}',
+                    '${isPositive ? '+' : ''}${Helpers.formatNumber(point.points)}',
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
                       color: color,
@@ -344,7 +344,7 @@ class _PointsHistoryScreenState extends State<PointsHistoryScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('السجل الحالي: ${point.reason} (${point.points} نقطة)'),
+              Text('السجل الحالي: ${point.reason} (${Helpers.formatNumber(point.points)} نقطة)'),
               Text('مسند حاليًا إلى: ${widget.student.name}'),
               const SizedBox(height: 12),
               DropdownButtonFormField<Student>(

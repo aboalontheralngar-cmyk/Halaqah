@@ -20,7 +20,7 @@ const webStore = read('website/src/store/useStore.ts');
 const migration = read('website/supabase/migrations/20260712000400_p5_families_guardians.sql');
 
 for (const contract of [
-  'version: 24',
+  'static const int version = 26',
   'CREATE TABLE IF NOT EXISTS families',
   'CREATE TABLE IF NOT EXISTS family_guardians',
   'ALTER TABLE students ADD COLUMN family_id TEXT',

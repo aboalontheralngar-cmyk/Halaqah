@@ -22,6 +22,7 @@ import '../memorization/memorization_screen.dart';
 import '../behavior/behavior_screen.dart';
 import '../exam/exams_screen.dart';
 import '../competition/competitions_screen.dart';
+import '../competition/peer_level_groups_screen.dart';
 import '../fund/fund_screen.dart';
 import '../plans/plans_screen.dart';
 import '../courses/quran_courses_screen.dart';
@@ -34,6 +35,7 @@ import '../settings/offline_exchange_screen.dart';
 import '../../services/daily_closing_service.dart';
 import '../../app/design_tokens.dart';
 import '../../widgets/app_design_widgets.dart';
+import '../../widgets/cloud_sync_progress_dialog.dart';
 
 
 class HomeScreen extends StatefulWidget {
@@ -535,24 +537,12 @@ class _HomeScreenState extends State<HomeScreen> {
         }
 
         if (!mounted) return;
-        showDialog(
+        showDialog<void>(
           context: context,
           barrierDismissible: false,
-          builder: (context) => AlertDialog(
-            content: Row(
-              children: [
-                const CircularProgressIndicator(),
-                const SizedBox(width: 16),
-                Text(
-                  direction == CloudSyncDirection.uploadOnly
-                      ? 'جاري رفع بيانات الجهاز...'
-                      : direction == CloudSyncDirection.downloadOnly
-                          ? 'جاري تنزيل بيانات السحابة...'
-                          : 'جاري الرفع والتنزيل...',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-              ],
-            ),
+          builder: (_) => CloudSyncProgressDialog(
+            service: supabase,
+            direction: direction,
           ),
         );
 
@@ -561,9 +551,10 @@ class _HomeScreenState extends State<HomeScreen> {
           if (mounted) Navigator.pop(context);
           _loadData();
           if (mounted) {
-            final successText = direction == CloudSyncDirection.uploadOnly
+            final completedDirection = result.direction;
+            final successText = completedDirection == CloudSyncDirection.uploadOnly
                 ? 'تم الرفع فقط: الجهاز ← السحابة'
-                : direction == CloudSyncDirection.downloadOnly
+                : completedDirection == CloudSyncDirection.downloadOnly
                     ? 'تم التنزيل فقط: السحابة ← الجهاز'
                     : 'اكتملت المزامنة الثنائية: رفع ثم تنزيل';
             ScaffoldMessenger.of(context).showSnackBar(
@@ -580,7 +571,7 @@ class _HomeScreenState extends State<HomeScreen> {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: Text('فشلت المزامنة: $e'),
+                content: Text(supabase.describeSyncFailure(e)),
                 backgroundColor: Colors.red,
               ),
             );
@@ -1066,6 +1057,11 @@ class _HomeScreenState extends State<HomeScreen> {
                     page: const CompetitionsScreen(),
                   ),
                   _drawerPageItem(
+                    icon: Icons.groups_2_outlined,
+                    label: 'مجموعات المستوى المتقارب',
+                    page: const PeerLevelGroupsScreen(),
+                  ),
+                  _drawerPageItem(
                     icon: Icons.thumb_up_alt_outlined,
                     label: 'النقاط والسلوك',
                     page: const BehaviorScreen(),
@@ -1258,9 +1254,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   SupabaseService.instance.isAuthenticated
                       ? Icons.cloud_done_outlined
                       : Icons.cloud_sync_outlined,
-                  color: SupabaseService.instance.isAuthenticated
-                      ? context.semanticColors.success
-                      : null,
+                  color: Theme.of(context).colorScheme.onPrimary,
                 ),
                 onPressed: _syncWithCloud,
                 tooltip: 'المزامنة السحابية',
@@ -1566,6 +1560,17 @@ class _HomeScreenState extends State<HomeScreen> {
                 context,
                 MaterialPageRoute(
                   builder: (context) => const CompetitionsScreen(),
+                ),
+              ).then((_) => _loadData()),
+            ),
+            _buildActionItem(
+              'مجموعات المستوى المتقارب',
+              Icons.groups_2_outlined,
+              const Color(0xFF7C3AED),
+              () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const PeerLevelGroupsScreen(),
                 ),
               ).then((_) => _loadData()),
             ),

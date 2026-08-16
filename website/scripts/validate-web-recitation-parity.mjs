@@ -80,7 +80,7 @@ for (const contract of [
 ]) requireText(sync, contract, `Android sync ${contract}`);
 
 for (const contract of [
-  'version: 24',
+  'static const int version = 26',
   '_upgradeToVersion12',
   'deleteMemorizationProgressFromSync',
   'upsertMemorizationProgressFromSync',

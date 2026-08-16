@@ -27,7 +27,7 @@ for (const [source, text, label] of [
   [memorizationWeb, 'const recordRange = entryMode === "direct"', "direct range persistence"],
   [memorizationWeb, "تسجيل الحفظ مباشرة", "direct-save label"],
   [buildInfo, "releaseLabel = 'P1.27'", "central current release label"],
-  [pubspec, "version: 4.3.0-alpha.22+76", "current package version"],
+  [pubspec, "version: 4.3.0-alpha.24+80", "current package version"],
 ]) {
   requireText(source, text, label);
 }

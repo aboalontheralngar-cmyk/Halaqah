@@ -11,6 +11,7 @@ import '../../utils/helpers.dart';
 import '../../app/design_tokens.dart';
 import '../../widgets/app_design_widgets.dart';
 import '../../widgets/student_card.dart';
+import '../../widgets/dual_calendar_date_picker.dart';
 import 'student_period_report_screen.dart';
 import 'halaqah_period_report_screen.dart';
 import 'student_receipt_screen.dart';
@@ -311,64 +312,76 @@ class _ReportsScreenState extends State<ReportsScreen> {
           subtitle: 'اختر النطاق المناسب ثم راجع التقرير قبل تصديره.',
         ),
         const SizedBox(height: 12),
-        GridView.count(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          crossAxisCount: 2,
-          mainAxisSpacing: 12,
-          crossAxisSpacing: 12,
-          childAspectRatio: 1.5,
-          children: [
-            _buildReportCard(
-              'تقرير يومي',
-              Icons.today,
-              Colors.blue,
-              () => _generateDailyReport(),
-            ),
-            _buildReportCard(
-              'تقرير أسبوعي',
-              Icons.date_range,
-              Colors.green,
-              () => _generateWeeklyReport(),
-            ),
-            _buildReportCard(
-              'تقرير شهري',
-              Icons.calendar_month,
-              Colors.orange,
-              () => _generateMonthlyReport(),
-            ),
-            _buildReportCard(
-              'تقرير الحلقة لفترة',
-              Icons.analytics,
-              Colors.purple,
-              () => _showHalaqahStats(),
-            ),
-            _buildReportCard(
-              'تقرير طالب لفترة',
-              Icons.assessment_outlined,
-              Colors.teal,
-              () => Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const StudentPeriodReportScreen(),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final columns = constraints.maxWidth >= 760 ? 3 : 2;
+            return GridView.count(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              crossAxisCount: columns,
+              mainAxisSpacing: 12,
+              crossAxisSpacing: 12,
+              childAspectRatio: columns == 3 ? 1.65 : 1.28,
+              children: [
+                _buildReportCard(
+                  'تقرير يومي',
+                  'الحضور والتسميع ونقاط اليوم',
+                  Icons.today_outlined,
+                  Colors.blue,
+                  () => _generateDailyReport(),
                 ),
-              ),
-            ),
-            _buildReportCard(
-              _isBatchExporting
-                  ? 'جارٍ تجهيز التقارير…'
-                  : 'PDF لجميع الطلاب',
-              Icons.picture_as_pdf_outlined,
-              Colors.red,
-              _isBatchExporting ? () {} : _startBatchPeriodExport,
-            ),
-            _buildReportCard(
-              'بطاقات QR للطلاب',
-              Icons.qr_code_2_outlined,
-              Colors.indigo,
-              _printStudentQrCards,
-            ),
-          ],
+                _buildReportCard(
+                  'تقرير أسبوعي',
+                  'ملخص أسبوع الدراسة واتجاه الأداء',
+                  Icons.date_range_outlined,
+                  Colors.green,
+                  () => _generateWeeklyReport(),
+                ),
+                _buildReportCard(
+                  'تقرير شهري',
+                  'مؤشرات الشهر وأفضل النتائج',
+                  Icons.calendar_month_outlined,
+                  Colors.orange,
+                  () => _generateMonthlyReport(),
+                ),
+                _buildReportCard(
+                  'التقرير التجميعي',
+                  'الحلقة كاملة مع الأوائل والاستثناءات',
+                  Icons.analytics_outlined,
+                  Colors.purple,
+                  () => _showHalaqahStats(),
+                ),
+                _buildReportCard(
+                  'تقرير طالب',
+                  'فترة مخصصة لطالب واحد بالتفصيل',
+                  Icons.assessment_outlined,
+                  Colors.teal,
+                  () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const StudentPeriodReportScreen(),
+                    ),
+                  ),
+                ),
+                _buildReportCard(
+                  _isBatchExporting
+                      ? 'جارٍ تجهيز التقارير…'
+                      : 'PDF لجميع الطلاب',
+                  'ملف واحد وتقارير مرتبة لكل طالب',
+                  Icons.picture_as_pdf_outlined,
+                  Colors.red,
+                  _isBatchExporting ? () {} : _startBatchPeriodExport,
+                ),
+                _buildReportCard(
+                  'بطاقات QR',
+                  'ورقة بطاقات الطلاب للطباعة والتوزيع',
+                  Icons.qr_code_2_outlined,
+                  Colors.indigo,
+                  _printStudentQrCards,
+                ),
+              ],
+            );
+          },
         ),
       ],
     );
@@ -405,25 +418,50 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
   Widget _buildReportCard(
     String title,
+    String subtitle,
     IconData icon,
     Color color,
     VoidCallback onTap,
   ) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Card(
+    final scheme = Theme.of(context).colorScheme;
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(14),
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(icon, color: color, size: 32),
-              const SizedBox(height: 8),
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, color: color, size: 24),
+              ),
+              const SizedBox(height: 10),
               Text(
                 title,
-                textAlign: TextAlign.center,
-                style: const TextStyle(fontWeight: FontWeight.w500),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w800,
+                      color: scheme.onSurface,
+                    ),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                subtitle,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                      height: 1.25,
+                    ),
               ),
             ],
           ),
@@ -439,6 +477,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
     var endDate = DateTime(today.year, today.month, today.day);
     var useA5 = false;
     var activeOnly = true;
+    var compactSummary = true;
+    var excludedStudentIds = <String>{};
     String? selectedHijriMonthKey;
     final hijriRanges = Helpers.recentHijriMonths();
     final hijriRangeByKey = {
@@ -503,7 +543,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                   ),
                   trailing: const Icon(Icons.edit_calendar_outlined),
                   onTap: () async {
-                    final range = await showDateRangePicker(
+                    final range = await showDualCalendarDateRangePicker(
                       context: dialogContext,
                       firstDate: DateTime(2020),
                       lastDate: DateTime(today.year, today.month, today.day),
@@ -511,8 +551,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                         start: startDate,
                         end: endDate,
                       ),
-                      helpText: 'اختر فترة التقارير الجماعية',
-                      saveText: 'اعتماد الفترة',
+                      title: 'اختر فترة التقارير الجماعية',
                     );
                     if (range == null) return;
                     setDialogState(() {
@@ -560,6 +599,37 @@ class _ReportsScreenState extends State<ReportsScreen> {
                   subtitle: const Text('عطّل الخيار لتضمين الأرشيف والطلاب السابقين'),
                   onChanged: (value) => setDialogState(() => activeOnly = value),
                 ),
+                SwitchListTile(
+                  value: compactSummary,
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('ملخص صفحة واحدة لكل طالب'),
+                  subtitle: const Text(
+                    'أنسب للطباعة الجماعية؛ عطّله للحصول على التقرير اليومي المفصل.',
+                  ),
+                  onChanged: (value) =>
+                      setDialogState(() => compactSummary = value),
+                ),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.person_off_outlined),
+                  title: const Text('استثناء طلاب من ملف PDF'),
+                  subtitle: Text(
+                    excludedStudentIds.isEmpty
+                        ? 'لم يتم استثناء أحد'
+                        : 'مستثنى ${excludedStudentIds.length} طالب/طلاب',
+                  ),
+                  trailing: const Icon(Icons.chevron_left),
+                  onTap: () async {
+                    final selected = await _pickBatchExcludedStudents(
+                      initial: excludedStudentIds,
+                      startDate: startDate,
+                      endDate: endDate,
+                      activeOnly: activeOnly,
+                    );
+                    if (selected == null) return;
+                    setDialogState(() => excludedStudentIds = selected);
+                  },
+                ),
               ],
             ),
           ),
@@ -576,6 +646,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
                   endDate: endDate,
                   pageFormat: useA5 ? PdfPageFormat.a5 : PdfPageFormat.a4,
                   activeOnly: activeOnly,
+                  compactSummary: compactSummary,
+                  excludedStudentIds: Set<String>.from(excludedStudentIds),
                 ),
               ),
               icon: const Icon(Icons.file_download_outlined),
@@ -589,11 +661,118 @@ class _ReportsScreenState extends State<ReportsScreen> {
     await _exportAllStudentPeriodReports(options);
   }
 
+
+  Future<Set<String>?> _pickBatchExcludedStudents({
+    required Set<String> initial,
+    required DateTime startDate,
+    required DateTime endDate,
+    required bool activeOnly,
+  }) async {
+    final candidates = _students
+        .where((student) => !activeOnly || student.status == 'active')
+        .toList()
+      ..sort((a, b) => a.name.compareTo(b.name));
+    var selected = Set<String>.from(initial);
+    return showDialog<Set<String>>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('استثناء الطلاب من ملف PDF'),
+          content: SizedBox(
+            width: 460,
+            height: 430,
+            child: Column(
+              children: [
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 6,
+                  children: [
+                    OutlinedButton.icon(
+                      onPressed: () {
+                        final periodStart = DateTime(
+                          startDate.year,
+                          startDate.month,
+                          startDate.day,
+                        );
+                        final periodEndExclusive = DateTime(
+                          endDate.year,
+                          endDate.month,
+                          endDate.day,
+                        ).add(const Duration(days: 1));
+                        setDialogState(() {
+                          selected.addAll(
+                            candidates
+                                .where(
+                                  (student) =>
+                                      !student.joinDate.isBefore(periodStart) &&
+                                      student.joinDate.isBefore(periodEndExclusive),
+                                )
+                                .map((student) => student.id),
+                          );
+                        });
+                      },
+                      icon: const Icon(Icons.person_add_alt_1_outlined),
+                      label: const Text('استبعاد المستجدين في الفترة'),
+                    ),
+                    TextButton(
+                      onPressed: () => setDialogState(selected.clear),
+                      child: const Text('إلغاء كل الاستثناءات'),
+                    ),
+                  ],
+                ),
+                const Divider(),
+                Expanded(
+                  child: ListView.builder(
+                    itemCount: candidates.length,
+                    itemBuilder: (context, index) {
+                      final student = candidates[index];
+                      final checked = selected.contains(student.id);
+                      return CheckboxListTile(
+                        value: checked,
+                        dense: true,
+                        controlAffinity: ListTileControlAffinity.leading,
+                        title: Text(student.name),
+                        subtitle: Text(
+                          'التحاق: ${Helpers.formatPlanDate(student.joinDate)}',
+                        ),
+                        onChanged: (value) => setDialogState(() {
+                          if (value == true) {
+                            selected.add(student.id);
+                          } else {
+                            selected.remove(student.id);
+                          }
+                        }),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('إلغاء'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(
+                dialogContext,
+                Set<String>.from(selected),
+              ),
+              child: Text('اعتماد (${selected.length})'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _exportAllStudentPeriodReports(
     _BatchReportOptions options,
   ) async {
     final students = _students
         .where((student) => !options.activeOnly || student.status == 'active')
+        .where((student) => !options.excludedStudentIds.contains(student.id))
         .toList()
       ..sort((a, b) => a.name.compareTo(b.name));
     if (students.isEmpty) {
@@ -651,6 +830,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
         halaqahName: settings.halaqahName,
         mosqueName: settings.mosqueName,
         useHijriCalendar: settings.useHijriCalendar,
+        compactSummary: options.compactSummary,
       );
       if (!mounted) return;
       Navigator.of(context, rootNavigator: true).pop();
@@ -897,11 +1077,15 @@ class _BatchReportOptions {
   final DateTime endDate;
   final PdfPageFormat pageFormat;
   final bool activeOnly;
+  final bool compactSummary;
+  final Set<String> excludedStudentIds;
 
   const _BatchReportOptions({
     required this.startDate,
     required this.endDate,
     required this.pageFormat,
     required this.activeOnly,
+    required this.compactSummary,
+    required this.excludedStudentIds,
   });
 }

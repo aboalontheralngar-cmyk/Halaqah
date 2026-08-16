@@ -12,19 +12,19 @@ void main() {
       );
 
       expect(result.completionPercent, 50);
-      expect(result.completionPoints, 3);
+      expect(result.completionPoints, 2.5);
       expect(result.bonusPoints, 0);
-      expect(result.totalPoints, 3);
+      expect(result.totalPoints, 2.5);
     });
 
-    test('awards at least one point for real partial work', () {
+    test('preserves the exact fractional reward for small real work', () {
       final result = RecitationPointsPolicy.calculate(
         actualAmount: 1,
         planAmount: 100,
         completionReward: 5,
       );
 
-      expect(result.completionPoints, 1);
+      expect(result.completionPoints, 0.05);
       expect(result.bonusPoints, 0);
     });
 
@@ -78,8 +78,15 @@ void main() {
         completionReward: 5,
         roundingMode: 'ceil',
       );
+      final nearestResult = RecitationPointsPolicy.calculate(
+        actualAmount: 10,
+        planAmount: 20,
+        completionReward: 5,
+        roundingMode: 'nearest',
+      );
       expect(floorResult.completionPoints, 2);
       expect(ceilResult.completionPoints, 3);
+      expect(nearestResult.completionPoints, 3);
     });
   });
 }

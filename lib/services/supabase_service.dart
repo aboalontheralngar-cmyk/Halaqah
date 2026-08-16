@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:crypto/crypto.dart';
+import 'package:flutter/foundation.dart' show ValueNotifier;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/student.dart';
 import '../models/homework_grade.dart';
@@ -29,6 +31,9 @@ import 'database_service.dart';
 import 'mushaf_service.dart';
 import 'quran_service.dart';
 import 'local_sync_delete_outbox.dart';
+import 'study_suspension_sync_plan.dart';
+import 'sync/cloud_sync_progress.dart';
+import 'sync/exam_sync_policy.dart';
 
 enum CloudSyncDirection { uploadOnly, downloadOnly, bidirectional }
 
@@ -48,6 +53,15 @@ extension CloudSyncDirectionPolicy on CloudSyncDirection {
   }
 }
 
+class CloudSyncUnavailableException implements Exception {
+  final String message;
+
+  const CloudSyncUnavailableException(this.message);
+
+  @override
+  String toString() => message;
+}
+
 class CloudSyncResult {
   final CloudSyncDirection direction;
   final DateTime completedAt;
@@ -59,6 +73,16 @@ class CloudSyncResult {
     required this.completedAt,
     this.uploadedSections = const [],
     this.downloadedSections = const [],
+  });
+}
+
+class _CloudSyncScope {
+  final String centerId;
+  final String halaqahId;
+
+  const _CloudSyncScope({
+    required this.centerId,
+    required this.halaqahId,
   });
 }
 
@@ -75,6 +99,36 @@ class SupabaseService {
   final DatabaseService _db = DatabaseService();
   final MushafService _mushaf = MushafService();
 
+  static const Duration _syncRpcTimeout = Duration(seconds: 12);
+  static const Duration _syncRetryDelay = Duration(milliseconds: 700);
+  static const Duration _syncStageSlowWarning = Duration(seconds: 30);
+  static const Duration _identityRefreshTtl = Duration(hours: 6);
+  static const String _studySuspensionFingerprintKey =
+      'study_suspensions_upload_fingerprint_v1';
+
+  final ValueNotifier<CloudSyncProgress?> syncProgress =
+      ValueNotifier<CloudSyncProgress?>(null);
+  final Map<String, Set<String>> _studentIdsByHalaqah =
+      <String, Set<String>>{};
+
+  Future<CloudSyncResult>? _activeSync;
+  CloudSyncDirection? _activeSyncDirection;
+
+  bool get isSynchronizing => _activeSync != null;
+
+  /// Waits for a synchronization that was already in progress to settle.
+  /// Used before an atomic backup restore so cloud writes and local snapshot
+  /// replacement can never run concurrently.
+  Future<void> waitForActiveSync() async {
+    final active = _activeSync;
+    if (active == null) return;
+    try {
+      await active;
+    } catch (_) {
+      // The original sync path already records its own diagnostic failure.
+    }
+  }
+
   static Future<void> initialize() async {
     CloudConfig.validate();
     await Supabase.initialize(
@@ -88,6 +142,216 @@ class SupabaseService {
     return CloudConnectionDiagnostics(
       endpoint: baseUri.replace(path: '/auth/v1/health', query: null),
     ).run();
+  }
+
+  String describeSyncFailure(Object error) {
+    if (error is CloudSyncStageException) {
+      final cause = error.cause;
+      if (cause is PostgrestException && cause.code == '42P10') {
+        return 'توقفت المزامنة عند «${error.stageLabel}» لأن مخطط Supabase '
+            'يفتقد قيد تفرّد تعتمد عليه النسخ الحالية. نفّذ '
+            'P1.27_BUILD78_HOTFIX3_APPLY.sql ثم ملف VERIFY وأعد المزامنة. '
+            'الرمز: ${error.safeCode}';
+      }
+      if (cause is PostgrestException && cause.code == '23503') {
+        return 'توقفت المزامنة عند «${error.stageLabel}» لأن سجلًا يعتمد على '
+            'مرجع سحابي لم يصل بعد أو لم يعد موجودًا. بيانات الجهاز لم تُحذف. '
+            'أعد المحاولة بعد تحديث التطبيق، وإذا استمر الخطأ افتح مركز '
+            'التشخيص. الرمز: ${error.safeCode}';
+      }
+      if (cause is CloudSyncUnavailableException) {
+        return '${cause.message} المرحلة: ${error.stageLabel}. '
+            'الرمز: ${error.safeCode}';
+      }
+      if (cause is TimeoutException || _isTransientNetworkError(cause)) {
+        return 'انقطع الاتصال أثناء «${error.stageLabel}». بيانات الجهاز '
+            'محفوظة محليًا وسيعاد إرسالها لاحقًا. الرمز: ${error.safeCode}';
+      }
+      if (cause is StateError) {
+        return '${cause.message} الرمز: ${error.safeCode}';
+      }
+      return 'توقفت المزامنة عند «${error.stageLabel}». لم تُحذف بيانات '
+          'الجهاز. افتح مركز التشخيص إذا تكرر الخطأ. الرمز: ${error.safeCode}';
+    }
+    if (error is CloudSyncUnavailableException) return error.message;
+    if (error is TimeoutException || _isTransientNetworkError(error)) {
+      return 'تعذر الوصول إلى السحابة الآن. بيانات الجهاز محفوظة محليًا، '
+          'وسيُعاد إرسالها عند استقرار الاتصال.';
+    }
+    if (error is StateError) return error.message;
+
+    final text = error.toString().replaceFirst('Exception: ', '').trim();
+    if (text.startsWith('الرجاء اختيار المركز والحلقة') ||
+        text.startsWith('تعذر إنشاء نسخة احتياطية')) {
+      return text;
+    }
+    return 'تعذر إكمال المزامنة الآن. لم تُحذف بيانات الجهاز، ويمكن إعادة المحاولة لاحقًا.';
+  }
+
+  String _safeSyncErrorCode(String stageId, Object error) {
+    String suffix;
+    if (error is PostgrestException) {
+      suffix = error.code?.trim().isNotEmpty == true
+          ? error.code!.trim()
+          : 'POSTGREST';
+    } else if (error is TimeoutException) {
+      suffix = 'TIMEOUT';
+    } else if (_isTransientNetworkError(error)) {
+      suffix = 'NETWORK';
+    } else {
+      suffix = error.runtimeType.toString().toUpperCase();
+    }
+    final sanitizedStage = stageId
+        .toUpperCase()
+        .replaceAll(RegExp(r'[^A-Z0-9]+'), '_')
+        .replaceAll(RegExp(r'^_|_$'), '');
+    final sanitizedSuffix = suffix
+        .toUpperCase()
+        .replaceAll(RegExp(r'[^A-Z0-9]+'), '_')
+        .replaceAll(RegExp(r'^_|_$'), '');
+    return 'SYNC_${sanitizedStage}_$sanitizedSuffix';
+  }
+
+  Future<void> _recordSyncFailure(
+    CloudSyncStageException failure,
+  ) async {
+    try {
+      await _db.saveSetting('last_cloud_sync_failed_stage', failure.stageId);
+      await _db.saveSetting('last_cloud_sync_error_code', failure.safeCode);
+      await _db.saveSetting(
+        'last_cloud_sync_failed_at',
+        DateTime.now().toIso8601String(),
+      );
+    } catch (_) {
+      // Diagnostics must never replace the original synchronization error.
+    }
+  }
+
+  Future<void> _clearSyncFailureMarker() async {
+    try {
+      await _db.saveSetting('last_cloud_sync_failed_stage', '');
+      await _db.saveSetting('last_cloud_sync_error_code', '');
+      await _db.saveSetting('last_cloud_sync_failed_at', '');
+    } catch (_) {
+      // A successful sync stays successful even if a diagnostic marker cannot
+      // be cleared.
+    }
+  }
+
+  Future<void> _runSyncStage({
+    required String id,
+    required String label,
+    required int index,
+    required int total,
+    required Future<void> Function() action,
+  }) async {
+    syncProgress.value = CloudSyncProgress(
+      state: CloudSyncProgressState.running,
+      stageId: id,
+      stageLabel: label,
+      currentStage: index,
+      totalStages: total,
+    );
+    final stopwatch = Stopwatch()..start();
+    final slowStageTimer = Timer(_syncStageSlowWarning, () {
+      AppLogger.warning('stage_slow', source: 'supabase.sync.$id');
+    });
+    try {
+      // Do not wrap a whole sync stage in Future.timeout: Dart timeouts do not
+      // cancel the underlying network operation and could allow a later sync
+      // to overlap with an operation that is still mutating cloud data. RPCs
+      // that are safe to retry have their own bounded timeout instead.
+      await action();
+      slowStageTimer.cancel();
+      stopwatch.stop();
+      AppLogger.info(
+        'stage_completed:${stopwatch.elapsedMilliseconds}ms',
+        source: 'supabase.sync.$id',
+      );
+    } catch (error, stackTrace) {
+      slowStageTimer.cancel();
+      stopwatch.stop();
+      final failure = CloudSyncStageException(
+        stageId: id,
+        stageLabel: label,
+        safeCode: _safeSyncErrorCode(id, error),
+        cause: error,
+      );
+      syncProgress.value = CloudSyncProgress(
+        state: CloudSyncProgressState.failed,
+        stageId: id,
+        stageLabel: label,
+        currentStage: index,
+        totalStages: total,
+        safeCode: failure.safeCode,
+      );
+      await _recordSyncFailure(failure);
+      AppLogger.error(
+        error,
+        source: 'supabase.sync.$id',
+        stackTrace: stackTrace,
+      );
+      throw failure;
+    }
+  }
+
+  Future<void> _ensureCloudReachable() async {
+    final diagnostic = await diagnoseConnection();
+    if (!diagnostic.isHealthy) {
+      throw CloudSyncUnavailableException(
+        '${diagnostic.title}. ${diagnostic.message}',
+      );
+    }
+  }
+
+  bool _isTransientNetworkError(Object error) {
+    final text = error.toString().toLowerCase();
+    return text.contains('clientexception') ||
+        text.contains('socketexception') ||
+        text.contains('connection abort') ||
+        text.contains('connection reset') ||
+        text.contains('connection closed') ||
+        text.contains('failed host lookup') ||
+        text.contains('network is unreachable') ||
+        text.contains('timed out') ||
+        text.contains('timeout');
+  }
+
+  Future<dynamic> _callIdempotentSyncRpc(
+    String functionName,
+    Map<String, dynamic> params,
+  ) async {
+    Object? lastError;
+    for (var attempt = 0; attempt < 2; attempt++) {
+      try {
+        return await (() async {
+          return await client.rpc(functionName, params: params);
+        })().timeout(_syncRpcTimeout);
+      } on TimeoutException catch (error) {
+        lastError = error;
+      } catch (error) {
+        if (!_isTransientNetworkError(error) || attempt == 1) rethrow;
+        lastError = error;
+      }
+      if (attempt == 0) await Future<void>.delayed(_syncRetryDelay);
+    }
+    throw CloudSyncUnavailableException(
+      lastError is TimeoutException
+          ? 'انتهت مهلة الاتصال أثناء مزامنة الإجازات العارضة.'
+          : 'انقطع الاتصال أثناء مزامنة الإجازات العارضة.',
+    );
+  }
+
+  String _studySuspensionFingerprint(Map<String, String> values) {
+    final ordered = values.entries.toList()
+      ..sort((a, b) => a.key.compareTo(b.key));
+    final payload = ordered
+        .map((entry) => <String, String>{
+              'date': entry.key,
+              'reason': entry.value.trim(),
+            })
+        .toList(growable: false);
+    return sha256.convert(utf8.encode(jsonEncode(payload))).toString();
   }
 
   // Auth Operations
@@ -335,102 +599,190 @@ class SupabaseService {
   // Synchronize SQLite and Supabase
   Future<CloudSyncResult> synchronizeData({
     CloudSyncDirection direction = CloudSyncDirection.bidirectional,
-  }) async {
+  }) {
+    final activeSync = _activeSync;
+    final activeDirection = _activeSyncDirection;
+    if (activeSync != null && activeDirection != null) {
+      if (_syncDirectionCovers(activeDirection, direction)) {
+        AppLogger.info(
+          'sync_joined_active:${activeDirection.settingSuffix}',
+          source: 'supabase.sync',
+        );
+        return activeSync;
+      }
+      return activeSync.then<CloudSyncResult>(
+        (_) => synchronizeData(direction: direction),
+        onError: (_) => synchronizeData(direction: direction),
+      );
+    }
+
+    late final Future<CloudSyncResult> operation;
+    _activeSyncDirection = direction;
+    operation = _synchronizeDataOnce(direction).whenComplete(() {
+      if (identical(_activeSync, operation)) {
+        _activeSync = null;
+        _activeSyncDirection = null;
+      }
+    });
+    _activeSync = operation;
+    return operation;
+  }
+
+  bool _syncDirectionCovers(
+    CloudSyncDirection active,
+    CloudSyncDirection requested,
+  ) =>
+      active == CloudSyncDirection.bidirectional || active == requested;
+
+  Future<CloudSyncResult> _synchronizeDataOnce(
+    CloudSyncDirection direction,
+  ) async {
     if (!isAuthenticated) {
       throw StateError('يلزم تسجيل الدخول قبل المزامنة');
     }
 
+    _studentIdsByHalaqah.clear();
+    final totalStages = 23 +
+        (direction.shouldDownload ? 2 : 0) +
+        (direction.shouldUpload ? 3 : 0);
+    var stageIndex = 0;
+
+    Future<void> runStage(
+      String id,
+      String label,
+      Future<void> Function() action,
+    ) {
+      stageIndex++;
+      return _runSyncStage(
+        id: id,
+        label: label,
+        index: stageIndex,
+        total: totalStages,
+        action: action,
+      );
+    }
+
+    syncProgress.value = CloudSyncProgress(
+      state: CloudSyncProgressState.preparing,
+      stageId: 'prepare',
+      stageLabel: 'تهيئة المزامنة',
+      currentStage: 0,
+      totalStages: totalStages,
+    );
+
     try {
-      if (direction.shouldDownload) await _createDailyPreSyncBackup();
+      await runStage('connection', 'فحص الاتصال بالسحابة', () async {
+        await _ensureCloudReachable();
+      });
 
-      String? centerId = await _db.getSetting('sync_center_id');
-      String? halaqahId = await _db.getSetting('sync_halaqah_id');
+      late final _CloudSyncScope scope;
+      await runStage('scope', 'تحديد المركز والحلقة', () async {
+        scope = await _resolveSyncScope();
+      });
+      final centerId = scope.centerId;
+      final halaqahId = scope.halaqahId;
 
-      // Fallback: check if we can get it from teacher info query
-      if (centerId == null || centerId.isEmpty || halaqahId == null || halaqahId.isEmpty) {
-        final info = await getTeacherInfo();
-        if (info != null) {
-          centerId = info['center_id'];
-          halaqahId = info['halaqah_id'];
-          if (centerId != null) {
-            await _db.saveSetting('sync_center_id', centerId);
-          }
-          if (halaqahId != null) {
-            await _db.saveSetting('sync_halaqah_id', halaqahId);
-          }
-        }
-      }
-
-      if (centerId == null || centerId.isEmpty || halaqahId == null || halaqahId.isEmpty) {
-        throw Exception('الرجاء اختيار المركز والحلقة أولاً لإجراء المزامنة.');
-      }
-
-      // Fetch center name from Supabase
-      String mosqueName = '';
-      final centerRes = await client.from('centers').select('name').eq('id', centerId).maybeSingle();
-      if (centerRes != null) {
-        mosqueName = centerRes['name'] ?? '';
-      }
-
-      // Fetch halaqah name and teacher name from Supabase
-      String halaqahName = '';
-      String teacherName = '';
-      final halaqahRes = await client.from('halaqat').select('name, teacher_name').eq('id', halaqahId).maybeSingle();
-      if (halaqahRes != null) {
-        halaqahName = halaqahRes['name'] ?? '';
-        teacherName = halaqahRes['teacher_name'] ?? '';
-      }
-
-      // Save to local SQLite settings
-      if (mosqueName.isNotEmpty) {
-        await _db.saveSetting('mosque_name', mosqueName);
-      }
-      if (halaqahName.isNotEmpty) {
-        await _db.saveSetting('halaqah_name', halaqahName);
-      }
-      if (teacherName.isNotEmpty) {
-        await _db.saveSetting('teacher_name', teacherName);
-      }
-      await _db.saveSetting('setup_completed', 'true');
-
-      // Build 75: consume hard-delete events before uploading anything. If a
-      // record was deleted on another device while this device was offline,
-      // removing it locally first prevents the later upload from resurrecting
-      // it in Supabase.
       if (direction.shouldDownload) {
-        await _syncCloudTombstones(centerId, halaqahId);
-      }
-      if (direction.shouldUpload) {
-        // SQLite v25 captures every hard delete from a synced local table in a
-        // durable outbox. Flush it before normal upserts so an actual delete
-        // wins, while INSERT OR REPLACE false-positives are discarded when
-        // the local row still exists.
-        await _syncDeleteOutbox();
+        await runStage(
+          'backup',
+          'إنشاء نسخة حماية محلية',
+          () => _createPreSyncBackupIfNeeded(direction),
+        );
       }
 
-      await _syncFamilies(centerId, halaqahId, direction);
-      await _syncStudents(centerId, halaqahId, direction);
-      await _syncHomeworkGrades(centerId, halaqahId, direction);
-      await _syncAttendance(centerId, halaqahId, direction);
-      await _syncStudySuspensions(centerId, halaqahId, direction);
-      await _syncMemorizationProgress(centerId, halaqahId, direction);
-      await _syncMushafProgress(centerId, halaqahId, direction);
-      await _syncBehaviorPoints(centerId, halaqahId, direction);
-      if (direction.shouldUpload) {
-        await _syncBehaviorPointCorrections(centerId, halaqahId);
+      await runStage('identity', 'تحديث بيانات الحلقة', () async {
+        await _refreshCloudIdentityIfNeeded(centerId, halaqahId);
+      });
+
+      // Cloud tombstones must be consumed before any local upload. This keeps
+      // a stale offline device from resurrecting a record deleted elsewhere.
+      if (direction.shouldDownload) {
+        await runStage('tombstones', 'مزامنة الحذف القادم من السحابة', () async {
+          await _syncCloudTombstones(centerId, halaqahId);
+        });
       }
-      await _syncDailyAchievements(centerId, halaqahId, direction);
-      await _syncVacations(centerId, halaqahId, direction);
-      await _syncExams(centerId, halaqahId, direction);
-      await _syncExamTemplates(centerId, halaqahId, direction);
-      await _syncNotifications(centerId, halaqahId, direction);
-      await _syncFundTransactions(centerId, halaqahId, direction);
-      await _syncStudentHolds(centerId, halaqahId, direction);
-      await _syncTalaqqinRecords(centerId, halaqahId, direction);
-      await _syncStudentAdminActions(centerId, halaqahId, direction);
-      await _syncPlans(centerId, halaqahId, direction);
-      await _syncQuranCourses(centerId, halaqahId, direction);
-      await _syncPlanRecitationRecords(centerId, halaqahId, direction);
+      if (direction.shouldUpload) {
+        await runStage('delete_outbox', 'رفع عمليات الحذف المحلية', _syncDeleteOutbox);
+      }
+
+      await runStage('families', 'العائلات وأولياء الأمور', () async {
+        await _syncFamilies(centerId, halaqahId, direction);
+      });
+      await runStage('students', 'الطلاب', () async {
+        await _syncStudents(centerId, halaqahId, direction);
+        _studentIdsByHalaqah.remove(halaqahId);
+      });
+      await runStage('homework', 'درجات الواجب', () async {
+        await _syncHomeworkGrades(centerId, halaqahId, direction);
+      });
+      await runStage('attendance', 'الحضور', () async {
+        await _syncAttendance(centerId, halaqahId, direction);
+      });
+      await runStage('study_suspensions', 'الإجازات العارضة', () async {
+        await _syncStudySuspensions(centerId, halaqahId, direction);
+      });
+      await runStage('memorization', 'الحفظ والمراجعة', () async {
+        await _syncMemorizationProgress(centerId, halaqahId, direction);
+      });
+      await runStage('mushaf', 'خريطة المصحف', () async {
+        await _syncMushafProgress(centerId, halaqahId, direction);
+      });
+      await runStage('points', 'النقاط', () async {
+        await _syncBehaviorPoints(centerId, halaqahId, direction);
+      });
+      if (direction.shouldUpload) {
+        await runStage('point_corrections', 'تصحيحات النقاط', () async {
+          await _syncBehaviorPointCorrections(centerId, halaqahId);
+        });
+      }
+      await runStage('achievements', 'متميزو اليوم', () async {
+        await _syncDailyAchievements(centerId, halaqahId, direction);
+      });
+      await runStage('vacations', 'إجازات الطلاب', () async {
+        await _syncVacations(centerId, halaqahId, direction);
+      });
+      // Exam rows may reference exam_templates.template_id, so parent
+      // templates must exist in Supabase before exam rows are uploaded. The
+      // same ordering also makes downloaded local references immediately valid.
+      await runStage('exam_templates', 'قوالب الاختبارات', () async {
+        await _syncExamTemplates(centerId, halaqahId, direction);
+      });
+      await runStage('exams', 'الاختبارات والدرجات', () async {
+        await _syncExams(centerId, halaqahId, direction);
+      });
+      if (direction.shouldUpload) {
+        // Template deletes are deliberately last: exam upserts above first
+        // clear any stale template_id references, avoiding SQLSTATE 23503.
+        await runStage(
+          'exam_template_cleanup',
+          'تنظيف قوالب الاختبارات المحذوفة',
+          _syncDeletedExamTemplates,
+        );
+      }
+      await runStage('notifications', 'الإشعارات', () async {
+        await _syncNotifications(centerId, halaqahId, direction);
+      });
+      await runStage('fund', 'صندوق الحلقة', () async {
+        await _syncFundTransactions(centerId, halaqahId, direction);
+      });
+      await runStage('student_holds', 'إيقافات الطلاب', () async {
+        await _syncStudentHolds(centerId, halaqahId, direction);
+      });
+      await runStage('talaqqin', 'التلقين', () async {
+        await _syncTalaqqinRecords(centerId, halaqahId, direction);
+      });
+      await runStage('admin_actions', 'الإجراءات الإدارية', () async {
+        await _syncStudentAdminActions(centerId, halaqahId, direction);
+      });
+      await runStage('plans', 'الخطط', () async {
+        await _syncPlans(centerId, halaqahId, direction);
+      });
+      await runStage('courses', 'الدورات القرآنية', () async {
+        await _syncQuranCourses(centerId, halaqahId, direction);
+      });
+      await runStage('plan_recitation', 'سجل السرد المرتبط بالخطط', () async {
+        await _syncPlanRecitationRecords(centerId, halaqahId, direction);
+      });
 
       final completedAt = DateTime.now();
       if (direction.shouldUpload) {
@@ -453,7 +805,15 @@ class SupabaseService {
         'last_cloud_sync_direction',
         direction.settingSuffix,
       );
+      await _clearSyncFailureMarker();
 
+      syncProgress.value = CloudSyncProgress(
+        state: CloudSyncProgressState.completed,
+        stageId: 'completed',
+        stageLabel: 'اكتملت المزامنة',
+        currentStage: totalStages,
+        totalStages: totalStages,
+      );
       AppLogger.info('sync_completed', source: 'supabase.sync');
       return CloudSyncResult(
         direction: direction,
@@ -489,10 +849,92 @@ class SupabaseService {
               ]
             : const [],
       );
-    } catch (e) {
-      AppLogger.error(e, source: 'supabase.sync');
+    } catch (error, stackTrace) {
+      if (error is! CloudSyncStageException) {
+        AppLogger.error(
+          error,
+          source: 'supabase.sync',
+          stackTrace: stackTrace,
+        );
+      }
       rethrow;
     }
+  }
+
+  Future<_CloudSyncScope> _resolveSyncScope() async {
+    String? centerId = await _db.getSetting('sync_center_id');
+    String? halaqahId = await _db.getSetting('sync_halaqah_id');
+
+    if ((centerId ?? '').isEmpty || (halaqahId ?? '').isEmpty) {
+      final info = await getTeacherInfo();
+      if (info != null) {
+        centerId = info['center_id']?.toString();
+        halaqahId = info['halaqah_id']?.toString();
+        if ((centerId ?? '').isNotEmpty) {
+          await _db.saveSetting('sync_center_id', centerId!);
+        }
+        if ((halaqahId ?? '').isNotEmpty) {
+          await _db.saveSetting('sync_halaqah_id', halaqahId!);
+        }
+      }
+    }
+
+    if ((centerId ?? '').isEmpty || (halaqahId ?? '').isEmpty) {
+      throw StateError('الرجاء اختيار المركز والحلقة أولاً لإجراء المزامنة.');
+    }
+    return _CloudSyncScope(centerId: centerId!, halaqahId: halaqahId!);
+  }
+
+  Future<void> _refreshCloudIdentityIfNeeded(
+    String centerId,
+    String halaqahId,
+  ) async {
+    final mosqueName = (await _db.getSetting('mosque_name'))?.trim() ?? '';
+    final halaqahName = (await _db.getSetting('halaqah_name'))?.trim() ?? '';
+    final lastRefresh = DateTime.tryParse(
+      await _db.getSetting('last_cloud_identity_refresh_at') ?? '',
+    );
+    final refreshExpired = lastRefresh == null ||
+        DateTime.now().difference(lastRefresh) >= _identityRefreshTtl;
+    if (!refreshExpired && mosqueName.isNotEmpty && halaqahName.isNotEmpty) {
+      await _db.saveSetting('setup_completed', 'true');
+      return;
+    }
+
+    final results = await Future.wait<dynamic>([
+      client.from('centers').select('name').eq('id', centerId).maybeSingle(),
+      client
+          .from('halaqat')
+          .select('name, teacher_name')
+          .eq('id', halaqahId)
+          .maybeSingle(),
+    ]);
+    final center = results[0] as Map<String, dynamic>?;
+    final halaqah = results[1] as Map<String, dynamic>?;
+    final remoteMosqueName = center?['name']?.toString().trim() ?? '';
+    final remoteHalaqahName = halaqah?['name']?.toString().trim() ?? '';
+    final remoteTeacherName = halaqah?['teacher_name']?.toString().trim() ?? '';
+
+    if (remoteMosqueName.isNotEmpty) {
+      await _db.saveSetting('mosque_name', remoteMosqueName);
+    }
+    if (remoteHalaqahName.isNotEmpty) {
+      await _db.saveSetting('halaqah_name', remoteHalaqahName);
+    }
+    if (remoteTeacherName.isNotEmpty) {
+      await _db.saveSetting('teacher_name', remoteTeacherName);
+    }
+    await _db.saveSetting(
+      'last_cloud_identity_refresh_at',
+      DateTime.now().toIso8601String(),
+    );
+    await _db.saveSetting('setup_completed', 'true');
+  }
+
+  Future<void> _createPreSyncBackupIfNeeded(
+    CloudSyncDirection direction,
+  ) async {
+    if (direction.shouldDownload) await _createDailyPreSyncBackup();
   }
 
   Future<void> _createDailyPreSyncBackup() async {
@@ -1235,14 +1677,19 @@ class SupabaseService {
   }
 
   Future<Set<String>> _fetchHalaqahStudentIds(String halaqahId) async {
+    final cached = _studentIdsByHalaqah[halaqahId];
+    if (cached != null) return cached;
+
     final rows = await client
         .from('students')
         .select('id')
         .eq('halaqa_id', halaqahId);
-    return (rows as List<dynamic>)
+    final ids = (rows as List<dynamic>)
         .map((row) => row['id']?.toString())
         .whereType<String>()
         .toSet();
+    _studentIdsByHalaqah[halaqahId] = ids;
+    return ids;
   }
 
   // Sync Mushaf Progress: Push local, Pull remote
@@ -1274,10 +1721,10 @@ class SupabaseService {
           i,
           i + 500 > mushafPayload.length ? mushafPayload.length : i + 500,
         );
-        await client.from('mushaf_progress').upsert(
-              chunk,
-              onConflict: 'student_id,hizb_number,thumun_number',
-            );
+        // The mobile id is deterministic for student+hizb+thumun, so the
+        // primary key is sufficient for an idempotent upsert. Do not require a
+        // composite UNIQUE constraint just to make mobile synchronization work.
+        await client.from('mushaf_progress').upsert(chunk);
       }
     }
 
@@ -1414,53 +1861,125 @@ class SupabaseService {
     String halaqahId,
     CloudSyncDirection direction,
   ) async {
-    if (direction.shouldUpload) {
-      final deletedRaw = await _db.getSetting('deleted_suspension_dates');
-      if (deletedRaw != null && deletedRaw.trim().isNotEmpty) {
-        final dates = <String>[];
-        try {
-          final decoded = jsonDecode(deletedRaw);
-          if (decoded is List) dates.addAll(decoded.map((item) => item.toString()));
-        } catch (_) {}
-        for (final date in dates) {
-          await client.rpc('set_study_suspension', params: {
-            'p_center_id': centerId,
-            'p_halaqa_id': halaqahId,
-            'p_date': date,
-            'p_suspended': false,
-            'p_reason': null,
-          });
-        }
-        await _db.saveSetting('deleted_suspension_dates', '[]');
-      }
+    final deletedRaw = direction.shouldUpload
+        ? await _db.getSetting('deleted_suspension_dates')
+        : null;
+    final pendingDeletedDates = _decodeSuspensionDeleteDates(deletedRaw);
 
+    final localSuspensions = <String, String>{};
+    if (direction.shouldUpload) {
       final reasons = await _db.getSuspensionReasons();
       for (final date in await _db.getSuspendedDates()) {
         final reason = reasons[date]?.trim();
-        await client.rpc('set_study_suspension', params: {
-          'p_center_id': centerId,
-          'p_halaqa_id': halaqahId,
-          'p_date': date,
-          'p_suspended': true,
-          'p_reason': reason == null || reason.length < 3 ? 'إجازة عارضة' : reason,
-        });
+        localSuspensions[date] =
+            reason == null || reason.length < 3 ? 'إجازة عارضة' : reason;
+      }
+
+      // Upload-only can skip the cloud read entirely when nothing local has
+      // changed since the last successful suspension upload.
+      if (!direction.shouldDownload && pendingDeletedDates.isEmpty) {
+        final fingerprint = _studySuspensionFingerprint(localSuspensions);
+        final uploadedFingerprint =
+            await _db.getSetting(_studySuspensionFingerprintKey);
+        if (fingerprint == uploadedFingerprint) return;
       }
     }
 
+    final remoteSuspensions = await _fetchRemoteStudySuspensions(
+      centerId,
+      halaqahId,
+    );
+    var mergedRemoteState = remoteSuspensions;
+
+    if (direction.shouldUpload) {
+      final syncPlan = StudySuspensionSyncPlan.create(
+        local: localSuspensions,
+        remote: remoteSuspensions,
+        pendingDeletedDates: pendingDeletedDates,
+      );
+
+      for (final date in syncPlan.datesToRemove) {
+        await _callIdempotentSyncRpc('set_study_suspension', {
+          'p_center_id': centerId,
+          'p_halaqa_id': halaqahId,
+          'p_date': date,
+          'p_suspended': false,
+          'p_reason': null,
+        });
+      }
+      if (pendingDeletedDates.isNotEmpty) {
+        await _db.saveSetting('deleted_suspension_dates', '[]');
+      }
+
+      for (final entry in syncPlan.suspensionsToSet.entries) {
+        await _callIdempotentSyncRpc('set_study_suspension', {
+          'p_center_id': centerId,
+          'p_halaqa_id': halaqahId,
+          'p_date': entry.key,
+          'p_suspended': true,
+          'p_reason': entry.value,
+        });
+      }
+
+      mergedRemoteState = syncPlan.mergedRemoteState;
+      await _db.saveSetting(
+        _studySuspensionFingerprintKey,
+        _studySuspensionFingerprint(localSuspensions),
+      );
+    }
+
     if (!direction.shouldDownload) return;
-    final response = await client
-        .from('study_suspensions')
-        .select('date, reason')
-        .eq('center_id', centerId)
-        .eq('halaqa_id', halaqahId);
+    await _db.replaceStudySuspensions(mergedRemoteState);
+    await _db.saveSetting(
+      _studySuspensionFingerprintKey,
+      _studySuspensionFingerprint(mergedRemoteState),
+    );
+  }
+
+  Set<String> _decodeSuspensionDeleteDates(String? raw) {
+    if (raw == null || raw.trim().isEmpty) return <String>{};
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is List) {
+        return decoded
+            .map((item) => item.toString().trim())
+            .where((item) => item.isNotEmpty)
+            .toSet();
+      }
+    } catch (_) {
+      // A malformed legacy marker must not block the rest of cloud sync.
+    }
+    return <String>{};
+  }
+
+  Future<Map<String, String>> _fetchRemoteStudySuspensions(
+    String centerId,
+    String halaqahId,
+  ) async {
+    final response = await (() async {
+      return await client
+          .from('study_suspensions')
+          .select('date, reason')
+          .eq('center_id', centerId)
+          .eq('halaqa_id', halaqahId);
+    })().timeout(
+      _syncRpcTimeout,
+      onTimeout: () => throw const CloudSyncUnavailableException(
+        'انتهت مهلة الاتصال أثناء مزامنة الإجازات العارضة.',
+      ),
+    );
+
     final byDate = <String, String>{};
     for (final raw in response as List<dynamic>) {
       final row = Map<String, dynamic>.from(raw as Map);
       final date = row['date']?.toString();
       if (date == null || date.isEmpty) continue;
-      byDate[date] = row['reason']?.toString() ?? 'إجازة عارضة';
+      final reason = row['reason']?.toString().trim();
+      byDate[date] = reason == null || reason.length < 3
+          ? 'إجازة عارضة'
+          : reason;
     }
-    await _db.replaceStudySuspensions(byDate);
+    return byDate;
   }
 
   Future<void> _syncMemorizationProgress(
@@ -1474,19 +1993,20 @@ class SupabaseService {
         settingKey: 'deleted_memorization_progress_ids',
       );
     }
+
     final beforeResponse = await client
         .from('memorization')
         .select()
         .eq('center_id', centerId)
         .eq('halaqa_id', halaqahId);
-    final beforeRows = List<Map<String, dynamic>>.from(
-      beforeResponse as List<dynamic>,
-    );
+    final beforeRows = _remoteMapRows(beforeResponse);
     final deletedIds = beforeRows
         .where((row) => row['deleted_at'] != null)
-        .map((row) => row['id'].toString())
+        .map((row) => row['id']?.toString() ?? '')
+        .where((id) => id.isNotEmpty)
         .toSet();
     final affectedStudents = <String>{};
+
     if (direction.shouldDownload) {
       for (final id in deletedIds) {
         final studentId = await _db.deleteMemorizationProgressFromSync(id);
@@ -1494,17 +2014,26 @@ class SupabaseService {
       }
     }
 
-    final remoteActive = <String, MemorizationProgress>{};
+    // Upload-only recovery must not depend on decoding every historical cloud
+    // memorization row. Older schemas allowed nullable range fields, and one
+    // malformed legacy row previously aborted the whole upload with an
+    // ArgumentError before the valid local backup could repair the cloud.
+    final remoteUpdatedAtById = <String, DateTime>{};
     for (final row in beforeRows.where((row) => row['deleted_at'] == null)) {
-      final progress = _memorizationProgressFromRemote(row);
-      remoteActive[progress.id] = progress;
+      final id = row['id']?.toString() ?? '';
+      if (id.isEmpty) continue;
+      remoteUpdatedAtById[id] = _remoteDateTimeOrEpoch(
+        row['updated_at'] ?? row['created_at'],
+      );
     }
+
     if (direction.shouldUpload) {
       final payload = <Map<String, dynamic>>[];
       for (final progress in await _db.getAllMemorizationProgress()) {
         if (deletedIds.contains(progress.id)) continue;
-        final remote = remoteActive[progress.id];
-        if (remote != null && !progress.updatedAt.isAfter(remote.updatedAt)) {
+        final remoteUpdatedAt = remoteUpdatedAtById[progress.id];
+        if (remoteUpdatedAt != null &&
+            !progress.updatedAt.isAfter(remoteUpdatedAt)) {
           continue;
         }
         payload.add({
@@ -1530,47 +2059,125 @@ class SupabaseService {
     }
 
     if (!direction.shouldDownload) return;
+
     final finalResponse = await client
         .from('memorization')
         .select()
         .eq('center_id', centerId)
         .eq('halaqa_id', halaqahId);
-    for (final row in List<Map<String, dynamic>>.from(
-      finalResponse as List<dynamic>,
-    )) {
+    var skippedMalformedRows = 0;
+    for (final row in _remoteMapRows(finalResponse)) {
       if (row['deleted_at'] != null) {
-        final studentId = await _db.deleteMemorizationProgressFromSync(
-          row['id'].toString(),
-        );
+        final id = row['id']?.toString() ?? '';
+        if (id.isEmpty) {
+          skippedMalformedRows++;
+          continue;
+        }
+        final studentId = await _db.deleteMemorizationProgressFromSync(id);
         if (studentId != null) affectedStudents.add(studentId);
         continue;
       }
-      final progress = _memorizationProgressFromRemote(row);
-      await _db.upsertMemorizationProgressFromSync(progress);
-      affectedStudents.add(progress.studentId);
+      try {
+        final progress = _memorizationProgressFromRemote(row);
+        await _db.upsertMemorizationProgressFromSync(progress);
+        affectedStudents.add(progress.studentId);
+      } on Object catch (error) {
+        if (!_isMalformedRemoteMemorizationError(error)) rethrow;
+        skippedMalformedRows++;
+        AppLogger.warning(
+          'remote_row_skipped:${error.runtimeType}',
+          source: 'supabase.sync.memorization',
+        );
+      }
     }
+    await _db.saveSetting(
+      'last_cloud_memorization_skipped_count',
+      skippedMalformedRows.toString(),
+    );
     for (final studentId in affectedStudents) {
       await _mushaf.rebuildStudentProgress(studentId);
     }
   }
 
+  List<Map<String, dynamic>> _remoteMapRows(dynamic response) {
+    if (response is! List) return const <Map<String, dynamic>>[];
+    return response
+        .whereType<Map>()
+        .map((row) => Map<String, dynamic>.from(row))
+        .toList(growable: false);
+  }
+
+  bool _isMalformedRemoteMemorizationError(Object error) =>
+      error is ArgumentError ||
+      error is FormatException ||
+      error is TypeError;
+
+  DateTime _remoteDateTimeOrEpoch(dynamic value) =>
+      DateTime.tryParse(value?.toString() ?? '') ??
+      DateTime.fromMillisecondsSinceEpoch(0, isUtc: true);
+
+  int _requiredRemoteInt(Map<String, dynamic> row, String key) {
+    final value = row[key];
+    if (value is num) return value.toInt();
+    final parsed = int.tryParse(value?.toString() ?? '');
+    if (parsed == null) {
+      throw FormatException('Invalid remote memorization field: $key');
+    }
+    return parsed;
+  }
+
+  DateTime _requiredRemoteDate(Map<String, dynamic> row, String key) {
+    final parsed = DateTime.tryParse(row[key]?.toString() ?? '');
+    if (parsed == null) {
+      throw FormatException('Invalid remote memorization field: $key');
+    }
+    return parsed;
+  }
+
   MemorizationProgress _memorizationProgressFromRemote(
     Map<String, dynamic> remote,
   ) {
-    final surah = QuranService.instance.surahs.where(
-      (item) => item.name == remote['surah'],
+    final id = remote['id']?.toString().trim() ?? '';
+    final studentId = remote['student_id']?.toString().trim() ?? '';
+    final surahName = remote['surah']?.toString().trim() ?? '';
+    if (id.isEmpty || studentId.isEmpty || surahName.isEmpty) {
+      throw const FormatException(
+        'Remote memorization identity/range metadata is incomplete',
+      );
+    }
+
+    final matchingSurahs = QuranService.instance.surahs.where(
+      (item) => item.name.trim() == surahName,
     );
-    final createdAt = DateTime.parse(remote['created_at']);
+    if (matchingSurahs.isEmpty) {
+      throw const FormatException('Unknown remote memorization surah');
+    }
+
+    final fromAyah = _requiredRemoteInt(remote, 'from_ayah');
+    final toAyah = _requiredRemoteInt(remote, 'to_ayah');
+    if (fromAyah < 1 || toAyah < fromAyah) {
+      throw const FormatException('Invalid remote memorization ayah range');
+    }
+
+    final date = _requiredRemoteDate(remote, 'date');
+    final createdAt = DateTime.tryParse(remote['created_at']?.toString() ?? '') ??
+        date;
+    final rawDegree = remote['degree'];
+    final parsedDegree = rawDegree is num
+        ? rawDegree.toInt()
+        : int.tryParse(rawDegree?.toString() ?? '') ?? 3;
+    final qualityRating = parsedDegree.clamp(1, 5).toInt();
+
     return MemorizationProgress(
-      id: remote['id'],
-      studentId: remote['student_id'],
-      surahId: surah.isEmpty ? 1 : surah.first.number,
-      fromAyah: remote['from_ayah'],
-      toAyah: remote['to_ayah'],
-      date: DateTime.parse(remote['date']),
-      qualityRating: remote['degree'] ?? 3,
+      id: id,
+      studentId: studentId,
+      surahId: matchingSurahs.first.number,
+      fromAyah: fromAyah,
+      toAyah: toAyah,
+      date: date,
+      qualityRating: qualityRating,
       isRevision: remote['session_type'] == 'review',
-      notes: remote['notes'],
+      notes: remote['notes']?.toString(),
       createdAt: createdAt,
       updatedAt: DateTime.tryParse(remote['updated_at']?.toString() ?? '') ??
           createdAt,
@@ -1646,6 +2253,7 @@ class SupabaseService {
             }
           } catch (error) {
             AppLogger.error(error, source: 'supabase.sync.points');
+            rethrow;
           }
         }
       }
@@ -1661,7 +2269,7 @@ class SupabaseService {
       final points = <BehaviorPoint>[];
       for (final dynamic raw in response as List<dynamic>) {
         final row = Map<String, dynamic>.from(raw as Map);
-        final amount = (row['amount'] as num?)?.toInt() ?? 0;
+        final amount = (row['amount'] as num?)?.toDouble() ?? 0.0;
         points.add(
           BehaviorPoint(
             id: row['id'].toString(),
@@ -1717,8 +2325,12 @@ class SupabaseService {
         await client
             .from('behavior_point_corrections')
             .upsert(payload.sublist(i, end));
+      } on PostgrestException catch (error) {
+        if (_isMissingSchemaTable(error)) return;
+        rethrow;
       } catch (error) {
         AppLogger.error(error, source: 'supabase.sync.behavior_corrections');
+        rethrow;
       }
     }
   }
@@ -1753,12 +2365,13 @@ class SupabaseService {
                 })
             .toList();
         try {
-          await client.from('daily_achievements').upsert(
-                payload,
-                onConflict: 'student_id,date',
-              );
-        } catch (error) {
-          AppLogger.error(error, source: 'supabase.sync.daily_achievements.push');
+          // Every local achievement has a stable UUID. Upsert by primary key
+          // so synchronization also works on older schemas that missed the
+          // optional student/date UNIQUE index.
+          await client.from('daily_achievements').upsert(payload);
+        } on PostgrestException catch (error) {
+          if (_isMissingSchemaTable(error)) return;
+          rethrow;
         }
       }
     }
@@ -1801,8 +2414,9 @@ class SupabaseService {
           )
           .toList(growable: false);
       await _db.upsertDailyAchievementsFromSync(achievements);
-    } catch (error) {
-      AppLogger.error(error, source: 'supabase.sync.daily_achievements.pull');
+    } on PostgrestException catch (error) {
+      if (_isMissingSchemaTable(error)) return;
+      rethrow;
     }
   }
 
@@ -2106,6 +2720,9 @@ class SupabaseService {
     if (direction.shouldUpload) {
       await _syncDeletedExams();
       final localData = await _db.getAllExams();
+      final activeTemplateIds = (await _db.getExamTemplates())
+          .map((template) => template.id)
+          .toSet();
 
       final examsPayload = localData.map((exam) => {
         'id': exam.id,
@@ -2114,7 +2731,10 @@ class SupabaseService {
         'title': 'اختبار ${ExamType.getLabel(exam.type)}',
         'date': exam.date.toIso8601String().split('T')[0],
         'type': exam.type,
-        'template_id': exam.templateId,
+        'template_id': ExamSyncPolicy.cloudTemplateId(
+          exam.templateId,
+          activeTemplateIds,
+        ),
         'max_degree': 100,
         'from_surah': exam.fromSurah,
         'to_surah': exam.toSurah,
@@ -2218,7 +2838,6 @@ class SupabaseService {
     CloudSyncDirection direction,
   ) async {
     if (direction.shouldUpload) {
-      await _syncDeletedExamTemplates();
       final templates = await _db.getExamTemplates();
       for (var i = 0; i < templates.length; i += 100) {
         final chunk = templates.sublist(
@@ -2240,9 +2859,9 @@ class SupabaseService {
         }).toList();
         try {
           await client.from('exam_templates').upsert(payload);
-        } catch (e) {
-          AppLogger.error(e, source: 'supabase.sync.exam_templates');
-          continue;
+        } on PostgrestException catch (error) {
+          if (_isMissingSchemaTable(error)) return;
+          rethrow;
         }
 
         for (final template in chunk) {
@@ -2252,9 +2871,9 @@ class SupabaseService {
                 .from('exam_questions')
                 .delete()
                 .eq('template_id', template.id);
-          } catch (e) {
-            AppLogger.error(e, source: 'supabase.sync.exam_questions.clear');
-            continue;
+          } on PostgrestException catch (error) {
+            if (_isMissingSchemaTable(error)) return;
+            rethrow;
           }
           if (questions.isEmpty) continue;
           final questionsPayload = questions.map((question) => {
@@ -2283,8 +2902,9 @@ class SupabaseService {
           }).toList();
           try {
             await client.from('exam_questions').upsert(questionsPayload);
-          } catch (e) {
-            AppLogger.error(e, source: 'supabase.sync.exam_questions');
+          } on PostgrestException catch (error) {
+            if (_isMissingSchemaTable(error)) return;
+            rethrow;
           }
         }
       }
@@ -2439,10 +3059,11 @@ class SupabaseService {
                 .toList();
             await client.from('fund_transactions').upsert(compatible);
           } else {
-            AppLogger.error(error, source: 'supabase.sync.fund');
+            rethrow;
           }
         } catch (error) {
           AppLogger.error(error, source: 'supabase.sync.fund');
+          rethrow;
         }
       }
     }
@@ -2535,6 +3156,7 @@ class SupabaseService {
             'new_amount': e.newAmount,
             'review_amount': e.reviewAmount,
             'recitation_amount': e.recitationAmount,
+            'friday_mode': e.fridayMode,
             'status': e.status,
             'test_status': e.testStatus,
             'completion_exam_id': e.completionExamId,
@@ -2559,7 +3181,7 @@ class SupabaseService {
                 .map((row) => Map<String, dynamic>.from(row))
                 .toList();
             var changed = false;
-            for (final optional in const ['review_unit', 'recitation_amount']) {
+            for (final optional in const ['review_unit', 'recitation_amount', 'friday_mode']) {
               if (details.contains(optional)) {
                 for (final row in compatible) {
                   row.remove(optional);
@@ -2570,13 +3192,14 @@ class SupabaseService {
             if (changed) {
               await client.from('plans').upsert(compatible);
             } else {
-              AppLogger.error(error, source: 'supabase.sync.plans');
+              rethrow;
             }
           } else {
-            AppLogger.error(error, source: 'supabase.sync.plans');
+            rethrow;
           }
-        } catch (e) {
-          AppLogger.error(e, source: 'supabase.sync.plans');
+        } catch (error) {
+          AppLogger.error(error, source: 'supabase.sync.plans');
+          rethrow;
         }
       }
     }
@@ -2611,6 +3234,10 @@ class SupabaseService {
           reviewAmount: (remote['review_amount'] as num?)?.toInt() ?? 10,
           recitationAmount:
               (remote['recitation_amount'] as num?)?.toInt() ?? 1,
+          fridayMode: const {'catchup_recitation', 'full_plan', 'holiday'}
+                  .contains(remote['friday_mode'])
+              ? remote['friday_mode']
+              : 'catchup_recitation',
           status: remote['status'] ?? 'active',
           testStatus: remote['test_status'] ?? 'not_required',
           completionExamId: remote['completion_exam_id'],

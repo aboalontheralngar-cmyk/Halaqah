@@ -571,12 +571,18 @@ class _RevisionScreenState extends State<RevisionScreen> {
                 ),
                 if (_suggestedSurahId != null && _suggestedFromAyah != null) ...[
                   const SizedBox(width: 6),
-                  IconButton.filledTonal(
-                    onPressed: _reapplySuggestedRange,
+                  ActionChip(
+                    avatar: const Icon(Icons.auto_fix_high_outlined, size: 18),
+                    label: Text(
+                      _suggestedSurahName == null
+                          ? 'مقترح الخطة'
+                          : 'مقترح: ${_suggestedSurahName!}',
+                      overflow: TextOverflow.ellipsis,
+                    ),
                     tooltip:
                         'تطبيق المقرر على موضع الاستئناف: $_reviewAmount ${_unitLabel(_reviewUnit)}'
                         '${widget.courseTitle == null ? '' : ' · دورة ${widget.courseTitle}'}',
-                    icon: const Icon(Icons.auto_fix_high_outlined),
+                    onPressed: _reapplySuggestedRange,
                   ),
                 ],
                 if (_selectedSurahs.isNotEmpty) ...[
@@ -638,14 +644,9 @@ class _RevisionScreenState extends State<RevisionScreen> {
   }
 
   void _clearOptionalSelection() {
-    setState(() {
-      _selectedSurahs.removeWhere((surahId) {
-        final surah = _memorizedSurahs.firstWhere(
-          (item) => item.id == surahId,
-        );
-        return !surah.requiresCompletionRevision;
-      });
-    });
+    // Build 78: حتى مقترحات التثبيت ليست إلزامية. يستطيع المعلم مسح
+    // الاختيار كله ثم تسجيل ما سمعه الطالب فعلًا فقط.
+    setState(_selectedSurahs.clear);
   }
 
   Future<void> _showReviewSettings() async {
@@ -744,12 +745,7 @@ class _RevisionScreenState extends State<RevisionScreen> {
     final fromAyah = _suggestedFromAyah;
     if (surahId == null || fromAyah == null) return;
     setState(() {
-      _selectedSurahs.removeWhere((id) {
-        for (final item in _memorizedSurahs) {
-          if (item.id == id) return !item.requiresCompletionRevision;
-        }
-        return true;
-      });
+      _selectedSurahs.clear();
       final range = _connectedRange(
         availableSurahs: _memorizedSurahs,
         startSurahId: surahId,
@@ -770,16 +766,52 @@ class _RevisionScreenState extends State<RevisionScreen> {
     });
   }
 
+  String? get _suggestedSurahName {
+    final id = _suggestedSurahId;
+    if (id == null) return null;
+    for (final surah in _memorizedSurahs) {
+      if (surah.id == id) return surah.name;
+    }
+    return null;
+  }
+
   Widget _buildSurahList() {
     final query = _surahQuery.trim();
-    final visible = query.isEmpty
-        ? _memorizedSurahs
-        : _memorizedSurahs
-            .where(
-              (surah) =>
-                  surah.name.contains(query) || '${surah.id}' == query,
-            )
-            .toList();
+    final visible = (query.isEmpty
+            ? List<MemorizedSurah>.from(_memorizedSurahs)
+            : _memorizedSurahs
+                .where(
+                  (surah) =>
+                      surah.name.contains(query) ||
+                      surah.name.startsWith(query) ||
+                      '${surah.id}' == query,
+                )
+                .toList());
+
+    if (query.isEmpty && _suggestedSurahId != null) {
+      visible.sort((a, b) {
+        if (a.id == _suggestedSurahId && b.id != _suggestedSurahId) return -1;
+        if (b.id == _suggestedSurahId && a.id != _suggestedSurahId) return 1;
+        final aSelected = _selectedSurahs.contains(a.id);
+        final bSelected = _selectedSurahs.contains(b.id);
+        if (aSelected != bSelected) return aSelected ? -1 : 1;
+        return _memorizedSurahs.indexOf(a).compareTo(_memorizedSurahs.indexOf(b));
+      });
+    } else if (query.isNotEmpty) {
+      int relevance(MemorizedSurah surah) {
+        if ('${surah.id}' == query || surah.name == query) return 0;
+        if (surah.name.startsWith(query)) return 1;
+        return 2;
+      }
+      visible.sort((a, b) {
+        if (a.id == _suggestedSurahId && b.id != _suggestedSurahId) return -1;
+        if (b.id == _suggestedSurahId && a.id != _suggestedSurahId) return 1;
+        final byRelevance = relevance(a).compareTo(relevance(b));
+        if (byRelevance != 0) return byRelevance;
+        return a.id.compareTo(b.id);
+      });
+    }
+
     if (visible.isEmpty) {
       return const Center(child: Text('لا توجد سورة محفوظة تطابق البحث'));
     }
@@ -790,12 +822,20 @@ class _RevisionScreenState extends State<RevisionScreen> {
       itemBuilder: (context, index) {
         final surah = visible[index];
         final isSelected = _selectedSurahs.contains(surah.id);
-        return _buildSurahCard(surah, isSelected);
+        return _buildSurahCard(
+          surah,
+          isSelected,
+          isSuggested: surah.id == _suggestedSurahId,
+        );
       },
     );
   }
 
-  Widget _buildSurahCard(MemorizedSurah surah, bool isSelected) {
+  Widget _buildSurahCard(
+    MemorizedSurah surah,
+    bool isSelected, {
+    bool isSuggested = false,
+  }) {
     final needsRevision = surah.lastRevision == null ||
         DateTime.now().difference(surah.lastRevision!).inDays > 7;
 
@@ -808,9 +848,7 @@ class _RevisionScreenState extends State<RevisionScreen> {
             onTap: () {
               setState(() {
                 if (isSelected) {
-                  if (!surah.requiresCompletionRevision) {
-                    _selectedSurahs.remove(surah.id);
-                  }
+                  _selectedSurahs.remove(surah.id);
                 } else {
                   _selectPlanFrom(
                     surah,
@@ -826,7 +864,7 @@ class _RevisionScreenState extends State<RevisionScreen> {
                 children: [
                   Checkbox(
                     value: isSelected,
-                    onChanged: surah.requiresCompletionRevision ? null : (value) {
+                    onChanged: (value) {
                       setState(() {
                         if (value == true) {
                           _selectPlanFrom(
@@ -857,6 +895,24 @@ class _RevisionScreenState extends State<RevisionScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        if (isSuggested) ...[
+                          Container(
+                            margin: const EdgeInsets.only(bottom: 4),
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: Theme.of(context).colorScheme.secondaryContainer,
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: Text(
+                              'مقترح الخطة — يبدأ من هنا',
+                              style: TextStyle(
+                                color: Theme.of(context).colorScheme.onSecondaryContainer,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                        ],
                         Text(
                           surah.name,
                           style: const TextStyle(fontWeight: FontWeight.bold),
@@ -894,8 +950,8 @@ class _RevisionScreenState extends State<RevisionScreen> {
                             _revisionStatusTag(
                               surah.requiresCompletionRevision
                                   ? surah.mandatoryDayNumber != null
-                                      ? 'تثبيت إلزامي — اليوم ${surah.mandatoryDayNumber}/${surah.mandatoryTotalDays}'
-                                      : 'مراجعة إلزامية بعد الإتمام'
+                                      ? 'مقترح تثبيت — اليوم ${surah.mandatoryDayNumber}/${surah.mandatoryTotalDays}'
+                                      : 'مراجعة مقترحة بعد الإتمام'
                                   : needsRevision
                                       ? 'تحتاج مراجعة'
                                       : 'مراجعة حديثة',
@@ -933,7 +989,7 @@ class _RevisionScreenState extends State<RevisionScreen> {
                 maxAyahs: surah.maxMemorizedAyah,
                 initialFrom: surah.selectedFromAyah,
                 initialTo: surah.selectedToAyah,
-                enabled: !surah.requiresCompletionRevision,
+                enabled: true,
                 onRangeChanged: (from, to) {
                   setState(() {
                     surah.selectedFromAyah = from;
@@ -942,8 +998,7 @@ class _RevisionScreenState extends State<RevisionScreen> {
                 },
               ),
             ),
-            if (!surah.requiresCompletionRevision)
-              Padding(
+            Padding(
                 padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
                 child: Row(
                   children: [

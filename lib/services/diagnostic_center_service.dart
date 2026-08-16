@@ -36,6 +36,9 @@ class DiagnosticSnapshot {
   final DateTime? lastCloudUploadAt;
   final DateTime? lastCloudDownloadAt;
   final String lastSyncDirection;
+  final String? lastCloudSyncFailedStage;
+  final String? lastCloudSyncErrorCode;
+  final DateTime? lastCloudSyncFailedAt;
   final bool hasAutomaticBackupError;
   final DateTime? lastBackgroundBackupWorkerAt;
   final String backgroundBackupWorkerStatus;
@@ -56,6 +59,9 @@ class DiagnosticSnapshot {
     required this.lastCloudUploadAt,
     required this.lastCloudDownloadAt,
     required this.lastSyncDirection,
+    this.lastCloudSyncFailedStage,
+    this.lastCloudSyncErrorCode,
+    this.lastCloudSyncFailedAt,
     required this.hasAutomaticBackupError,
     required this.lastBackgroundBackupWorkerAt,
     required this.backgroundBackupWorkerStatus,
@@ -81,6 +87,13 @@ class DiagnosticSnapshot {
       ..writeln('آخر رفع: ${date(lastCloudUploadAt)}')
       ..writeln('آخر تنزيل: ${date(lastCloudDownloadAt)}')
       ..writeln('آخر اتجاه مزامنة: $lastSyncDirection')
+      ..writeln(
+        'آخر مرحلة مزامنة فاشلة: ${lastCloudSyncFailedStage?.isNotEmpty == true ? lastCloudSyncFailedStage : 'لا يوجد'}',
+      )
+      ..writeln(
+        'رمز خطأ المزامنة: ${lastCloudSyncErrorCode?.isNotEmpty == true ? lastCloudSyncErrorCode : 'لا يوجد'}',
+      )
+      ..writeln('وقت فشل المزامنة: ${date(lastCloudSyncFailedAt)}')
       ..writeln('خطأ نسخ تلقائي معلق: $hasAutomaticBackupError')
       ..writeln(
         'آخر تشغيل خلفي: ${date(lastBackgroundBackupWorkerAt)}',
@@ -160,6 +173,11 @@ class DiagnosticCenterService {
         counts[entry.key] = -1;
       }
     }
+    counts['سجلات حفظ سحابية تحتاج مراجعة'] = int.tryParse(
+          await _database.getSetting('last_cloud_memorization_skipped_count') ??
+              '',
+        ) ??
+        0;
 
     final recentAudit = await _audit.recent(limit: 100);
     final incidents = recentAudit
@@ -178,6 +196,13 @@ class DiagnosticCenterService {
     );
     final lastDirection =
         await _database.getSetting('last_cloud_sync_direction') ?? 'لم تنفذ';
+    final lastCloudSyncFailedStage =
+        (await _database.getSetting('last_cloud_sync_failed_stage'))?.trim();
+    final lastCloudSyncErrorCode =
+        (await _database.getSetting('last_cloud_sync_error_code'))?.trim();
+    final lastCloudSyncFailedAt = DateTime.tryParse(
+      await _database.getSetting('last_cloud_sync_failed_at') ?? '',
+    );
     final automaticBackupError =
         (await _database.getSetting('last_automatic_backup_error'))?.trim();
     final lastBackgroundWorkerAt = DateTime.tryParse(
@@ -210,6 +235,9 @@ class DiagnosticCenterService {
       lastCloudUploadAt: lastUploadAt,
       lastCloudDownloadAt: lastDownloadAt,
       lastSyncDirection: lastDirection,
+      lastCloudSyncFailedStage: lastCloudSyncFailedStage,
+      lastCloudSyncErrorCode: lastCloudSyncErrorCode,
+      lastCloudSyncFailedAt: lastCloudSyncFailedAt,
       hasAutomaticBackupError: automaticBackupError?.isNotEmpty == true,
       lastBackgroundBackupWorkerAt: lastBackgroundWorkerAt,
       backgroundBackupWorkerStatus: backgroundWorkerStatus,

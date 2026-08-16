@@ -36,7 +36,7 @@ for (const [source, text, label] of [
   [memorization, "_buildWorkspaceSummary", "compact memorization workspace"],
   [home, "AppFocusPanel(", "task-first mobile home header"],
   [buildInfo, "releaseLabel = 'P1.27'", "current release label"],
-  [pubspec, "version: 4.3.0-alpha.22+76", "current package version"],
+  [pubspec, "version: 4.3.0-alpha.24+80", "current package version"],
 ]) {
   requireText(source, text, label);
 }

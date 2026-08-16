@@ -1,0 +1,28 @@
+# Build 78 Hotfix 2 changed files
+
+New: 8
+Modified: 8
+Deleted: 0
+
+## New
+P1.27_BUILD78_HOTFIX2_INSTALL_NOTE.md
+BUILD78_HOTFIX2_CHANGED_FILES.txt
+docs/P1.27_BUILD78_HOTFIX2.md
+lib/services/smart_plan_print_policy.dart
+lib/services/study_suspension_sync_plan.dart
+test/smart_plan_print_policy_test.dart
+test/study_suspension_sync_plan_test.dart
+website/scripts/validate-build78-hotfix2.mjs
+
+## Modified
+BUILD78_VALIDATION_REPORT.md
+docs/release_notes.md
+lib/screens/home/home_screen.dart
+lib/screens/plans/plans_screen.dart
+lib/screens/settings/settings_screen.dart
+lib/services/pdf_service.dart
+lib/services/supabase_service.dart
+website/scripts/run-all-validations.mjs
+
+## Deleted
+(none)

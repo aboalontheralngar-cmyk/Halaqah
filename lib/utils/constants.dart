@@ -1,6 +1,6 @@
 class AppConstants {
   static const String appName = 'حلقتي';
-  static const String appVersion = '4.3.0-alpha.22';
+  static const String appVersion = '4.3.0-alpha.24';
   
   static const int defaultAbsenceDaysBeforeWarning = 2;
   static const int defaultAbsenceDaysBeforeExpulsion = 7;

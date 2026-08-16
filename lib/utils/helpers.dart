@@ -81,6 +81,13 @@ class Helpers {
     ].join(separator);
   }
 
+  static String formatNumber(num value, {int maxDecimals = 2}) {
+    final number = value.toDouble();
+    if (number == number.roundToDouble()) return number.toInt().toString();
+    final text = number.toStringAsFixed(maxDecimals);
+    return text.replaceFirst(RegExp(r'0+$'), '').replaceFirst(RegExp(r'\.$'), '');
+  }
+
   static int calculateLines(int ayahCount) {
     return (ayahCount / 2.5).ceil();
   }

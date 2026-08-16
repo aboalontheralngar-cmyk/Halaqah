@@ -1,7 +1,9 @@
 import 'behavior_point.dart';
 import 'daily_record.dart';
 import 'exam.dart';
+import 'fund_transaction.dart';
 import 'memorization.dart';
+import 'plan_recitation_record.dart';
 import 'student.dart';
 import 'student_hold.dart';
 import 'vacation.dart';
@@ -50,12 +52,12 @@ class StudentPeriodDay {
   int get memorizedAyahs =>
       memorization.fold(0, (sum, item) => sum + item.ayahCount);
   int get revisedAyahs => revision.fold(0, (sum, item) => sum + item.ayahCount);
-  int get positivePoints => points
+  double get positivePoints => points
       .where((item) => item.points > 0)
-      .fold(0, (sum, item) => sum + item.points);
-  int get negativePoints => points
+      .fold<double>(0, (sum, item) => sum + item.points);
+  double get negativePoints => points
       .where((item) => item.points < 0)
-      .fold(0, (sum, item) => sum + item.points.abs());
+      .fold<double>(0, (sum, item) => sum + item.points.abs());
   List<BehaviorPoint> get violations => points
       .where((item) =>
           item.points < 0 &&
@@ -89,22 +91,26 @@ class StudentPeriodReport {
   final int revisedAyahs;
   final double memorizedLines;
   final double revisedLines;
+  final int recitedAyahs;
+  final double recitedLines;
   final int presentDays;
   final int lateDays;
   final int absentDays;
   final int excusedDays;
   final int noRecitationDays;
-  final int positivePoints;
-  final int negativePoints;
+  final double positivePoints;
+  final double negativePoints;
   final int positiveEvents;
   final int negativeEvents;
   final double averageQuality;
   final int performanceScore;
   final int totalLateMinutes;
   final int violationEvents;
-  final int violationPoints;
+  final double violationPoints;
   final int settledNegativePoints;
   final List<Exam> exams;
+  final List<FundTransaction> fundTransactions;
+  final List<PlanRecitationRecord> recitationRecords;
   final int? periodRank;
 
   const StudentPeriodReport({
@@ -116,6 +122,8 @@ class StudentPeriodReport {
     required this.revisedAyahs,
     required this.memorizedLines,
     required this.revisedLines,
+    this.recitedAyahs = 0,
+    this.recitedLines = 0,
     required this.presentDays,
     required this.lateDays,
     required this.absentDays,
@@ -132,18 +140,26 @@ class StudentPeriodReport {
     this.violationPoints = 0,
     this.settledNegativePoints = 0,
     this.exams = const [],
+    this.fundTransactions = const [],
+    this.recitationRecords = const [],
     this.periodRank,
   });
 
   double get memorizedPages => memorizedLines / 15;
   double get revisedPages => revisedLines / 15;
+  double get recitedPages => recitedLines / 15;
+  double get totalCompletedPages => memorizedPages + revisedPages + recitedPages;
+  List<FundTransaction> get payments => fundTransactions
+      .where((item) => item.type != 'expense' && item.amount > 0)
+      .toList();
+  double get paidAmount => payments.fold<double>(0, (sum, item) => sum + item.amount);
   double get memorizedJuz => memorizedPages / 20;
   int get attendanceTotal => presentDays + lateDays + absentDays + excusedDays;
   int get attendanceRate => attendanceTotal == 0
       ? 0
       : (((presentDays + lateDays) / attendanceTotal) * 100).round();
-  int get outstandingNegativePoints =>
-      (negativePoints - settledNegativePoints).clamp(0, negativePoints).toInt();
+  double get outstandingNegativePoints =>
+      (negativePoints - settledNegativePoints).clamp(0, negativePoints).toDouble();
   String? get rankLabel {
     switch (periodRank) {
       case 1:
@@ -166,6 +182,8 @@ class StudentPeriodReport {
         revisedAyahs: revisedAyahs,
         memorizedLines: memorizedLines,
         revisedLines: revisedLines,
+        recitedAyahs: recitedAyahs,
+        recitedLines: recitedLines,
         presentDays: presentDays,
         lateDays: lateDays,
         absentDays: absentDays,
@@ -182,6 +200,8 @@ class StudentPeriodReport {
         violationPoints: violationPoints,
         settledNegativePoints: settledNegativePoints,
         exams: exams,
+        fundTransactions: fundTransactions,
+        recitationRecords: recitationRecords,
         periodRank: rank,
       );
 }

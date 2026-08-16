@@ -156,14 +156,14 @@ requireText(
 
 requireText(
   read("pubspec.yaml"),
-  ["version: 4.3.0-alpha.22+76"],
+  ["version: 4.3.0-alpha.24+80"],
   "P1.19 package version",
 );
 requireText(
   read("lib/app/build_info.dart"),
   [
-    "versionName = '4.3.0-alpha.22'",
-    "buildNumber = 76",
+    "versionName = '4.3.0-alpha.24'",
+    "buildNumber = 80",
     "releaseLabel = 'P1.27'",
   ],
   "P1.19 build identity",

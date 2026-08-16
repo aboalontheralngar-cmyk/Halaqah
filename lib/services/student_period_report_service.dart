@@ -8,20 +8,25 @@ import '../models/student_hold.dart';
 import '../models/settings.dart';
 import '../models/vacation.dart';
 import '../models/fund_transaction.dart';
+import '../models/plan_recitation_record.dart';
 import 'database_service.dart';
 import 'quran_service.dart';
+import 'report_range_data_service.dart';
 import 'daily_excellence_service.dart';
 import '../utils/prayer_time_helper.dart';
 
 class StudentPeriodReportService {
   final DatabaseService _db;
   final QuranService _quran;
+  late final ReportRangeDataService _rangeData;
 
   StudentPeriodReportService({
     DatabaseService? database,
     QuranService? quran,
   })  : _db = database ?? DatabaseService(),
-        _quran = quran ?? QuranService.instance;
+        _quran = quran ?? QuranService.instance {
+    _rangeData = ReportRangeDataService(database: _db);
+  }
 
   Future<StudentPeriodReport> generate({
     required Student student,
@@ -45,6 +50,11 @@ class StudentPeriodReportService {
       _db.getStudentFundTransactionsInRange(student.id, start, end),
       _db.getStudentExamsInRange(student.id, start, end),
       _db.getSettings(),
+      _rangeData.studentRecitationRecords(
+        studentId: student.id,
+        startDate: start,
+        endDate: end,
+      ),
     ]);
 
     return calculate(
@@ -63,6 +73,7 @@ class StudentPeriodReportService {
       settings: results[9] as HalaqahSettings,
       holidayWeekdays: (results[9] as HalaqahSettings).holidayWeekdays,
       quran: _quran,
+      recitationRecords: results[10] as List<PlanRecitationRecord>,
     );
   }
 
@@ -94,6 +105,7 @@ class StudentPeriodReportService {
       _db.getAllStudentHoldsInRange(start, end),
       _db.getFundTransactionsInRange(start, end),
       _db.getExamsInRange(start, end),
+      _rangeData.allRecitationRecords(startDate: start, endDate: end),
     ]);
     final suspendedDates = (data[0] as List<String>).toSet();
     final suspensionReasons = data[1] as Map<String, String>;
@@ -126,6 +138,10 @@ class StudentPeriodReportService {
       data[9] as List<Exam>,
       (item) => item.studentId,
     );
+    final recitationByStudent = _groupByStudent<PlanRecitationRecord>(
+      data[10] as List<PlanRecitationRecord>,
+      (item) => item.studentId,
+    );
 
     final reports = <StudentPeriodReport>[];
     for (var index = 0; index < students.length; index++) {
@@ -142,6 +158,8 @@ class StudentPeriodReportService {
           holds: holdsByStudent[student.id] ?? const <StudentHold>[],
           fundTransactions: fundByStudent[student.id] ?? const <FundTransaction>[],
           exams: examsByStudent[student.id] ?? const <Exam>[],
+          recitationRecords: recitationByStudent[student.id] ??
+              const <PlanRecitationRecord>[],
           suspendedDates: suspendedDates,
           suspensionReasons: suspensionReasons,
           holidayWeekdays: settings.holidayWeekdays,
@@ -178,6 +196,7 @@ class StudentPeriodReportService {
     List<StudentHold> holds = const [],
     List<FundTransaction> fundTransactions = const [],
     List<Exam> exams = const [],
+    List<PlanRecitationRecord> recitationRecords = const [],
     required Set<String> suspendedDates,
     required Map<String, String> suspensionReasons,
     required List<int> holidayWeekdays,
@@ -230,7 +249,7 @@ class StudentPeriodReportService {
       final attended = record?.attendance == 'present' || record?.attendance == 'late';
       final heard = memorization.isNotEmpty || (record?.memorizationDone ?? false);
       final reviewed = revision.isNotEmpty || (record?.revisionDone ?? false);
-      final pointBalance = dailyPoints.fold<int>(0, (sum, item) => sum + item.points);
+      final pointBalance = dailyPoints.fold<double>(0, (sum, item) => sum + item.points);
       var score = 0;
       if (!suspended && !weeklyHoliday && record != null && hold == null) {
         score += record.attendance == 'present'
@@ -296,6 +315,11 @@ class StudentPeriodReportService {
       revisedAyahs: revision.fold(0, (sum, item) => sum + item.ayahCount),
       memorizedLines: _sumLines(memorization, quran),
       revisedLines: _sumLines(revision, quran),
+      recitedAyahs: recitationRecords.fold<int>(
+        0,
+        (sum, item) => sum + item.ayahCount,
+      ),
+      recitedLines: _sumRecitationLines(recitationRecords, quran),
       presentDays: days
           .where((day) => day.isAttendanceRequiredDay && day.record?.attendance == 'present')
           .length,
@@ -316,10 +340,10 @@ class StudentPeriodReportService {
           .length,
       positivePoints: points
           .where((item) => item.points > 0)
-          .fold(0, (sum, item) => sum + item.points),
+          .fold<double>(0, (sum, item) => sum + item.points),
       negativePoints: points
           .where((item) => item.points < 0)
-          .fold(0, (sum, item) => sum + item.points.abs()),
+          .fold<double>(0, (sum, item) => sum + item.points.abs()),
       positiveEvents: points.where((item) => item.points > 0).length,
       negativeEvents: points.where((item) => item.points < 0).length,
       averageQuality: allQuality.isEmpty
@@ -337,9 +361,11 @@ class StudentPeriodReportService {
           days.fold<int>(0, (sum, day) => sum + day.lateMinutes),
       violationEvents: violations.length,
       violationPoints:
-          violations.fold<int>(0, (sum, item) => sum + item.points.abs()),
+          violations.fold<double>(0, (sum, item) => sum + item.points.abs()),
       settledNegativePoints: settledNegativePoints,
       exams: List<Exam>.from(exams),
+      fundTransactions: List<FundTransaction>.from(fundTransactions),
+      recitationRecords: List<PlanRecitationRecord>.from(recitationRecords),
     );
   }
 
@@ -379,6 +405,21 @@ class StudentPeriodReportService {
   ) {
     var lines = 0.0;
     for (final item in progress) {
+      final ayahs = quran.getAyahRange(item.surahId, item.fromAyah, item.toAyah);
+      lines += ayahs.fold<double>(
+        0,
+        (sum, ayah) => sum + (ayah.lines <= 0 ? 0.5 : ayah.lines),
+      );
+    }
+    return lines;
+  }
+
+  static double _sumRecitationLines(
+    List<PlanRecitationRecord> records,
+    QuranService quran,
+  ) {
+    var lines = 0.0;
+    for (final item in records) {
       final ayahs = quran.getAyahRange(item.surahId, item.fromAyah, item.toAyah);
       lines += ayahs.fold<double>(
         0,

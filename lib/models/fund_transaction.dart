@@ -25,6 +25,24 @@ class FundTransaction {
   })  : id = id ?? const Uuid().v4(),
         createdAt = createdAt ?? DateTime.now();
 
+  FundTransaction copyWith({
+    double? amount,
+    String? note,
+    bool clearNote = false,
+    DateTime? date,
+  }) =>
+      FundTransaction(
+        id: id,
+        studentId: studentId,
+        behaviorPointId: behaviorPointId,
+        settledNegativePoints: settledNegativePoints,
+        type: type,
+        amount: amount ?? this.amount,
+        note: clearNote ? null : (note ?? this.note),
+        date: date ?? this.date,
+        createdAt: createdAt,
+      );
+
   Map<String, dynamic> toMap() => {
         'id': id,
         'student_id': studentId,

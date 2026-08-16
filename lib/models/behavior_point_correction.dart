@@ -8,7 +8,7 @@ class BehaviorPointCorrection {
   final String action;
   final String reason;
   final String pointReasonSnapshot;
-  final int pointsSnapshot;
+  final double pointsSnapshot;
   final DateTime createdAt;
 
   BehaviorPointCorrection({
@@ -19,9 +19,10 @@ class BehaviorPointCorrection {
     required this.action,
     required this.reason,
     required this.pointReasonSnapshot,
-    required this.pointsSnapshot,
+    required num pointsSnapshot,
     DateTime? createdAt,
-  })  : id = id ?? const Uuid().v4(),
+  })  : pointsSnapshot = pointsSnapshot.toDouble(),
+        id = id ?? const Uuid().v4(),
         createdAt = createdAt ?? DateTime.now();
 
   Map<String, dynamic> toMap() => {
@@ -45,7 +46,7 @@ class BehaviorPointCorrection {
         action: map['action']?.toString() ?? 'delete',
         reason: map['reason']?.toString() ?? '',
         pointReasonSnapshot: map['point_reason_snapshot']?.toString() ?? '',
-        pointsSnapshot: (map['points_snapshot'] as num?)?.toInt() ?? 0,
+        pointsSnapshot: (map['points_snapshot'] as num?)?.toDouble() ?? 0,
         createdAt: DateTime.tryParse(map['created_at']?.toString() ?? '') ??
             DateTime.now(),
       );

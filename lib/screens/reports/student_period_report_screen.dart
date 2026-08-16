@@ -16,6 +16,7 @@ import '../../services/qr_service.dart';
 import '../../services/student_period_report_service.dart';
 import '../../utils/helpers.dart';
 import '../../widgets/app_design_widgets.dart';
+import '../../widgets/dual_calendar_date_picker.dart';
 
 class StudentPeriodReportScreen extends StatefulWidget {
   final Student? initialStudent;
@@ -138,6 +139,10 @@ class _StudentPeriodReportScreenState extends State<StudentPeriodReportScreen> {
                     _buildSummary(_report!),
                     const SizedBox(height: 16),
                     _buildPerformance(_report!),
+                    if (_report!.payments.isNotEmpty) ...[
+                      const SizedBox(height: 16),
+                      _buildPayments(_report!),
+                    ],
                     if (_report!.exams.isNotEmpty) ...[
                       const SizedBox(height: 16),
                       _buildExams(_report!),
@@ -333,12 +338,16 @@ class _StudentPeriodReportScreenState extends State<StudentPeriodReportScreen> {
               children: [
                 _statTile('الحفظ', '${report.memorizedAyahs} آية', Colors.green),
                 _statTile('المراجعة', '${report.revisedAyahs} آية', Colors.blue),
-                _statTile('الصفحات', report.memorizedPages.toStringAsFixed(1), Colors.purple),
+                _statTile('إجمالي الصفحات', report.totalCompletedPages.toStringAsFixed(1), Colors.purple),
+                _statTile('صفحات حفظ', report.memorizedPages.toStringAsFixed(1), Colors.green),
+                _statTile('صفحات مراجعة', report.revisedPages.toStringAsFixed(1), Colors.blue),
+                _statTile('صفحات سرد', report.recitedPages.toStringAsFixed(1), Colors.indigo),
+                _statTile('المدفوعات', report.paidAmount.toStringAsFixed(2), Colors.teal),
                 _statTile('الأجزاء', report.memorizedJuz.toStringAsFixed(2), Colors.indigo),
                 _statTile('الحضور', '${report.attendanceRate}%', Colors.teal),
                 _statTile('لم يسمّع', '${report.noRecitationDays} يوم', Colors.orange),
-                _statTile('الإيجابيات', '+${report.positivePoints}', Colors.green),
-                _statTile('السلبيات', '-${report.negativePoints}', Colors.red),
+                _statTile('الإيجابيات', '+${Helpers.formatNumber(report.positivePoints)}', Colors.green),
+                _statTile('السلبيات', '-${Helpers.formatNumber(report.negativePoints)}', Colors.red),
                 _statTile('المخالفات', '${report.violationEvents}', Colors.deepOrange),
                 _statTile('متبقي سلبي', '-${report.outstandingNegativePoints}', Colors.red),
               ],
@@ -422,6 +431,93 @@ class _StudentPeriodReportScreenState extends State<StudentPeriodReportScreen> {
       ),
     );
   }
+
+  Widget _buildPayments(StudentPeriodReport report) {
+    final payments = List.of(report.payments)
+      ..sort((a, b) => b.date.compareTo(a.date));
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.payments_outlined, size: 20),
+                const SizedBox(width: 7),
+                const Expanded(
+                  child: Text(
+                    'مدفوعات الطالب خلال الفترة',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
+                Text(
+                  Helpers.formatNumber(report.paidAmount),
+                  style: TextStyle(
+                    fontWeight: FontWeight.w900,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'تُجلب تلقائيًا من صندوق الحلقة ضمن نفس فترة التقرير.',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+            ),
+            const Divider(height: 20),
+            for (final payment in payments)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 5),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(
+                      Icons.receipt_long_outlined,
+                      size: 17,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '${_fundTypeLabel(payment.type)} · ${_formatDate(payment.date)}',
+                            style: const TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                          if (payment.note?.trim().isNotEmpty == true)
+                            Text(
+                              payment.note!.trim(),
+                              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                                  ),
+                            ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      Helpers.formatNumber(payment.amount),
+                      style: const TextStyle(fontWeight: FontWeight.w900),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _fundTypeLabel(String type) => switch (type) {
+        'subscription' => 'اشتراك',
+        'penalty' => 'تسوية/جزاء',
+        'donation' => 'تبرع',
+        _ => 'دفعة',
+      };
 
   Widget _buildExams(StudentPeriodReport report) {
     return Card(
@@ -507,7 +603,7 @@ class _StudentPeriodReportScreenState extends State<StudentPeriodReportScreen> {
         _detailRow('تقييم المراجعة', day.revisionRating),
         if (day.lateMinutes > 0)
           _detailRow('مدة التأخر', '${day.lateMinutes} دقيقة'),
-        _detailRow('النقاط', '+${day.positivePoints} / -${day.negativePoints}'),
+        _detailRow('النقاط', '+${Helpers.formatNumber(day.positivePoints)} / -${Helpers.formatNumber(day.negativePoints)}'),
         if (_dayNote(day).isNotEmpty) _detailRow('الملاحظات', _dayNote(day)),
       ],
     );
@@ -550,6 +646,15 @@ class _StudentPeriodReportScreenState extends State<StudentPeriodReportScreen> {
               icon: const Icon(Icons.print_outlined),
               label: const Text('طباعة A5'),
             ),
+            OutlinedButton.icon(
+              onPressed: () => _print(
+                report,
+                PdfPageFormat.a4,
+                compactSummary: true,
+              ),
+              icon: const Icon(Icons.description_outlined),
+              label: const Text('ملخص صفحة واحدة'),
+            ),
           ],
         ),
       ],
@@ -557,13 +662,12 @@ class _StudentPeriodReportScreenState extends State<StudentPeriodReportScreen> {
   }
 
   Future<void> _pickRange() async {
-    final range = await showDateRangePicker(
+    final range = await showDualCalendarDateRangePicker(
       context: context,
       firstDate: DateTime(2020),
       lastDate: _dateOnly(DateTime.now()),
       initialDateRange: DateTimeRange(start: _startDate, end: _endDate),
-      helpText: 'اختر فترة التقرير',
-      saveText: 'اعتماد الفترة',
+      title: 'اختر فترة التقرير',
     );
     if (range == null) return;
     setState(() {
@@ -573,7 +677,11 @@ class _StudentPeriodReportScreenState extends State<StudentPeriodReportScreen> {
     await _generate();
   }
 
-  Future<void> _print(StudentPeriodReport report, PdfPageFormat format) async {
+  Future<void> _print(
+    StudentPeriodReport report,
+    PdfPageFormat format, {
+    bool compactSummary = false,
+  }) async {
     final settings = await _db.getSettings();
     final bytes = await _pdf.generateStudentPeriodReport(
       report: report,
@@ -581,6 +689,7 @@ class _StudentPeriodReportScreenState extends State<StudentPeriodReportScreen> {
       halaqahName: settings.halaqahName,
       mosqueName: settings.mosqueName,
       useHijriCalendar: settings.useHijriCalendar,
+      compactSummary: compactSummary,
     );
     await Printing.layoutPdf(onLayout: (_) async => bytes);
   }
@@ -616,8 +725,11 @@ class _StudentPeriodReportScreenState extends State<StudentPeriodReportScreen> {
       ..writeln('✅ الحفظ الجديد: ${report.memorizedAyahs} آية (${report.memorizedPages.toStringAsFixed(1)} صفحة)')
       ..writeln('🧭 من: ${_progressText(memorizationRanges)}')
       ..writeln('🔁 المراجعة: ${report.revisedAyahs} آية (${report.revisedPages.toStringAsFixed(1)} صفحة)')
+      ..writeln('📚 السرد: ${report.recitedAyahs} آية (${report.recitedPages.toStringAsFixed(1)} صفحة)')
+      ..writeln('📊 إجمالي الصفحات: ${report.totalCompletedPages.toStringAsFixed(1)}')
       ..writeln('🧭 من: ${_progressText(revisionRanges)}')
       ..writeln('⭐ متوسط الجودة: ${report.averageQuality.toStringAsFixed(1)}/5')
+      ..writeln('💳 مدفوعات الفترة: ${report.paidAmount.toStringAsFixed(2)}')
       ..writeln()
       ..writeln('📅 *الحضور والمواظبة*')
       ..writeln('✅ حاضر: ${report.presentDays} | ⏰ متأخر: ${report.lateDays}')
@@ -626,8 +738,8 @@ class _StudentPeriodReportScreenState extends State<StudentPeriodReportScreen> {
       ..writeln('🔕 لم يسمّع وهو حاضر: ${report.noRecitationDays}')
       ..writeln('📊 نسبة الحضور: ${report.attendanceRate}%')
       ..writeln()
-      ..writeln('🏆 إيجابيات: +${report.positivePoints} (${report.positiveEvents})')
-      ..writeln('⚠️ سلبيات: -${report.negativePoints} (${report.negativeEvents})')
+      ..writeln('🏆 إيجابيات: +${Helpers.formatNumber(report.positivePoints)} (${report.positiveEvents})')
+      ..writeln('⚠️ سلبيات: -${Helpers.formatNumber(report.negativePoints)} (${report.negativeEvents})')
       ..writeln('🚫 مخالفات مستقلة: ${report.violationEvents} (-${report.violationPoints})')
       ..writeln('💳 سُوّي عبر الصندوق: ${report.settledNegativePoints} نقطة | المتبقي: -${report.outstandingNegativePoints}')
       ..writeln('📈 الأداء العام: ${report.performanceScore}%')

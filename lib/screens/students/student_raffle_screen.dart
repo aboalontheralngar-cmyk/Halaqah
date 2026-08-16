@@ -333,8 +333,10 @@ class _StudentRaffleScreenState extends State<StudentRaffleScreen> with SingleTi
           : ColoredBox(
               color: Theme.of(context).scaffoldBackgroundColor,
               child: SafeArea(
-                child: Column(
-                  children: [
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: Column(
+                    children: [
                     // Top Info Row
                     Padding(
                       padding: const EdgeInsets.all(16.0),
@@ -380,7 +382,7 @@ class _StudentRaffleScreenState extends State<StudentRaffleScreen> with SingleTi
                       },
                     ),
 
-                    const Spacer(),
+                    const SizedBox(height: 18),
 
                     // Center Draw Board
                     Padding(
@@ -402,7 +404,7 @@ class _StudentRaffleScreenState extends State<StudentRaffleScreen> with SingleTi
                       ),
                     ),
 
-                    const Spacer(),
+                    const SizedBox(height: 18),
 
                     // Action buttons when a student is selected
                     if (_selectedStudent != null && !_isDrawing)
@@ -529,7 +531,8 @@ class _StudentRaffleScreenState extends State<StudentRaffleScreen> with SingleTi
 
                     // Excluded Students Bottom List
                     _buildExcludedList(isDark),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),

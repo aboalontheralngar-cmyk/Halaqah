@@ -1,5 +1,4 @@
 {
   "typescript.tsdk": "website/node_modules/typescript/lib",
-  "typescript.enablePromptUseWorkspaceTsdk": true,
-  "typescript.preferences.importModuleSpecifier": "non-relative"
+  "typescript.enablePromptUseWorkspaceTsdk": true
 }

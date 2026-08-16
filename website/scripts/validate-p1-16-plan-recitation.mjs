@@ -31,7 +31,7 @@ const dashboardLayout = read("website/src/components/DashboardLayout.tsx");
 for (const [source, text, label] of [
   [model, "class PlanRecitationRecord", "dedicated recitation model"],
   [model, "sessionId", "cross-surah session grouping"],
-  [database, "version: 24", "SQLite schema upgrade"],
+  [database, "static const int version = 26", "SQLite schema upgrade"],
   [database, "savePlanRecitationSession", "atomic local session save"],
   [database, "getStudentPlanRecitationRecords", "cross-plan recitation continuation"],
   [database, "deleted_plan_recitation_record_ids", "cloud deletion tombstones"],
@@ -53,7 +53,7 @@ for (const [source, text, label] of [
   [schedule, "إجازة أسبوعية", "explicit weekly holiday row"],
   [schedule, "سورة ${_quran.getSurahName", "explicit surah and ayah labels"],
   [pdf, "dailyAssignmentsByPlan", "bulk exact-range PDF"],
-  [pdf, "_validateExactPlanAssignments", "no generic amount fallback"],
+  [pdf, "SmartPlanPrintPolicy.validateExactAssignments", "no generic amount fallback"],
   [pdf, "assignment.recitationRange", "printed recitation Quran range"],
   [reports, "DropdownButtonFormField<String>", "stable Hijri month dropdown value"],
   [helpers, "rangesByKey.putIfAbsent", "deduplicated Hijri month choices"],
@@ -68,7 +68,7 @@ for (const [source, text, label] of [
   [dashboardLayout, "type NavigationItem", "explicit navigation typing"],
   [dashboardLayout, "children: ReactNode", "React namespace-independent child typing"],
   [buildInfo, "releaseLabel = 'P1.27'", "central current release label"],
-  [pubspec, "version: 4.3.0-alpha.22+76", "current package version"],
+  [pubspec, "version: 4.3.0-alpha.24+80", "current package version"],
 ]) {
   requireText(source, text, label);
 }

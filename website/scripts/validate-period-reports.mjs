@@ -27,7 +27,7 @@ const requiredServiceFragments = [
 ];
 const requiredModelFragments = ['memorizedLines / 15', 'memorizedPages / 20'];
 const requiredScreenFragments = [
-  'showDateRangePicker',
+  'showDualCalendarDateRangePicker',
   'آخر 7 أيام',
   'الشهر الحالي',
   'مشاركة قالب WhatsApp',

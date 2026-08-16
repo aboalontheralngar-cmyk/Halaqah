@@ -63,6 +63,15 @@ const validators = [
   "test-build75-runtime.mjs",
   "validate-build76-completion.mjs",
   "validate-build76-hotfix1.mjs",
+  "validate-build77-ux-reports.mjs",
+  "test-build77-runtime.mjs",
+  "validate-build78-completion.mjs",
+  "test-build78-runtime.mjs",
+  "validate-build78-hotfix1.mjs",
+  "validate-build78-hotfix2.mjs",
+  "validate-build78-hotfix3.mjs",
+  "validate-build78-hotfix4.mjs",
+  "validate-build80-hotfix5.mjs",
 ];
 
 for (const validator of validators) {

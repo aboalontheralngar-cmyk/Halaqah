@@ -44,7 +44,7 @@ class HalaqahSettings {
   String ramadanFixedEndTime; // e.g. '22:30'
 
   Map<String, int> pointsConfig;
-  String recitationPointsRounding; // nearest, floor, ceil
+  String recitationPointsRounding; // exact, nearest, floor, ceil
 
   // أيام العطلة الأسبوعية (تُعتبر معطّلة تلقائياً). تستخدم ترقيم DateTime.weekday: الإثنين=1 ... الأحد=7، الجمعة=5.
   List<int> holidayWeekdays;
@@ -93,7 +93,7 @@ class HalaqahSettings {
     this.ramadanFixedStartTime = '21:00',
     this.ramadanFixedEndTime = '22:30',
     Map<String, int>? pointsConfig,
-    this.recitationPointsRounding = 'nearest',
+    this.recitationPointsRounding = 'exact',
     List<int>? holidayWeekdays,
     this.backupReminderEnabled = true,
     this.backupReminderIntervalDays = 3,
@@ -267,10 +267,10 @@ class HalaqahSettings {
       ramadanFixedStartTime: map['ramadan_fixed_start_time'] ?? '21:00',
       ramadanFixedEndTime: map['ramadan_fixed_end_time'] ?? '22:30',
       pointsConfig: points.isEmpty ? null : points,
-      recitationPointsRounding: const {'nearest', 'floor', 'ceil'}
+      recitationPointsRounding: const {'exact', 'nearest', 'floor', 'ceil'}
               .contains(map['recitation_points_rounding'])
           ? map['recitation_points_rounding'].toString()
-          : 'nearest',
+          : 'exact',
       holidayWeekdays: holidayDays,
       backupReminderEnabled:
           parseBool(map['backup_reminder_enabled'], true),

@@ -19,7 +19,8 @@ assertIncludes(
     "PlatformDispatcher.instance.onError",
     "OperationalIncidentService",
     "HalaqahStartupFailureApp",
-    "source: 'startup'",
+    "source: 'startup.quran'",
+    "source: 'startup.theme'",
   ],
   "Flutter global error capture",
 );
@@ -85,7 +86,7 @@ for (const test of [
 
 assertIncludes(
   read("lib/app/build_info.dart"),
-  ["4.3.0-alpha.22", "buildNumber = 76", "releaseLabel = 'P1.27'"],
+  ["4.3.0-alpha.24", "buildNumber = 80", "releaseLabel = 'P1.27'"],
   "Central build identity",
 );
 

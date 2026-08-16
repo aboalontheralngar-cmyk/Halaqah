@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../app/theme.dart';
 import '../../services/database_service.dart';
 import '../../models/student.dart';
+import '../../utils/helpers.dart';
 import 'add_point_screen.dart';
 import 'points_history_screen.dart';
 import 'appearance_violations_screen.dart';
@@ -140,7 +141,7 @@ class _BehaviorScreenState extends State<BehaviorScreen> {
   Widget _buildStatsBar() {
     final positiveCount = _students.where((s) => s.totalPoints > 0).length;
     final negativeCount = _students.where((s) => s.totalPoints < 0).length;
-    final totalPoints = _students.fold<int>(0, (sum, s) => sum + s.totalPoints);
+    final totalPoints = _students.fold<double>(0, (sum, s) => sum + s.totalPoints);
 
     final semantic = AppSemanticColors.of(context);
     return Padding(
@@ -156,7 +157,7 @@ class _BehaviorScreenState extends State<BehaviorScreen> {
               _buildStatChip('سلبي', '$negativeCount', Theme.of(context).colorScheme.error),
               _buildStatChip(
                 'المجموع',
-                '$totalPoints',
+                Helpers.formatNumber(totalPoints),
                 totalPoints >= 0 ? semantic.success : Theme.of(context).colorScheme.error,
               ),
             ],
@@ -370,7 +371,7 @@ class _BehaviorScreenState extends State<BehaviorScreen> {
                   borderRadius: BorderRadius.circular(999),
                 ),
                 child: Text(
-                  '${points > 0 ? '+' : ''}$points',
+                  '${points > 0 ? '+' : ''}${Helpers.formatNumber(points)}',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     color: pointColor,
@@ -432,7 +433,7 @@ class _BehaviorScreenState extends State<BehaviorScreen> {
 
 class StudentWithPoints {
   final Student student;
-  final int totalPoints;
+  final double totalPoints;
   final bool hasUnresolvedViolations;
 
   StudentWithPoints({
