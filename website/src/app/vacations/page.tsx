@@ -5,7 +5,7 @@ import { useShallow } from "zustand/react/shallow";
 import { Palmtree, Plus, Trash2, CheckCircle, Clock, X, CalendarRange, Pencil, Search, SlidersHorizontal } from "lucide-react";
 import { useStore, type Vacation } from "@/store/useStore";
 import { supabase } from "@/lib/supabase";
-import { getHijriDate } from "@/utils/dateUtils";
+import { getHijriDate, localDateKey } from "@/utils/dateUtils";
 
 export default function VacationsPage() {
   const {

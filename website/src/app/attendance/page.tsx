@@ -15,7 +15,7 @@ import {
   AlertCircle
 } from "lucide-react";
 import { useStore, AttendanceRecord } from "@/store/useStore";
-import { getHijriDate } from "@/utils/dateUtils";
+import { getHijriDate, localDateKey } from "@/utils/dateUtils";
 import Link from "next/link";
 import { MetricCard, PageHeader, SearchField, Surface } from "@/components/ui/AppDesign";
 import { isWeeklyHoliday } from "@/lib/dailyClosing";
