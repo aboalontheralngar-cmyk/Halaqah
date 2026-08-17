@@ -31,7 +31,7 @@ const dashboardLayout = read("website/src/components/DashboardLayout.tsx");
 for (const [source, text, label] of [
   [model, "class PlanRecitationRecord", "dedicated recitation model"],
   [model, "sessionId", "cross-surah session grouping"],
-  [database, "static const int version = 26", "SQLite schema upgrade"],
+  [database, "static const int version = 27", "SQLite schema upgrade"],
   [database, "savePlanRecitationSession", "atomic local session save"],
   [database, "getStudentPlanRecitationRecords", "cross-plan recitation continuation"],
   [database, "deleted_plan_recitation_record_ids", "cloud deletion tombstones"],
@@ -68,7 +68,7 @@ for (const [source, text, label] of [
   [dashboardLayout, "type NavigationItem", "explicit navigation typing"],
   [dashboardLayout, "children: ReactNode", "React namespace-independent child typing"],
   [buildInfo, "releaseLabel = 'P1.27'", "central current release label"],
-  [pubspec, "version: 4.3.0-alpha.25+82", "current package version"],
+  [pubspec, "version: 4.3.0-alpha.26+83", "current package version"],
 ]) {
   requireText(source, text, label);
 }

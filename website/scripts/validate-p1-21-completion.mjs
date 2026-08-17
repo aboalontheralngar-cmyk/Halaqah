@@ -16,10 +16,10 @@ const requireAll = (path, fragments) => {
   return source;
 };
 
-requireAll("pubspec.yaml", ["version: 4.3.0-alpha.25+82"]);
+requireAll("pubspec.yaml", ["version: 4.3.0-alpha.26+83"]);
 requireAll("lib/app/build_info.dart", [
-  "versionName = '4.3.0-alpha.25'",
-  "buildNumber = 82",
+  "versionName = '4.3.0-alpha.26'",
+  "buildNumber = 83",
   "releaseLabel = 'P1.27'",
 ]);
 

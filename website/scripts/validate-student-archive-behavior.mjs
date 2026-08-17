@@ -23,7 +23,7 @@ const behaviorTest = read("test/behavior_point_policy_test.dart");
 const statusTest = read("test/student_status_policy_test.dart");
 
 for (const contract of [
-  "static const int version = 26",
+  "static const int version = 27",
   "CREATE TABLE IF NOT EXISTS student_status_history",
   "CREATE TABLE IF NOT EXISTS behavior_point_corrections",
   "getOperationalStudents",

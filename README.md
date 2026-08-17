@@ -19,7 +19,7 @@
 
 ابدأ من [فهرس التوثيق الحالي](docs/INDEX.md) و[تدقيق ميزات P1.27](docs/P1.27_FEATURE_AUDIT.md) بدل الاعتماد على قوائم المراحل التاريخية أو وجود الكود وحده كدليل اكتمال.
 
-أحدث دفعة إصلاح موثقة هي **P1.27 Build 82 Hotfix 7** فوق `4.3.0-alpha.25+82` وSQLite 26. تعالج تعارض مزامنة الحضور `23505`، وتفعّل تشخيص بوابة الطالب وتهيئة Google OAuth، وتنسق أكواد البوابة تلقائيًا، وتضيف فحص جاهزية موحدًا لعقود البوابة والإشراف دون إعادة P7.3 التاريخية. راجع [Hotfix 7](docs/P1.27_BUILD82_HOTFIX7_PORTAL_AUTH_SYNC.md) و`P1.27_BUILD82_HOTFIX7_INSTALL_NOTE.md`.
+أحدث دفعة إصلاح موثقة هي **P1.27 Build 83 Hotfix 8** فوق `4.3.0-alpha.26+83` وSQLite 27. تعالج تحويل Google OAuth إلى PKCE مع callback إنتاجي، وتصلح `SYNC_NOTIFICATIONS_23514`، وتضيف مزامنة رفع خفيفة تتجاوز المجالات المحلية غير المتغيرة بعد أول رفع تأسيسي. راجع [Hotfix 8](docs/P1.27_BUILD83_HOTFIX8_AUTH_SYNC.md) و`P1.27_BUILD83_HOTFIX8_INSTALL_NOTE.md`.
 
 ## البنية
 

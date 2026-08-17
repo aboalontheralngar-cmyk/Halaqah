@@ -20,10 +20,10 @@ function assert(condition, message) {
 const pubspec = read("pubspec.yaml");
 const buildInfo = read("lib/app/build_info.dart");
 const whatsNew = read("lib/screens/settings/whats_new_screen.dart");
-assert(pubspec.includes("version: 4.3.0-alpha.25+82"), "pubspec version is not Build 75");
-assert(buildInfo.includes("versionName = '4.3.0-alpha.25'") && buildInfo.includes("buildNumber = 82") && buildInfo.includes("releaseLabel = 'P1.27'"), "AppBuildInfo is not P1.27 Build 75");
+assert(pubspec.includes("version: 4.3.0-alpha.26+83"), "pubspec version is not Build 75");
+assert(buildInfo.includes("versionName = '4.3.0-alpha.26'") && buildInfo.includes("buildNumber = 83") && buildInfo.includes("releaseLabel = 'P1.27'"), "AppBuildInfo is not P1.27 Build 75");
 assert(whatsNew.includes("v4.3.0-alpha.21 · P1.27 Build 75"), "What's New does not document Build 75");
-assert(read("lib/services/local_database_schema.dart").includes("static const int version = 26"), "SQLite schema version must stay 24");
+assert(read("lib/services/local_database_schema.dart").includes("static const int version = 27"), "SQLite schema version must stay 24");
 
 // 1) Proportional recitation points.
 const pointsPolicy = read("lib/services/recitation_points_policy.dart");

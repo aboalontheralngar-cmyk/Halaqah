@@ -13,10 +13,10 @@ const assert = (condition, message) => {
 const pubspec = read('pubspec.yaml');
 const buildInfo = read('lib/app/build_info.dart');
 const constants = read('lib/utils/constants.dart');
-assert(pubspec.includes('version: 4.3.0-alpha.25+82'), 'pubspec must use versionCode 82');
-assert(buildInfo.includes("versionName = '4.3.0-alpha.25'"), 'version name must be alpha.25');
-assert(buildInfo.includes('buildNumber = 82'), 'AppBuildInfo must use build 82');
-assert(constants.includes("appVersion = '4.3.0-alpha.25'"), 'AppConstants version must match Build 82');
+assert(pubspec.includes('version: 4.3.0-alpha.26+83'), 'pubspec must use versionCode 82');
+assert(buildInfo.includes("versionName = '4.3.0-alpha.26'"), 'version name must be alpha.25');
+assert(buildInfo.includes('buildNumber = 83'), 'AppBuildInfo must use build 82');
+assert(constants.includes("appVersion = '4.3.0-alpha.26'"), 'AppConstants version must match Build 82');
 
 const sync = read('lib/services/supabase_service.dart');
 for (const token of [

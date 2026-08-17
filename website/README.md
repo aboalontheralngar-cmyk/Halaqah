@@ -70,3 +70,25 @@ npm run build
 - عرّف المتغيرات العامة أثناء البناء؛ قيم `NEXT_PUBLIC_` تثبت داخل الحزمة.
 - لا تتجاوز فشل `quality:ci` ولا تستخدم `npm audit fix --force` دون مراجعة.
 - راجع `docs/phase6_1_handoff.md` و`docs/phase6_2_handoff.md` و`docs/release_security_checklist.md` قبل الإنتاج.
+
+## Google OAuth production callback
+
+Build 83 uses the PKCE flow and a dedicated `/auth/callback` page so access and
+refresh tokens are not carried in the URL fragment.
+
+For production:
+
+1. Set `NEXT_PUBLIC_APP_URL=https://YOUR_PUBLIC_APP_DOMAIN` before `npm run build`.
+2. In Supabase **Authentication -> URL Configuration**, set **Site URL** to the
+   same production origin (never `http://localhost:3000` in production).
+3. Add `https://YOUR_PUBLIC_APP_DOMAIN/auth/callback` to **Redirect URLs**.
+4. In Google Auth Platform, keep the Supabase Auth callback URL shown by the
+   Google provider screen in **Authorized redirect URIs**. This is different
+   from the frontend `/auth/callback` URL above.
+5. Configure Google Auth Platform **Branding** (app name, logo, support email,
+   homepage, privacy policy and terms). A Supabase custom/vanity domain is
+   needed if you also want the consent screen to stop showing the random
+   `<project-ref>.supabase.co` hostname.
+
+Never commit or send the Google Client Secret JSON. Only the public Web Client
+ID may safely be exposed to browser code when needed.

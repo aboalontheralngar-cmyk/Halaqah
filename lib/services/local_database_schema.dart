@@ -9,9 +9,9 @@ import 'package:sqflite/sqflite.dart';
 class LocalDatabaseSchema {
   const LocalDatabaseSchema();
 
-  // Build 78 adds per-plan Friday policy.
-  // Previous release database version: 25.
-  static const int version = 26;
+  // Build 83 adds upload dirty-stage journaling for lightweight incremental sync.
+  // Previous release database version: 26.
+  static const int version = 27;
 
   Future<void> onCreate(Database db, int version) async {
     await db.execute('''
@@ -165,6 +165,7 @@ class LocalDatabaseSchema {
     await _upgradeToVersion24(db);
     await _upgradeToVersion25(db);
     await _upgradeToVersion26(db);
+    await _upgradeToVersion27(db);
   }
 
   Future<void> onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -242,6 +243,125 @@ class LocalDatabaseSchema {
     }
     if (oldVersion < 26) {
       await _upgradeToVersion26(db);
+    }
+    if (oldVersion < 27) {
+      await _upgradeToVersion27(db);
+    }
+  }
+
+
+  static const Map<String, String> _syncDirtyStageByTable = {
+    'families': 'families',
+    'family_guardians': 'families',
+    'students': 'students',
+    'homework_grades': 'homework',
+    'daily_records': 'attendance',
+    'memorization_progress': 'memorization',
+    'mushaf_progress': 'mushaf',
+    'behavior_points': 'points',
+    'behavior_point_corrections': 'point_corrections',
+    'daily_achievements': 'achievements',
+    'vacations': 'vacations',
+    'exam_templates': 'exam_templates',
+    'exam_template_questions': 'exam_templates',
+    'exams': 'exams',
+    'notifications': 'notifications',
+    'fund_transactions': 'fund',
+    'student_holds': 'student_holds',
+    'talaqqin_records': 'talaqqin',
+    'student_admin_actions': 'admin_actions',
+    'plans': 'plans',
+    'quran_courses': 'courses',
+    'quran_course_enrollments': 'courses',
+    'plan_recitation_records': 'plan_recitation',
+  };
+
+  static const List<String> _initialSyncDirtyStages = [
+    'families',
+    'students',
+    'homework',
+    'attendance',
+    'study_suspensions',
+    'memorization',
+    'mushaf',
+    'points',
+    'point_corrections',
+    'achievements',
+    'vacations',
+    'exam_templates',
+    'exams',
+    'notifications',
+    'fund',
+    'student_holds',
+    'talaqqin',
+    'admin_actions',
+    'plans',
+    'courses',
+    'plan_recitation',
+  ];
+
+  Future<void> _upgradeToVersion27(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS sync_dirty_stages (
+        stage_id TEXT PRIMARY KEY,
+        generation INTEGER NOT NULL DEFAULT 1,
+        changed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    ''');
+
+    // Force exactly one full device -> cloud upload after upgrading. Once it
+    // succeeds, later upload-only syncs can skip untouched domains entirely.
+    for (final stageId in _initialSyncDirtyStages) {
+      await db.insert(
+        'sync_dirty_stages',
+        {
+          'stage_id': stageId,
+          'generation': 1,
+          'changed_at': DateTime.now().toIso8601String(),
+        },
+        conflictAlgorithm: ConflictAlgorithm.ignore,
+      );
+    }
+
+    for (final entry in _syncDirtyStageByTable.entries) {
+      await _createSyncDirtyStageTriggers(
+        db,
+        localTable: entry.key,
+        stageId: entry.value,
+      );
+    }
+  }
+
+  Future<void> _createSyncDirtyStageTriggers(
+    Database db, {
+    required String localTable,
+    required String stageId,
+  }) async {
+    final tableRows = await db.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
+      [localTable],
+    );
+    if (tableRows.isEmpty) return;
+
+    final safeTable = localTable.replaceAll("'", "''");
+    final safeStage = stageId.replaceAll("'", "''");
+    for (final event in const ['INSERT', 'UPDATE']) {
+      final suffix = event.toLowerCase();
+      final trigger = 'sync_dirty_${localTable}_$suffix';
+      await db.execute('DROP TRIGGER IF EXISTS $trigger');
+      await db.execute('''
+        CREATE TRIGGER $trigger
+        AFTER $event ON $safeTable
+        BEGIN
+          INSERT OR IGNORE INTO sync_dirty_stages (
+            stage_id, generation, changed_at
+          ) VALUES ('$safeStage', 0, CURRENT_TIMESTAMP);
+          UPDATE sync_dirty_stages
+          SET generation = generation + 1,
+              changed_at = CURRENT_TIMESTAMP
+          WHERE stage_id = '$safeStage';
+        END
+      ''');
     }
   }
 

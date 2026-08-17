@@ -19,7 +19,7 @@ requireAll(read('lib/models/student.dart'), [
 ], 'Student identity');
 
 requireAll(read('lib/services/database_service.dart') + read('lib/services/local_database_schema.dart'), [
-  'static const int version = 26',
+  'static const int version = 27',
   'recalculateDailyRecitationPoints',
   'idx_students_student_code',
   'behavior_point_id TEXT',

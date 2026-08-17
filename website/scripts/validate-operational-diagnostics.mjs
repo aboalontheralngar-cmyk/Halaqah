@@ -86,7 +86,7 @@ for (const test of [
 
 assertIncludes(
   read("lib/app/build_info.dart"),
-  ["4.3.0-alpha.25", "buildNumber = 82", "releaseLabel = 'P1.27'"],
+  ["4.3.0-alpha.26", "buildNumber = 83", "releaseLabel = 'P1.27'"],
   "Central build identity",
 );
 

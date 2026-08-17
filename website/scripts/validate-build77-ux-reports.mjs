@@ -12,8 +12,8 @@ const assert = (condition, message) => {
 
 const pubspec = read('pubspec.yaml');
 const buildInfo = read('lib/app/build_info.dart');
-assert(pubspec.includes('version: 4.3.0-alpha.25+82'), 'pubspec is not Build 77');
-assert(buildInfo.includes("versionName = '4.3.0-alpha.25'") && buildInfo.includes('buildNumber = 82'), 'AppBuildInfo is not Build 77');
+assert(pubspec.includes('version: 4.3.0-alpha.26+83'), 'pubspec is not Build 77');
+assert(buildInfo.includes("versionName = '4.3.0-alpha.26'") && buildInfo.includes('buildNumber = 83'), 'AppBuildInfo is not Build 77');
 
 const home = read('lib/screens/home/home_screen.dart');
 assert(home.includes("import '../competition/peer_level_groups_screen.dart';"), 'home does not import peer groups');

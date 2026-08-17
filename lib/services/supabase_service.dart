@@ -33,6 +33,7 @@ import 'quran_service.dart';
 import 'local_sync_delete_outbox.dart';
 import 'study_suspension_sync_plan.dart';
 import 'sync/cloud_sync_progress.dart';
+import 'sync/cloud_notification_type_policy.dart';
 import 'sync/exam_sync_policy.dart';
 
 enum CloudSyncDirection { uploadOnly, downloadOnly, bidirectional }
@@ -158,6 +159,16 @@ class SupabaseService {
             'مرجع سحابي لم يصل بعد أو لم يعد موجودًا. بيانات الجهاز لم تُحذف. '
             'أعد المحاولة بعد تحديث التطبيق، وإذا استمر الخطأ افتح مركز '
             'التشخيص. الرمز: ${error.safeCode}';
+      }
+      if (cause is PostgrestException && cause.code == '23514') {
+        if (error.stageId == 'notifications') {
+          return 'توقفت المزامنة عند «الإشعارات» لأن قاعدة Supabase ما زالت '
+              'تستخدم قيد أنواع الإشعارات القديم. نفّذ ملف '
+              'P1.27_BUILD83_HOTFIX8_APPLY.sql ثم VERIFY. بيانات الجهاز لم '
+              'تُحذف. الرمز: ${error.safeCode}';
+        }
+        return 'توقفت المزامنة عند «${error.stageLabel}» بسبب قيد تحقق في '
+            'قاعدة البيانات. بيانات الجهاز لم تُحذف. الرمز: ${error.safeCode}';
       }
       if (cause is CloudSyncUnavailableException) {
         return '${cause.message} المرحلة: ${error.stageLabel}. '
@@ -662,6 +673,53 @@ class SupabaseService {
       );
     }
 
+
+    Future<void> runUploadAwareStage(
+      String id,
+      String label,
+      Future<void> Function(CloudSyncDirection stageDirection) action,
+    ) async {
+      int? dirtyGeneration;
+      if (direction == CloudSyncDirection.uploadOnly) {
+        dirtyGeneration = await _db.getSyncDirtyStageGeneration(id);
+        if (dirtyGeneration == null) {
+          await runStage(id, label, () async {
+            AppLogger.info('stage_skipped_clean', source: 'supabase.sync.$id');
+          });
+          return;
+        }
+      }
+
+      await runStage(id, label, () => action(direction));
+      if (direction == CloudSyncDirection.uploadOnly &&
+          dirtyGeneration != null) {
+        await _db.acknowledgeSyncDirtyStage(id, dirtyGeneration);
+      }
+    }
+
+    Future<void> runUploadOnlyDirtyStage(
+      String id,
+      String label,
+      Future<void> Function() action,
+    ) async {
+      if (!direction.shouldUpload) return;
+      int? dirtyGeneration;
+      if (direction == CloudSyncDirection.uploadOnly) {
+        dirtyGeneration = await _db.getSyncDirtyStageGeneration(id);
+        if (dirtyGeneration == null) {
+          await runStage(id, label, () async {
+            AppLogger.info('stage_skipped_clean', source: 'supabase.sync.$id');
+          });
+          return;
+        }
+      }
+      await runStage(id, label, action);
+      if (direction == CloudSyncDirection.uploadOnly &&
+          dirtyGeneration != null) {
+        await _db.acknowledgeSyncDirtyStage(id, dirtyGeneration);
+      }
+    }
+
     syncProgress.value = CloudSyncProgress(
       state: CloudSyncProgressState.preparing,
       stageId: 'prepare',
@@ -705,50 +763,58 @@ class SupabaseService {
         await runStage('delete_outbox', 'رفع عمليات الحذف المحلية', _syncDeleteOutbox);
       }
 
-      await runStage('families', 'العائلات وأولياء الأمور', () async {
-        await _syncFamilies(centerId, halaqahId, direction);
+      await runUploadAwareStage('families', 'العائلات وأولياء الأمور',
+          (stageDirection) async {
+        await _syncFamilies(centerId, halaqahId, stageDirection);
       });
-      await runStage('students', 'الطلاب', () async {
-        await _syncStudents(centerId, halaqahId, direction);
+      await runUploadAwareStage('students', 'الطلاب', (stageDirection) async {
+        await _syncStudents(centerId, halaqahId, stageDirection);
         _studentIdsByHalaqah.remove(halaqahId);
       });
-      await runStage('homework', 'درجات الواجب', () async {
-        await _syncHomeworkGrades(centerId, halaqahId, direction);
+      await runUploadAwareStage('homework', 'درجات الواجب',
+          (stageDirection) async {
+        await _syncHomeworkGrades(centerId, halaqahId, stageDirection);
       });
-      await runStage('attendance', 'الحضور', () async {
-        await _syncAttendance(centerId, halaqahId, direction);
+      await runUploadAwareStage('attendance', 'الحضور', (stageDirection) async {
+        await _syncAttendance(centerId, halaqahId, stageDirection);
       });
-      await runStage('study_suspensions', 'الإجازات العارضة', () async {
-        await _syncStudySuspensions(centerId, halaqahId, direction);
+      await runUploadAwareStage('study_suspensions', 'الإجازات العارضة',
+          (stageDirection) async {
+        await _syncStudySuspensions(centerId, halaqahId, stageDirection);
       });
-      await runStage('memorization', 'الحفظ والمراجعة', () async {
-        await _syncMemorizationProgress(centerId, halaqahId, direction);
+      await runUploadAwareStage('memorization', 'الحفظ والمراجعة',
+          (stageDirection) async {
+        await _syncMemorizationProgress(centerId, halaqahId, stageDirection);
       });
-      await runStage('mushaf', 'خريطة المصحف', () async {
-        await _syncMushafProgress(centerId, halaqahId, direction);
+      await runUploadAwareStage('mushaf', 'خريطة المصحف',
+          (stageDirection) async {
+        await _syncMushafProgress(centerId, halaqahId, stageDirection);
       });
-      await runStage('points', 'النقاط', () async {
-        await _syncBehaviorPoints(centerId, halaqahId, direction);
+      await runUploadAwareStage('points', 'النقاط', (stageDirection) async {
+        await _syncBehaviorPoints(centerId, halaqahId, stageDirection);
       });
-      if (direction.shouldUpload) {
-        await runStage('point_corrections', 'تصحيحات النقاط', () async {
-          await _syncBehaviorPointCorrections(centerId, halaqahId);
-        });
-      }
-      await runStage('achievements', 'متميزو اليوم', () async {
-        await _syncDailyAchievements(centerId, halaqahId, direction);
+      await runUploadOnlyDirtyStage('point_corrections', 'تصحيحات النقاط',
+          () async {
+        await _syncBehaviorPointCorrections(centerId, halaqahId);
       });
-      await runStage('vacations', 'إجازات الطلاب', () async {
-        await _syncVacations(centerId, halaqahId, direction);
+      await runUploadAwareStage('achievements', 'متميزو اليوم',
+          (stageDirection) async {
+        await _syncDailyAchievements(centerId, halaqahId, stageDirection);
+      });
+      await runUploadAwareStage('vacations', 'إجازات الطلاب',
+          (stageDirection) async {
+        await _syncVacations(centerId, halaqahId, stageDirection);
       });
       // Exam rows may reference exam_templates.template_id, so parent
       // templates must exist in Supabase before exam rows are uploaded. The
       // same ordering also makes downloaded local references immediately valid.
-      await runStage('exam_templates', 'قوالب الاختبارات', () async {
-        await _syncExamTemplates(centerId, halaqahId, direction);
+      await runUploadAwareStage('exam_templates', 'قوالب الاختبارات',
+          (stageDirection) async {
+        await _syncExamTemplates(centerId, halaqahId, stageDirection);
       });
-      await runStage('exams', 'الاختبارات والدرجات', () async {
-        await _syncExams(centerId, halaqahId, direction);
+      await runUploadAwareStage('exams', 'الاختبارات والدرجات',
+          (stageDirection) async {
+        await _syncExams(centerId, halaqahId, stageDirection);
       });
       if (direction.shouldUpload) {
         // Template deletes are deliberately last: exam upserts above first
@@ -759,29 +825,34 @@ class SupabaseService {
           _syncDeletedExamTemplates,
         );
       }
-      await runStage('notifications', 'الإشعارات', () async {
-        await _syncNotifications(centerId, halaqahId, direction);
+      await runUploadAwareStage('notifications', 'الإشعارات',
+          (stageDirection) async {
+        await _syncNotifications(centerId, halaqahId, stageDirection);
       });
-      await runStage('fund', 'صندوق الحلقة', () async {
-        await _syncFundTransactions(centerId, halaqahId, direction);
+      await runUploadAwareStage('fund', 'صندوق الحلقة', (stageDirection) async {
+        await _syncFundTransactions(centerId, halaqahId, stageDirection);
       });
-      await runStage('student_holds', 'إيقافات الطلاب', () async {
-        await _syncStudentHolds(centerId, halaqahId, direction);
+      await runUploadAwareStage('student_holds', 'إيقافات الطلاب',
+          (stageDirection) async {
+        await _syncStudentHolds(centerId, halaqahId, stageDirection);
       });
-      await runStage('talaqqin', 'التلقين', () async {
-        await _syncTalaqqinRecords(centerId, halaqahId, direction);
+      await runUploadAwareStage('talaqqin', 'التلقين', (stageDirection) async {
+        await _syncTalaqqinRecords(centerId, halaqahId, stageDirection);
       });
-      await runStage('admin_actions', 'الإجراءات الإدارية', () async {
-        await _syncStudentAdminActions(centerId, halaqahId, direction);
+      await runUploadAwareStage('admin_actions', 'الإجراءات الإدارية',
+          (stageDirection) async {
+        await _syncStudentAdminActions(centerId, halaqahId, stageDirection);
       });
-      await runStage('plans', 'الخطط', () async {
-        await _syncPlans(centerId, halaqahId, direction);
+      await runUploadAwareStage('plans', 'الخطط', (stageDirection) async {
+        await _syncPlans(centerId, halaqahId, stageDirection);
       });
-      await runStage('courses', 'الدورات القرآنية', () async {
-        await _syncQuranCourses(centerId, halaqahId, direction);
+      await runUploadAwareStage('courses', 'الدورات القرآنية',
+          (stageDirection) async {
+        await _syncQuranCourses(centerId, halaqahId, stageDirection);
       });
-      await runStage('plan_recitation', 'سجل السرد المرتبط بالخطط', () async {
-        await _syncPlanRecitationRecords(centerId, halaqahId, direction);
+      await runUploadAwareStage('plan_recitation', 'سجل السرد المرتبط بالخطط',
+          (stageDirection) async {
+        await _syncPlanRecitationRecords(centerId, halaqahId, stageDirection);
       });
 
       final completedAt = DateTime.now();
@@ -3790,6 +3861,67 @@ class SupabaseService {
     }
   }
 
+  Future<bool> _upsertNotificationChunk(
+    List<Map<String, dynamic>> chunk,
+  ) async {
+    Future<void> upsertRows(List<Map<String, dynamic>> rows) async {
+      await client.from('notifications').upsert(rows);
+    }
+
+    try {
+      await upsertRows(chunk);
+      return true;
+    } on PostgrestException catch (error) {
+      if (_isMissingSchemaTable(error)) return false;
+
+      if (error.code == '23514') {
+        // Legacy deployments used a CHECK constraint that predates newer local
+        // notification categories. Preserve synchronization availability while
+        // the Build83 SQL migration is being applied by degrading only the
+        // category, never the notification content itself.
+        final legacyCompatible = chunk
+            .map(
+              (row) => Map<String, dynamic>.from(row)
+                ..['type'] = legacyCompatibleCloudNotificationType(
+                  row['type']?.toString() ?? 'general',
+                ),
+            )
+            .toList(growable: false);
+        AppLogger.warning(
+          'notification_type_compatibility_fallback',
+          source: 'supabase.sync.notifications',
+        );
+        try {
+          await upsertRows(legacyCompatible);
+          return true;
+        } on PostgrestException catch (legacyError) {
+          if (_isMissingSchemaTable(legacyError)) return false;
+          if (!_isMissingSchemaColumn(legacyError)) rethrow;
+          final compatible = legacyCompatible
+              .map(
+                (row) => Map<String, dynamic>.from(row)
+                  ..remove('halaqa_id')
+                  ..remove('created_at'),
+              )
+              .toList(growable: false);
+          await upsertRows(compatible);
+          return true;
+        }
+      }
+
+      if (!_isMissingSchemaColumn(error)) rethrow;
+      final compatible = chunk
+          .map(
+            (row) => Map<String, dynamic>.from(row)
+              ..remove('halaqa_id')
+              ..remove('created_at'),
+          )
+          .toList(growable: false);
+      await upsertRows(compatible);
+      return true;
+    }
+  }
+
   Future<void> _syncNotifications(
     String centerId,
     String halaqahId,
@@ -3797,35 +3929,25 @@ class SupabaseService {
   ) async {
     if (direction.shouldUpload) {
       final localData = await _db.getNotifications();
-      final payload = localData.map((notification) => {
+      final payload = localData.map<Map<String, dynamic>>((notification) => <String, dynamic>{
         'id': notification.id,
         'center_id': centerId,
         'halaqa_id': halaqahId,
         'student_id': notification.studentId,
-        'type': notification.type,
+        'type': normalizeCloudNotificationType(notification.type),
         'title': notification.title,
         'body': notification.body,
         'read': notification.read,
         'sent_via': 'none',
         'created_at': notification.createdAt.toIso8601String(),
-      }).toList();
+      }).toList(growable: false);
       for (var i = 0; i < payload.length; i += 100) {
         final chunk = payload.sublist(
           i,
           i + 100 > payload.length ? payload.length : i + 100,
         );
-        try {
-          await client.from('notifications').upsert(chunk);
-        } on PostgrestException catch (error) {
-          if (_isMissingSchemaTable(error)) return;
-          if (!_isMissingSchemaColumn(error)) rethrow;
-          final compatible = chunk
-              .map((row) => Map<String, dynamic>.from(row)
-                ..remove('halaqa_id')
-                ..remove('created_at'))
-              .toList();
-          await client.from('notifications').upsert(compatible);
-        }
+        final tableExists = await _upsertNotificationChunk(chunk);
+        if (!tableExists) return;
       }
     }
 
@@ -3846,7 +3968,9 @@ class SupabaseService {
           NotificationLog(
             id: row['id']?.toString(),
             studentId: studentId,
-            type: row['type']?.toString() ?? 'general',
+            type: normalizeCloudNotificationType(
+              row['type']?.toString() ?? 'general',
+            ),
             title: row['title']?.toString() ?? 'إشعار',
             body: row['body']?.toString() ?? '',
             read: row['read'] == true || row['read'] == 1,

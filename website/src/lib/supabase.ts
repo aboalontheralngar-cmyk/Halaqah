@@ -25,7 +25,10 @@ export const supabase = isConfigured
       auth: {
         persistSession: true,
         autoRefreshToken: true,
-        detectSessionInUrl: true,
+        // PKCE keeps access/refresh tokens out of the redirect URL fragment.
+        // The dedicated /auth/callback route exchanges the short-lived code.
+        flowType: 'pkce',
+        detectSessionInUrl: false,
       },
     })
   : null;

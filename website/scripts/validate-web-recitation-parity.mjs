@@ -72,7 +72,7 @@ for (const forbidden of ['DROP TABLE', 'TRUNCATE TABLE']) {
 }
 
 for (const contract of [
-  '_syncMemorizationProgress(centerId, halaqahId, direction)',
+  '_syncMemorizationProgress(centerId, halaqahId, stageDirection)',
   "row['deleted_at'] != null",
   'updatedAt.isAfter(remote.updatedAt)',
   'upsertMemorizationProgressFromSync',
@@ -80,7 +80,7 @@ for (const contract of [
 ]) requireText(sync, contract, `Android sync ${contract}`);
 
 for (const contract of [
-  'static const int version = 26',
+  'static const int version = 27',
   '_upgradeToVersion12',
   'deleteMemorizationProgressFromSync',
   'upsertMemorizationProgressFromSync',

@@ -1,3 +1,10 @@
+## 4.3.0-alpha.26+83 — P1.27 Build 83 Hotfix 8
+
+- Google OAuth web flow moved to PKCE with a dedicated `/auth/callback` route and production app-origin configuration.
+- Added Build83 notification type SQL migration plus a legacy CHECK compatibility bridge for `23514`.
+- Added SQLite v27 dirty-stage journaling so upload-only synchronization skips unchanged domains after the first baseline upload.
+- Added generation-safe dirty acknowledgements so concurrent local edits are not lost.
+
 ## [P1.27 Build 82 Hotfix 7] — 2026-08-17
 
 - إصلاح تعارض 23505 في مزامنة الحضور باستخدام business-key upsert.

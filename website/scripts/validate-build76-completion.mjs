@@ -12,11 +12,11 @@ const assert = (condition, message) => {
 };
 
 // Release identity / local migration.
-assert(read("pubspec.yaml").includes("version: 4.3.0-alpha.25+82"), "pubspec is not Build 76");
+assert(read("pubspec.yaml").includes("version: 4.3.0-alpha.26+83"), "pubspec is not Build 76");
 const buildInfo = read("lib/app/build_info.dart");
-assert(buildInfo.includes("versionName = '4.3.0-alpha.25'") && buildInfo.includes("buildNumber = 82"), "AppBuildInfo is not Build 76");
+assert(buildInfo.includes("versionName = '4.3.0-alpha.26'") && buildInfo.includes("buildNumber = 83"), "AppBuildInfo is not Build 76");
 const schema = read("lib/services/local_database_schema.dart");
-assert(schema.includes("static const int version = 26"), "SQLite v25 migration missing");
+assert(schema.includes("static const int version = 27"), "SQLite v25 migration missing");
 assert(schema.includes("CREATE TABLE IF NOT EXISTS sync_delete_outbox"), "local durable delete outbox missing");
 for (const table of [
   "family_guardians", "homework_grades", "memorization_progress", "behavior_points", "daily_achievements", "vacations", "fund_transactions",
@@ -68,7 +68,7 @@ const monthlyPersistence = read("lib/services/monthly_exam_persistence_service.d
 assert(monthlyScreen.includes("_persistence.save(") && monthlyPersistence.includes("database.transaction") && monthlyPersistence.includes("exam_template_questions"), "monthly exam bundle is not persisted atomically");
 assert(read("lib/models/exam.dart").includes("final String? templateId"), "local exam template reference missing");
 assert(schema.includes("template_id TEXT"), "SQLite exam template_id column missing");
-assert(sync.includes("_syncExamTemplates(centerId, halaqahId, direction)") && sync.includes("remoteQuestions") && sync.includes("saveExamTemplate(template, questions)"), "exam templates/questions are not bidirectional");
+assert(sync.includes("_syncExamTemplates(centerId, halaqahId, stageDirection)") && sync.includes("remoteQuestions") && sync.includes("saveExamTemplate(template, questions)"), "exam templates/questions are not bidirectional");
 
 // Contrast and incident diagnostics.
 const theme = read("lib/app/theme.dart");

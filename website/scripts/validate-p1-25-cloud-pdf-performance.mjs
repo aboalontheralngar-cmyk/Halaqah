@@ -20,17 +20,17 @@ const requireAll = (path, fragments) => {
 };
 
 requireAll("pubspec.yaml", [
-  "version: 4.3.0-alpha.25+82",
+  "version: 4.3.0-alpha.26+83",
   "assets/fonts/Tajawal-400.ttf",
   "assets/fonts/Tajawal-700.ttf",
 ]);
 requireAll("lib/app/build_info.dart", [
-  "versionName = '4.3.0-alpha.25'",
-  "buildNumber = 82",
+  "versionName = '4.3.0-alpha.26'",
+  "buildNumber = 83",
   "releaseLabel = 'P1.27'",
 ]);
 requireAll("lib/services/database_service.dart", [
-  "static const int version = 26",
+  "static const int version = 27",
   "_upgradeToVersion24",
   "CREATE TABLE IF NOT EXISTS rules_config_history",
   "idx_daily_records_date_attendance_student",

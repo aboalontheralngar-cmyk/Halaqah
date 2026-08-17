@@ -1,0 +1,36 @@
+Halaqah P1.27 Build 83 Hotfix 8 changed-file summary
+
+Runtime / Flutter
+- pubspec.yaml
+- lib/app/build_info.dart
+- lib/utils/constants.dart
+- lib/services/local_database_schema.dart
+- lib/services/database_service.dart
+- lib/services/supabase_service.dart
+- lib/services/sync/cloud_notification_type_policy.dart
+- test/cloud_notification_type_policy_test.dart
+
+Web OAuth
+- website/src/lib/supabase.ts
+- website/src/lib/appUrl.ts
+- website/src/app/login/page.tsx
+- website/src/app/auth/callback/page.tsx
+- website/.env.example
+- website/README.md
+
+Supabase SQL
+- P1.27_BUILD83_HOTFIX8_APPLY.sql
+- P1.27_BUILD83_HOTFIX8_VERIFY.sql
+- website/supabase/P1.27_BUILD83_HOTFIX8_APPLY.sql
+- website/supabase/P1.27_BUILD83_HOTFIX8_VERIFY.sql
+- website/supabase/migrations/20260817000100_build83_notification_types.sql
+
+Release / validation
+- README.md
+- CHANGELOG.md
+- docs/P1.27_BUILD83_HOTFIX8_AUTH_SYNC.md
+- P1.27_BUILD83_HOTFIX8_INSTALL_NOTE.md
+- website/scripts/validate-build83-hotfix8.mjs
+- website/scripts/run-all-validations.mjs
+- website/package.json
+- current release validators updated for Build 83 / SQLite v27 expectations

@@ -2959,6 +2959,58 @@ class DatabaseService {
     return maps.first['value'] as String?;
   }
 
+
+  /// Returns the current local generation for an upload domain, or null when
+  /// nothing in that domain changed since the last successful upload-only sync.
+  Future<int?> getSyncDirtyStageGeneration(String stageId) async {
+    final db = await database;
+    final rows = await db.query(
+      'sync_dirty_stages',
+      columns: const ['generation'],
+      where: 'stage_id = ?',
+      whereArgs: [stageId],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return (rows.first['generation'] as num?)?.toInt() ?? 0;
+  }
+
+  /// Clears a dirty marker only when no newer local write happened while the
+  /// cloud upload was running. This prevents a background sync from swallowing
+  /// an edit made concurrently by the teacher.
+  Future<void> acknowledgeSyncDirtyStage(
+    String stageId,
+    int generation,
+  ) async {
+    final db = await database;
+    await db.delete(
+      'sync_dirty_stages',
+      where: 'stage_id = ? AND generation = ?',
+      whereArgs: [stageId, generation],
+    );
+  }
+
+  Future<void> markSyncStageDirty(String stageId) async {
+    final db = await database;
+    await db.transaction((txn) async {
+      await txn.insert(
+        'sync_dirty_stages',
+        {
+          'stage_id': stageId,
+          'generation': 0,
+          'changed_at': DateTime.now().toIso8601String(),
+        },
+        conflictAlgorithm: ConflictAlgorithm.ignore,
+      );
+      await txn.rawUpdate(
+        'UPDATE sync_dirty_stages '
+        'SET generation = generation + 1, changed_at = ? '
+        'WHERE stage_id = ?',
+        [DateTime.now().toIso8601String(), stageId],
+      );
+    });
+  }
+
   Future<HalaqahSettings> getSettings() async {
     final db = await database;
     final maps = await db.query('settings');
@@ -4923,6 +4975,7 @@ class DatabaseService {
 
   Future<void> saveSuspendedDates(List<String> dates) async {
     await saveSetting('suspended_dates', dates.join(','));
+    await markSyncStageDirty('study_suspensions');
   }
 
   Future<void> replaceStudySuspensions(Map<String, String> reasonsByDate) async {
@@ -4932,6 +4985,7 @@ class DatabaseService {
         .map((date) => '$date=${reasonsByDate[date] ?? ''}')
         .join(';');
     await saveSetting('suspension_reasons', encoded);
+    await markSyncStageDirty('study_suspensions');
   }
 
   Future<bool> isDateSuspended(DateTime date) async {
@@ -4966,6 +5020,7 @@ class DatabaseService {
     }
     final encoded = map.entries.map((e) => '${e.key}=${e.value}').join(';');
     await saveSetting('suspension_reasons', encoded);
+    await markSyncStageDirty('study_suspensions');
   }
 
   /// Applies or removes an exceptional study suspension atomically.
@@ -5104,6 +5159,7 @@ class DatabaseService {
       await writeSetting('suspension_reasons', encodedReasons);
     });
 
+    await markSyncStageDirty('study_suspensions');
     return {
       'deleted_attendance': deletedAttendance,
       'deleted_points': deletedPoints,

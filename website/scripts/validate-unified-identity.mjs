@@ -13,7 +13,7 @@ const pubspec = read("pubspec.yaml");
 assertIncludes(
   pubspec,
   [
-    "version: 4.3.0-alpha.25+82",
+    "version: 4.3.0-alpha.26+83",
     "family: Tajawal",
     "assets/fonts/Tajawal-400.ttf",
     "assets/fonts/Tajawal-700.ttf",

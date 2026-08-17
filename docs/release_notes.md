@@ -1,3 +1,11 @@
+# Build 83 Hotfix 8 — OAuth production + lightweight upload sync
+
+- Web Google OAuth now uses PKCE and a dedicated `/auth/callback` exchange route instead of exposing session tokens in a URL fragment.
+- Production OAuth callback origin is derived from the active HTTPS site or `NEXT_PUBLIC_APP_URL`, preventing stale localhost redirects.
+- Cloud notification CHECK contract now includes the notification categories already emitted by Flutter.
+- Upload-only synchronization journals locally changed domains and skips untouched domains after the first Build 83 baseline upload.
+- Build 83 SQLite schema version is 27 and Android build number is 83.
+
 ## P1.27 Build 82 Hotfix 7 — البوابة ومصادقة Google ومزامنة الحضور (2026-08-17)
 
 - عولج `SYNC_ATTENDANCE_23505`: Flutter يرفع الحضور على مفتاح العمل `student_id,date` ولا يفرض UUID جديدًا على صف سحابي قديم.

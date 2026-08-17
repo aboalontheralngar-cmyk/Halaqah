@@ -71,7 +71,7 @@ requireAll(familyPage, [
 ], 'Web family access management');
 
 requireAll(read('lib/services/database_service.dart') + read('lib/services/local_database_schema.dart'), [
-  'static const int version = 26',
+  'static const int version = 27',
   '_upgradeToVersion18',
   'family_code TEXT',
 ], 'Android local family identity migration');

@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { useStore } from "@/store/useStore";
 import { supabase, supabaseConfiguration } from "@/lib/supabase";
+import { oauthCallbackUrl } from "@/lib/appUrl";
 
 function googleAuthErrorMessage(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error ?? '');
@@ -56,6 +57,18 @@ export default function AuthPage() {
       router.replace("/select-center");
     };
 
+    const params = new URL(window.location.href).searchParams;
+    const oauthError = params.get("oauth_error");
+    if (oauthError) {
+      setConfigurationError(
+        oauthError === "configuration"
+          ? "إعدادات المصادقة العامة غير مكتملة."
+          : oauthError === "missing_code"
+            ? "لم يصل رمز إكمال تسجيل Google. راجع Redirect URLs في Supabase."
+            : `تعذر إكمال تسجيل Google: ${oauthError}`,
+      );
+    }
+
     void supabase.auth.getSession().then(({ data }) => {
       if (data.session?.user) finishOAuthLogin(data.session.user);
     });
@@ -80,7 +93,7 @@ export default function AuthPage() {
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
-          redirectTo: `${window.location.origin}/login?oauth=google`,
+          redirectTo: oauthCallbackUrl(),
         },
       });
       if (error) throw error;
