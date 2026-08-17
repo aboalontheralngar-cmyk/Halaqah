@@ -72,6 +72,7 @@ const validators = [
   "validate-build78-hotfix3.mjs",
   "validate-build78-hotfix4.mjs",
   "validate-build80-hotfix5.mjs",
+  "validate-build81-hotfix6.mjs",
 ];
 
 for (const validator of validators) {

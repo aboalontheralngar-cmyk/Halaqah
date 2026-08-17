@@ -28,6 +28,7 @@ import {
   loginToStudentPortal,
   logoutFamilyPortal,
   logoutStudentPortal,
+  formatPortalAccessCodeInput,
 } from "@/lib/studentPortal";
 
 const SESSION_KEY = "halaqah_student_portal_session";
@@ -105,8 +106,10 @@ function errorMessage(error: unknown): string {
   if (code === "invalid_credentials") return "كود الدخول أو الرقم السري غير صحيح.";
   if (code === "rate_limited") return "تكررت المحاولات. انتظر 15 دقيقة ثم حاول مجددًا.";
   if (code === "invalid_session") return "انتهت الجلسة. سجل الدخول مرة أخرى.";
-  if (code === "portal_not_configured") return "البوابة لم تُفعّل على الخادم بعد.";
-  return "تعذر الاتصال بالبوابة الآن. حاول لاحقًا.";
+  if (code === "portal_not_configured") return "خدمة البوابة منشورة لكن إعدادات الخادم السرية غير مكتملة.";
+  if (code === "portal_not_deployed") return "خدمة student-portal غير منشورة على Supabase بعد.";
+  if (code === "portal_contract_missing") return "عقد قاعدة البيانات الخاص بالبوابة غير مكتمل. شغّل فحص جاهزية البوابة.";
+  return "تعذر الاتصال بالبوابة الآن. حاول لاحقًا، وإذا استمر الخطأ راجع فحص جاهزية البوابة.";
 }
 
 export default function StudentPortalPage() {
@@ -308,7 +311,7 @@ export default function StudentPortalPage() {
               </label>
               <input
                 value={accessCode}
-                onChange={(event) => setAccessCode(event.target.value.toUpperCase())}
+                onChange={(event) => setAccessCode(formatPortalAccessCodeInput(event.target.value, loginMode))}
                 placeholder={loginMode === "family" ? "FAM-XXXXX-XXXXX-XXXXX-XXXXX" : "HAL-XXXXX-XXXXX-XXXXX-XXXXX"}
                 autoComplete="username"
                 required

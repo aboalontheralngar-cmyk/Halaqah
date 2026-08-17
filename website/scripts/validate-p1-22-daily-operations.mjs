@@ -24,10 +24,10 @@ const requireFile = (path) => {
   }
 };
 
-requireAll("pubspec.yaml", ["version: 4.3.0-alpha.24+80"]);
+requireAll("pubspec.yaml", ["version: 4.3.0-alpha.25+82"]);
 requireAll("lib/app/build_info.dart", [
-  "versionName = '4.3.0-alpha.24'",
-  "buildNumber = 80",
+  "versionName = '4.3.0-alpha.25'",
+  "buildNumber = 82",
   "releaseLabel = 'P1.27'",
 ]);
 requireAll("lib/services/database_service.dart", [

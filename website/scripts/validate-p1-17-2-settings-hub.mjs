@@ -27,7 +27,7 @@ for (const [source, text, label] of [
   [settings, "التشخيص الفني وتقرير الدعم", "diagnostics task"],
   [settings, "سجل التدقيق الإداري", "audit task"],
   [buildInfo, "releaseLabel = 'P1.27'", "current release label"],
-  [pubspec, "version: 4.3.0-alpha.24+80", "current package version"],
+  [pubspec, "version: 4.3.0-alpha.25+82", "current package version"],
 ]) {
   requireText(source, text, label);
 }

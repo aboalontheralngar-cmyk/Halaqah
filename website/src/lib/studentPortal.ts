@@ -1,6 +1,21 @@
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
+export type PortalAccessKind = 'student' | 'family';
+
+export function formatPortalAccessCodeInput(
+  value: string,
+  kind: PortalAccessKind,
+): string {
+  const prefix = kind === 'family' ? 'FAM' : 'HAL';
+  let compact = value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (compact.startsWith(prefix)) compact = compact.slice(prefix.length);
+  const body = compact.slice(0, 20);
+  if (!body) return '';
+  const groups = body.match(/.{1,5}/g) ?? [];
+  return `${prefix}-${groups.join('-')}`;
+}
+
 export interface PortalMemorizationEntry {
   date: string;
   surah: string;
@@ -130,6 +145,9 @@ async function portalRequest<T>(payload: Record<string, unknown>): Promise<T> {
   });
   const result = await response.json().catch(() => ({ ok: false, error: 'portal_unavailable' }));
   if (!response.ok || !result.ok) {
+    if (response.status === 404) {
+      throw new StudentPortalError('portal_not_deployed');
+    }
     throw new StudentPortalError(result.error || 'portal_unavailable');
   }
   return result as T;

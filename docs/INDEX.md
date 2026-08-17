@@ -10,14 +10,17 @@
 - [Build 78 Hotfix 3](P1.27_BUILD78_HOTFIX3.md) — إصلاح مخطط المزامنة، تشخيص مرحلي، وتقليل استهلاك المزامنة التلقائية.
 - [Build 78 Hotfix 4](P1.27_BUILD78_HOTFIX4.md) — إصلاح اعتماد الاختبارات على القوالب ومنع فشل المزامنة التلقائية عند غياب عبارة حماية النسخ.
 - [Build 80 Hotfix 5](P1.27_BUILD80_HOTFIX5_RECOVERY.md) — استعادة ما بعد حذف التطبيق، حماية versionCode، وتحصين مزامنة الحفظ.
-- تقرير التحقق: `BUILD80_HOTFIX5_VALIDATION_REPORT.md` في جذر المشروع.
+- [Build 81 Hotfix 6](P1.27_BUILD81_HOTFIX6_DELETE_SYNC.md) — تسريع outbox الحذف ومنع تضخم حذف الطالب.
+- [Build 82 Hotfix 7](P1.27_BUILD82_HOTFIX7_PORTAL_AUTH_SYNC.md) — إصلاح الحضور 23505، تفعيل/تشخيص البوابة، Google OAuth، ورسائل الإشراف.
+- تقرير التحقق الحالي: `BUILD82_HOTFIX7_VALIDATION_REPORT.md` في جذر المشروع.
+- تقرير الاستعادة السابق: `BUILD80_HOTFIX5_VALIDATION_REPORT.md` في جذر المشروع.
 - [تدقيق الميزات](P1.27_FEATURE_AUDIT.md) — ما هو منفذ وما يحتاج قبولًا حيًا.
 - [خطة المتبقي](P1.27_REMAINING_PLAN.md) — بوابات القبول قبل RC.
 
 ## التثبيت وقاعدة البيانات
 
-- ملاحظة التثبيت الحالية: `P1.27_BUILD80_HOTFIX5_INSTALL_NOTE.md` في جذر المشروع.
-- Hotfix 5 لا يحتاج SQL جديدًا؛ أبقِ نتيجة Hotfix 3 VERIFY الناجحة كما هي.
+- ملاحظة التثبيت الحالية: `P1.27_BUILD82_HOTFIX7_INSTALL_NOTE.md` في جذر المشروع.
+- ابدأ بـ`P1.27_BUILD82_HOTFIX7_VERIFY.sql`. إصلاح البوابة SQL مستهدف ولا يُستخدم إلا إذا أثبت VERIFY نقص عقد البوابة؛ لا تعاود P7.3 القديمة.
 - SQL إصلاح المزامنة الأساسي: `website/supabase/P1.27_BUILD78_HOTFIX3_APPLY.sql`.
 - فحص SQL القرائي: `website/supabase/P1.27_BUILD78_HOTFIX3_VERIFY.sql`.
 - [دليل تشغيل SQL](how_to_run_supabase_sql_ar.md).

@@ -72,8 +72,14 @@ class DatabaseService {
       LocalSyncDeleteOutbox.pending(await database, limit: limit);
   Future<bool> isSyncDeleteStillPending(LocalSyncDeleteOperation operation) async =>
       LocalSyncDeleteOutbox.isStillDeleted(await database, operation);
+  Future<int> pruneRestoredSyncDeletes(
+    Iterable<LocalSyncDeleteOperation> operations,
+  ) async =>
+      LocalSyncDeleteOutbox.pruneRowsThatStillExist(await database, operations);
   Future<void> acknowledgeSyncDelete(int operationId) async =>
       LocalSyncDeleteOutbox.acknowledge(await database, operationId);
+  Future<void> acknowledgeSyncDeletes(Iterable<int> operationIds) async =>
+      LocalSyncDeleteOutbox.acknowledgeMany(await database, operationIds);
   Future<int> getPendingSyncDeleteCount() async =>
       LocalSyncDeleteOutbox.count(await database);
 
@@ -676,7 +682,52 @@ class DatabaseService {
 
   Future<void> deleteStudent(String id) async {
     final db = await database;
-    await db.delete('students', where: 'id = ?', whereArgs: [id]);
+    await db.transaction((txn) async {
+      final replaySetting = await txn.query(
+        'settings',
+        columns: const ['value'],
+        where: 'key = ?',
+        whereArgs: const ['sync_remote_delete_replay'],
+        limit: 1,
+      );
+      final previousReplayValue = replaySetting.isEmpty
+          ? '0'
+          : replaySetting.first['value']?.toString() ?? '0';
+
+      // Deleting one student cascades through many local child tables. Letting
+      // every child trigger create its own outbox entry can turn one user
+      // action into hundreds or thousands of HTTP deletes. The cloud already
+      // has delete_student_for_sync(), which removes the full dependency graph
+      // atomically, so suppress cascade outbox rows and enqueue only the parent.
+      await txn.insert(
+        'settings',
+        {'key': 'sync_remote_delete_replay', 'value': '1'},
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+      final deleted = await txn.delete(
+        'students',
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+      if (deleted > 0) {
+        await txn.insert(
+          'sync_delete_outbox',
+          {
+            'local_table': 'students',
+            'local_id': id,
+            'remote_table': 'students',
+            'remote_id': id,
+            'priority': 100,
+          },
+          conflictAlgorithm: ConflictAlgorithm.ignore,
+        );
+      }
+      await txn.insert(
+        'settings',
+        {'key': 'sync_remote_delete_replay', 'value': previousReplayValue},
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    });
   }
 
   Future<DailyRecord?> getDailyRecord(String studentId, DateTime date) async {

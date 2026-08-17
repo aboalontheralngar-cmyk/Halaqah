@@ -77,6 +77,38 @@ class LocalSyncDeleteOutbox {
     return rows.isEmpty;
   }
 
+  /// Removes false delete markers produced by SQLite INSERT OR REPLACE in bulk.
+  ///
+  /// Build 80 checked every outbox row with a separate SQLite query. On an
+  /// installation with thousands of historical updates this made the delete
+  /// stage look stuck even though most rows represented records that still
+  /// existed locally. One statement per local table is enough to discard those
+  /// markers safely before any network request is made.
+  static Future<int> pruneRowsThatStillExist(
+    Database database,
+    Iterable<LocalSyncDeleteOperation> operations,
+  ) async {
+    final tables = operations.map((operation) => operation.localTable).toSet();
+    var removed = 0;
+    await database.transaction((txn) async {
+      for (final table in tables) {
+        if (!_safeSqlIdentifier.hasMatch(table)) continue;
+        final tableExists = await txn.rawQuery(
+          "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1",
+          [table],
+        );
+        if (tableExists.isEmpty) continue;
+        removed += await txn.rawDelete(
+          'DELETE FROM sync_delete_outbox '
+          'WHERE local_table = ? '
+          'AND local_id IN (SELECT CAST(id AS TEXT) FROM "$table")',
+          [table],
+        );
+      }
+    });
+    return removed;
+  }
+
   static Future<void> acknowledge(Database database, int id) async {
     await database.delete(
       'sync_delete_outbox',
@@ -85,10 +117,35 @@ class LocalSyncDeleteOutbox {
     );
   }
 
+  static Future<void> acknowledgeMany(
+    Database database,
+    Iterable<int> operationIds,
+  ) async {
+    final ids = operationIds.toSet().toList(growable: false);
+    if (ids.isEmpty) return;
+    const chunkSize = 500;
+    await database.transaction((txn) async {
+      for (var start = 0; start < ids.length; start += chunkSize) {
+        final end = start + chunkSize < ids.length
+            ? start + chunkSize
+            : ids.length;
+        final chunk = ids.sublist(start, end);
+        final placeholders = List.filled(chunk.length, '?').join(',');
+        await txn.delete(
+          'sync_delete_outbox',
+          where: 'id IN ($placeholders)',
+          whereArgs: chunk,
+        );
+      }
+    });
+  }
+
   static Future<int> count(Database database) async {
     final rows = await database.rawQuery(
       'SELECT COUNT(*) AS count FROM sync_delete_outbox',
     );
     return (rows.first['count'] as num?)?.toInt() ?? 0;
   }
+
+  static final RegExp _safeSqlIdentifier = RegExp(r'^[A-Za-z0-9_]+$');
 }

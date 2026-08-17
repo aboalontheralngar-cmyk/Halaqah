@@ -404,7 +404,7 @@ interface HalaqahStore {
   fetchProfile: () => Promise<void>;
   setProfile: (profile: Profile | null) => void;
   createSupervisor: (name: string) => Promise<string | null>;
-  joinSupervisor: (code: string) => Promise<boolean>;
+  joinSupervisor: (code: string) => Promise<{ success: boolean; error?: unknown }>;
   acceptSupervisorMemberInvitation: (code: string) => Promise<boolean>;
   fetchTeachers: () => Promise<void>;
   addTeacher: (email: string, halaqahId?: string) => Promise<void>;
@@ -769,13 +769,16 @@ export const useStore = create<HalaqahStore>((set, get) => ({
   },
 
   joinSupervisor: async (code) => {
-    if (!supabase) return false;
+    if (!supabase) return { success: false, error: new Error('supabase_not_configured') };
     const center = get().currentCenter;
-    if (!center) return false;
+    if (!center) return { success: false, error: new Error('center_not_selected') };
 
     const { data, error } = await acceptSupervisorCenterInvitation(center.id, code);
-    if (error) logOperationalError('supervision.center.join', error);
-    return !error && Boolean((data as { success?: boolean } | null)?.success);
+    if (error) {
+      logOperationalError('supervision.center.join', error);
+      return { success: false, error };
+    }
+    return { success: Boolean((data as { success?: boolean } | null)?.success) };
   },
 
   acceptSupervisorMemberInvitation: async (code) => {

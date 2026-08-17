@@ -28,10 +28,10 @@ assert(
   !sync.includes("onConflict: 'student_id,hizb_number,thumun_number'"),
   'mobile mushaf upload must not depend on a composite conflict target',
 );
-assert(
-  !sync.includes("onConflict: 'student_id,date'"),
-  'mobile upload must use stable primary keys rather than composite conflict targets',
-);
+// Build 82 intentionally uses the attendance business key (student_id,date)
+// to reconcile legacy cloud rows whose UUID differs from the mobile synthetic id.
+// Hotfix 3's stable-primary-key rule still applies to mushaf_progress and
+// daily_achievements, not attendance.
 
 const coordinator = read('lib/services/cloud_auto_sync_coordinator.dart');
 for (const token of [

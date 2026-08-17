@@ -15,14 +15,14 @@ const requireAll = (path, fragments) => {
 };
 
 requireAll("pubspec.yaml", [
-  "version: 4.3.0-alpha.24+80",
+  "version: 4.3.0-alpha.25+82",
   "family: Tajawal",
   "assets/fonts/Tajawal-400.ttf",
   "assets/fonts/Tajawal-700.ttf",
 ]);
 requireAll("lib/app/build_info.dart", [
-  "4.3.0-alpha.24",
-  "buildNumber = 80",
+  "4.3.0-alpha.25",
+  "buildNumber = 82",
   "releaseLabel = 'P1.27'",
 ]);
 

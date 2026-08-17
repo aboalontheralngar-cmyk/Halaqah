@@ -14,7 +14,7 @@ const pubspec = read("pubspec.yaml");
 assertIncludes(
   pubspec,
   [
-    "version: 4.3.0-alpha.24+80",
+    "version: 4.3.0-alpha.25+82",
     "cryptography: 2.9.0",
     "cryptography_flutter: 2.3.4",
     "flutter_secure_storage: 10.3.1",

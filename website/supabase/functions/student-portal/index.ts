@@ -132,7 +132,12 @@ Deno.serve(async (request) => {
       });
 
     if (error) {
-      return jsonResponse({ ok: false, error: 'portal_unavailable' }, 503, cors);
+      const missingContract = ['PGRST202', 'PGRST205', '42883', '42P01'].includes(error.code || '');
+      return jsonResponse(
+        { ok: false, error: missingContract ? 'portal_contract_missing' : 'portal_unavailable' },
+        503,
+        cors,
+      );
     }
     if (!data?.ok) {
       const rateLimited = data?.error === 'rate_limited';

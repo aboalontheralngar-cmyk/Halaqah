@@ -22,13 +22,13 @@ const stripSqlComments = (sql) => sql
   .replace(/--.*$/gm, "");
 
 requireAll("lib/app/build_info.dart", [
-  "versionName = '4.3.0-alpha.24'",
-  "buildNumber = 80",
+  "versionName = '4.3.0-alpha.25'",
+  "buildNumber = 82",
   "releaseLabel = 'P1.27'",
 ]);
-requireAll("lib/utils/constants.dart", ["appVersion = '4.3.0-alpha.24'"]);
+requireAll("lib/utils/constants.dart", ["appVersion = '4.3.0-alpha.25'"]);
 requireAll("pubspec.yaml", [
-  "version: 4.3.0-alpha.24+80",
+  "version: 4.3.0-alpha.25+82",
   "family: Tajawal",
   "assets/fonts/Tajawal-400.ttf",
   "assets/fonts/Tajawal-700.ttf",

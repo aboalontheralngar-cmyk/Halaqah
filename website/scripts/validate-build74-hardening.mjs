@@ -27,13 +27,13 @@ function assert(condition, message) {
 }
 
 const pubspec = read("pubspec.yaml");
-assert(pubspec.includes("version: 4.3.0-alpha.24+80"), "Flutter version must be Build 74");
+assert(pubspec.includes("version: 4.3.0-alpha.25+82"), "Flutter version must be Build 74");
 assert(!/^\s*[A-Za-z0-9_]+:\s*\^/m.test(pubspec), "direct Flutter dependencies must not use caret ranges");
 
 const buildInfo = read("lib/app/build_info.dart");
 const constants = read("lib/utils/constants.dart");
-assert(buildInfo.includes("versionName = '4.3.0-alpha.24'") && buildInfo.includes("buildNumber = 80"), "AppBuildInfo must match Build 74");
-assert(constants.includes("appVersion = '4.3.0-alpha.24'"), "appVersion must match Build 74");
+assert(buildInfo.includes("versionName = '4.3.0-alpha.25'") && buildInfo.includes("buildNumber = 82"), "AppBuildInfo must match Build 74");
+assert(constants.includes("appVersion = '4.3.0-alpha.25'"), "appVersion must match Build 74");
 const analyzerOptions = read("analysis_options.yaml");
 assert(analyzerOptions.includes("avoid_print: error"), "Flutter analyzer must reject raw print logging");
 assert(!analyzerOptions.includes("avoid_relative_lib_imports"), "hotfix lint baseline must not invalidate existing relative imports");

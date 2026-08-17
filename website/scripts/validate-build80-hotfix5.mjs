@@ -12,8 +12,10 @@ const assert = (condition, message) => {
 
 const pubspec = read('pubspec.yaml');
 const buildInfo = read('lib/app/build_info.dart');
-assert(pubspec.includes('version: 4.3.0-alpha.24+80'), 'pubspec must use versionCode 80');
-assert(buildInfo.includes('buildNumber = 80'), 'AppBuildInfo must use build 80');
+const pubspecBuild = Number(pubspec.match(/version:\s+[^+\s]+\+(\d+)/)?.[1] ?? 0);
+const appBuild = Number(buildInfo.match(/buildNumber\s*=\s*(\d+)/)?.[1] ?? 0);
+assert(pubspecBuild >= 80, 'pubspec must be Build 80 or newer');
+assert(appBuild >= 80, 'AppBuildInfo must be Build 80 or newer');
 
 const prerequisites = read('tools/verify_source_prerequisites.ps1');
 for (const token of [

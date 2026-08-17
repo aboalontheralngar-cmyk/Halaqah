@@ -68,7 +68,7 @@ for (const [source, text, label] of [
   [dashboardLayout, "type NavigationItem", "explicit navigation typing"],
   [dashboardLayout, "children: ReactNode", "React namespace-independent child typing"],
   [buildInfo, "releaseLabel = 'P1.27'", "central current release label"],
-  [pubspec, "version: 4.3.0-alpha.24+80", "current package version"],
+  [pubspec, "version: 4.3.0-alpha.25+82", "current package version"],
 ]) {
   requireText(source, text, label);
 }

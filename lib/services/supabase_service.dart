@@ -953,31 +953,341 @@ class SupabaseService {
   }
 
   Future<void> _syncDeleteOutbox() async {
-    const pageSize = 250;
-    while (true) {
-      final pending = await _db.getPendingSyncDeletes(limit: pageSize);
-      if (pending.isEmpty) return;
-      var acknowledged = 0;
-      for (final operation in pending) {
-        // A SQLite REPLACE fires DELETE internally. If the row exists again,
-        // there is no user deletion to propagate.
-        if (!await _db.isSyncDeleteStillPending(operation)) {
-          await _db.acknowledgeSyncDelete(operation.id);
-          acknowledged++;
-          continue;
+    const pageSize = 500;
+    const maxPagesPerRun = 50;
+    final initialTotal = await _db.getPendingSyncDeleteCount();
+    if (initialTotal == 0) return;
+
+    var completed = 0;
+    _updateDeleteOutboxProgress(completed, initialTotal);
+
+    for (var page = 0; page < maxPagesPerRun; page++) {
+      var pending = await _db.getPendingSyncDeletes(limit: pageSize);
+      if (pending.isEmpty) break;
+
+      // SQLite INSERT OR REPLACE emits an internal DELETE. Most of those rows
+      // still exist locally and therefore must never be sent to Supabase. Prune
+      // them with one SQL statement per table instead of one query per outbox
+      // row, which is important after a restore or a large editing session.
+      final pruned = await _db.pruneRestoredSyncDeletes(pending);
+      if (pruned > 0) {
+        completed += pruned;
+        _updateDeleteOutboxProgress(completed, initialTotal);
+        pending = await _db.getPendingSyncDeletes(limit: pageSize);
+        if (pending.isEmpty) break;
+      }
+
+      var acknowledgedThisPage = 0;
+      final sortedPriorities = pending
+          .map((operation) => operation.priority)
+          .toSet()
+          .toList()
+        ..sort();
+
+      for (final priority in sortedPriorities) {
+        final priorityOperations = pending
+            .where((operation) => operation.priority == priority)
+            .toList(growable: false);
+
+        final directByTable = <String, List<LocalSyncDeleteOperation>>{};
+        final filtered = <LocalSyncDeleteOperation>[];
+        for (final operation in priorityOperations) {
+          final remoteId = operation.remoteId?.trim() ?? '';
+          if (remoteId.isNotEmpty && operation.remoteFilters.isEmpty) {
+            directByTable
+                .putIfAbsent(operation.remoteTable, () => <LocalSyncDeleteOperation>[])
+                .add(operation);
+          } else {
+            filtered.add(operation);
+          }
         }
-        try {
-          await _deleteRemoteOutboxOperation(operation);
-          await _db.acknowledgeSyncDelete(operation.id);
-          acknowledged++;
-        } catch (error) {
-          AppLogger.error(
-            error,
-            source: 'supabase.sync.delete_outbox.${operation.remoteTable}',
+
+        for (final entry in directByTable.entries) {
+          final acknowledged = await _deleteRemoteIdOperations(
+            entry.key,
+            entry.value,
           );
+          if (acknowledged.isEmpty) continue;
+          await _db.acknowledgeSyncDeletes(acknowledged);
+          acknowledgedThisPage += acknowledged.length;
+          completed += acknowledged.length;
+          _updateDeleteOutboxProgress(completed, initialTotal);
+        }
+
+        final filteredByTable = <String, List<LocalSyncDeleteOperation>>{};
+        for (final operation in filtered) {
+          filteredByTable
+              .putIfAbsent(
+                operation.remoteTable,
+                () => <LocalSyncDeleteOperation>[],
+              )
+              .add(operation);
+        }
+        for (final entry in filteredByTable.entries) {
+          final acknowledged = await _deleteRemoteFilterOperations(
+            entry.key,
+            entry.value,
+          );
+          if (acknowledged.isEmpty) continue;
+          await _db.acknowledgeSyncDeletes(acknowledged);
+          acknowledgedThisPage += acknowledged.length;
+          completed += acknowledged.length;
+          _updateDeleteOutboxProgress(completed, initialTotal);
         }
       }
-      if (pending.length < pageSize || acknowledged == 0) return;
+
+      if (pending.length < pageSize || acknowledgedThisPage == 0) break;
+    }
+
+    final remaining = await _db.getPendingSyncDeleteCount();
+    if (remaining > 0) {
+      AppLogger.warning(
+        'delete_outbox_pending:$remaining',
+        source: 'supabase.sync.delete_outbox',
+      );
+      _updateDeleteOutboxProgress(
+        (initialTotal - remaining).clamp(0, initialTotal).toInt(),
+        initialTotal,
+      );
+    }
+  }
+
+  Future<List<int>> _deleteRemoteFilterOperations(
+    String remoteTable,
+    List<LocalSyncDeleteOperation> operations,
+  ) async {
+    if (operations.isEmpty) return const <int>[];
+
+    final batchable = <LocalSyncDeleteOperation>[];
+    final fallback = <LocalSyncDeleteOperation>[];
+    for (final operation in operations) {
+      if (_remoteCompositeDeleteClause(operation) == null) {
+        fallback.add(operation);
+      } else {
+        batchable.add(operation);
+      }
+    }
+
+    final acknowledged = <int>[];
+    for (final chunk in _chunks(batchable, 20)) {
+      acknowledged.addAll(
+        await _deleteRemoteFilterChunkWithIsolation(remoteTable, chunk),
+      );
+    }
+
+    // Unknown composite selectors stay on the safe generic path. Keep this
+    // bounded because these should be exceptional rather than the common path.
+    for (final chunk in _chunks(fallback, 6)) {
+      final results = await Future.wait<int?>(
+        chunk.map((operation) async {
+          try {
+            await _deleteRemoteOutboxOperation(operation);
+            return operation.id;
+          } catch (error) {
+            AppLogger.error(
+              error,
+              source: 'supabase.sync.delete_outbox.${operation.remoteTable}',
+            );
+            return null;
+          }
+        }),
+      );
+      acknowledged.addAll(results.whereType<int>());
+    }
+    return acknowledged;
+  }
+
+  Future<List<int>> _deleteRemoteFilterChunkWithIsolation(
+    String remoteTable,
+    List<LocalSyncDeleteOperation> operations,
+  ) async {
+    if (operations.isEmpty) return const <int>[];
+    try {
+      final clauses = operations
+          .map(_remoteCompositeDeleteClause)
+          .whereType<String>()
+          .toList(growable: false);
+      if (clauses.length != operations.length) {
+        throw const FormatException('Unsupported composite delete selector');
+      }
+      await client.from(remoteTable).delete().or(clauses.join(','));
+      return operations.map((operation) => operation.id).toList(growable: false);
+    } catch (error) {
+      if (operations.length == 1 || !_shouldIsolateDeleteBatchError(error)) {
+        AppLogger.error(
+          error,
+          source: 'supabase.sync.delete_outbox.$remoteTable',
+        );
+        return const <int>[];
+      }
+      final middle = operations.length ~/ 2;
+      final left = await _deleteRemoteFilterChunkWithIsolation(
+        remoteTable,
+        operations.sublist(0, middle),
+      );
+      final right = await _deleteRemoteFilterChunkWithIsolation(
+        remoteTable,
+        operations.sublist(middle),
+      );
+      return <int>[...left, ...right];
+    }
+  }
+
+  bool _shouldIsolateDeleteBatchError(Object error) {
+    if (error is! PostgrestException) return false;
+    return error.code == '23503' ||
+        error.code == '23514' ||
+        error.code == '22P02';
+  }
+
+  String? _remoteCompositeDeleteClause(LocalSyncDeleteOperation operation) {
+    final filters = operation.remoteFilters;
+    if (operation.remoteTable == 'attendance') {
+      final studentId = filters['student_id'] ?? '';
+      final date = filters['date'] ?? '';
+      if (!_uuidPattern.hasMatch(studentId) || !_datePattern.hasMatch(date)) {
+        return null;
+      }
+      return 'and(student_id.eq.$studentId,date.eq.$date)';
+    }
+    if (operation.remoteTable == 'mushaf_progress') {
+      final studentId = filters['student_id'] ?? '';
+      final hizb = filters['hizb_number'] ?? '';
+      final thumun = filters['thumun_number'] ?? '';
+      if (!_uuidPattern.hasMatch(studentId) ||
+          !_positiveIntegerPattern.hasMatch(hizb) ||
+          !_positiveIntegerPattern.hasMatch(thumun)) {
+        return null;
+      }
+      return 'and(student_id.eq.$studentId,hizb_number.eq.$hizb,'
+          'thumun_number.eq.$thumun)';
+    }
+    return null;
+  }
+
+  static final RegExp _uuidPattern = RegExp(
+    r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-'
+    r'[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$',
+  );
+  static final RegExp _datePattern = RegExp(r'^\d{4}-\d{2}-\d{2}$');
+  static final RegExp _positiveIntegerPattern = RegExp(r'^\d+$');
+
+  Future<List<int>> _deleteRemoteIdOperations(
+    String remoteTable,
+    List<LocalSyncDeleteOperation> operations,
+  ) async {
+    if (operations.isEmpty) return const <int>[];
+
+    if (remoteTable == 'students') {
+      final acknowledged = <int>[];
+      for (final chunk in _chunks(operations, 2)) {
+        final results = await Future.wait<int?>(
+          chunk.map((operation) async {
+            try {
+              await _deleteRemoteOutboxOperation(operation);
+              return operation.id;
+            } catch (error) {
+              AppLogger.error(
+                error,
+                source: 'supabase.sync.delete_outbox.students',
+              );
+              return null;
+            }
+          }),
+        );
+        acknowledged.addAll(results.whereType<int>());
+      }
+      return acknowledged;
+    }
+
+    final acknowledged = <int>[];
+    for (final chunk in _chunks(operations, 80)) {
+      acknowledged.addAll(
+        await _deleteRemoteIdChunkWithIsolation(remoteTable, chunk),
+      );
+    }
+    return acknowledged;
+  }
+
+  Future<List<int>> _deleteRemoteIdChunkWithIsolation(
+    String remoteTable,
+    List<LocalSyncDeleteOperation> operations,
+  ) async {
+    if (operations.isEmpty) return const <int>[];
+    try {
+      await _deleteRemoteIdChunk(remoteTable, operations);
+      return operations.map((operation) => operation.id).toList(growable: false);
+    } catch (error) {
+      if (operations.length == 1 || !_shouldIsolateDeleteBatchError(error)) {
+        AppLogger.error(
+          error,
+          source: 'supabase.sync.delete_outbox.$remoteTable',
+        );
+        return const <int>[];
+      }
+
+      // A single stale FK must not force all rows in a
+      // batch back to one-by-one requests. Split only the failing batch until
+      // the problematic row is isolated.
+      final middle = operations.length ~/ 2;
+      final left = await _deleteRemoteIdChunkWithIsolation(
+        remoteTable,
+        operations.sublist(0, middle),
+      );
+      final right = await _deleteRemoteIdChunkWithIsolation(
+        remoteTable,
+        operations.sublist(middle),
+      );
+      return <int>[...left, ...right];
+    }
+  }
+
+  Future<void> _deleteRemoteIdChunk(
+    String remoteTable,
+    List<LocalSyncDeleteOperation> operations,
+  ) async {
+    final remoteIds = operations
+        .map((operation) => operation.remoteId?.trim() ?? '')
+        .where((id) => id.isNotEmpty)
+        .toSet()
+        .toList(growable: false);
+    if (remoteIds.isEmpty) return;
+
+    if (remoteTable == 'exams') {
+      await client.from('exam_scores').delete().inFilter('exam_id', remoteIds);
+    } else if (remoteTable == 'exam_templates') {
+      await client
+          .from('exam_questions')
+          .delete()
+          .inFilter('template_id', remoteIds);
+    } else if (remoteTable == 'quran_courses') {
+      await client
+          .from('quran_course_enrollments')
+          .delete()
+          .inFilter('course_id', remoteIds);
+    }
+
+    await client.from(remoteTable).delete().inFilter('id', remoteIds);
+  }
+
+  void _updateDeleteOutboxProgress(int completed, int total) {
+    final progress = syncProgress.value;
+    if (progress == null || progress.stageId != 'delete_outbox') return;
+    final safeCompleted = completed.clamp(0, total);
+    syncProgress.value = CloudSyncProgress(
+      state: CloudSyncProgressState.running,
+      stageId: progress.stageId,
+      stageLabel: 'رفع عمليات الحذف المحلية ($safeCompleted/$total)',
+      currentStage: progress.currentStage,
+      totalStages: progress.totalStages,
+    );
+  }
+
+  Iterable<List<T>> _chunks<T>(List<T> values, int size) sync* {
+    if (size <= 0) throw ArgumentError.value(size, 'size');
+    for (var start = 0; start < values.length; start += size) {
+      final end = start + size < values.length ? start + size : values.length;
+      yield values.sublist(start, end);
     }
   }
 
@@ -1627,7 +1937,17 @@ class SupabaseService {
     List<Map<String, dynamic>> chunk,
   ) async {
     Future<void> upsertRows(List<Map<String, dynamic>> rows) async {
-      await client.from('attendance').upsert(rows);
+      // Attendance identity is the student/day business key. Older web/cloud
+      // writes may have created the same day with a random UUID, so targeting
+      // only the synthetic id can raise 23505 on uq_attendance_student_date.
+      // Do not send id here: inserts can use the server UUID default, while
+      // updates preserve the existing row id and converge on student/date.
+      final businessRows = rows
+          .map((row) => Map<String, dynamic>.from(row)..remove('id'))
+          .toList(growable: false);
+      await client
+          .from('attendance')
+          .upsert(businessRows, onConflict: 'student_id,date');
     }
 
     try {
@@ -2198,14 +2518,16 @@ class SupabaseService {
     }
     if (decoded is! List) return;
     final remaining = decoded.map((id) => id.toString()).toList();
-    for (final id in List<String>.from(remaining)) {
+    final acknowledged = <String>{};
+    for (final chunk in _chunks(remaining, 80)) {
       try {
-        await client.from(table).delete().eq('id', id);
-        remaining.remove(id);
+        await client.from(table).delete().inFilter('id', chunk);
+        acknowledged.addAll(chunk);
       } catch (error) {
-        AppLogger.error(error, source: 'supabase.sync.delete');
+        AppLogger.error(error, source: 'supabase.sync.delete.$table');
       }
     }
+    remaining.removeWhere(acknowledged.contains);
     await _db.saveSetting(settingKey, jsonEncode(remaining));
   }
 
@@ -2700,15 +3022,17 @@ class SupabaseService {
     }
     if (decoded is! List) return;
     final remaining = decoded.map((id) => id.toString()).toList();
-    for (final id in List<String>.from(remaining)) {
+    final acknowledged = <String>{};
+    for (final chunk in _chunks(remaining, 80)) {
       try {
-        await client.from('exam_scores').delete().eq('id', id);
-        await client.from('exams').delete().eq('id', id);
-        remaining.remove(id);
+        await client.from('exam_scores').delete().inFilter('exam_id', chunk);
+        await client.from('exams').delete().inFilter('id', chunk);
+        acknowledged.addAll(chunk);
       } catch (error) {
         AppLogger.error(error, source: 'supabase.sync.exams.delete');
       }
     }
+    remaining.removeWhere(acknowledged.contains);
     await _db.saveSetting('deleted_exam_ids', jsonEncode(remaining));
   }
 
@@ -2995,14 +3319,23 @@ class SupabaseService {
     }
     if (decoded is! List) return;
     final remaining = decoded.map((id) => id.toString()).toList();
-    for (final templateId in List<String>.from(remaining)) {
+    final acknowledged = <String>{};
+    for (final chunk in _chunks(remaining, 80)) {
       try {
-        await client.from('exam_templates').delete().eq('id', templateId);
-        remaining.remove(templateId);
-      } catch (e) {
-        AppLogger.error(e, source: 'supabase.sync.exam_templates.delete');
+        await client
+            .from('exam_questions')
+            .delete()
+            .inFilter('template_id', chunk);
+        await client.from('exam_templates').delete().inFilter('id', chunk);
+        acknowledged.addAll(chunk);
+      } catch (error) {
+        AppLogger.error(
+          error,
+          source: 'supabase.sync.exam_templates.delete',
+        );
       }
     }
+    remaining.removeWhere(acknowledged.contains);
     await _db.saveSetting(
       'deleted_exam_template_ids',
       jsonEncode(remaining),

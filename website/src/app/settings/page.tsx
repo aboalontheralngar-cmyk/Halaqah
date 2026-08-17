@@ -20,6 +20,7 @@ import {
   FileText
 } from "lucide-react";
 import { useStore } from "@/store/useStore";
+import { fetchSupervisionHealth, supervisionErrorMessage } from "@/services/supervisionService";
 
 export default function SettingsPage() {
   const {
@@ -158,12 +159,13 @@ export default function SettingsPage() {
                   </div>
                   <button 
                     onClick={async () => {
-                      const success = await joinSupervisor(supervisorCode);
-                      if (success) {
+                      const result = await joinSupervisor(supervisorCode);
+                      if (result.success) {
                         setSupervisorCode("");
                         alert("تم ربط المركز بالجهة الإشرافية بنجاح.");
                       } else {
-                        alert("تعذر الربط. تأكد من أن الدعوة صحيحة وسارية وأنك مالك المركز.");
+                        const health = await fetchSupervisionHealth();
+                        alert(supervisionErrorMessage(result.error, health));
                       }
                     }}
                     className="bg-gray-900 dark:bg-white dark:text-gray-900 text-white px-8 py-4 rounded-2xl font-black text-sm hover:scale-105 transition-all shadow-lg"

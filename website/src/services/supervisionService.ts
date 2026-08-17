@@ -126,12 +126,17 @@ export function supervisionErrorMessage(
       return "المركز غير تابع لهذه الجهة الإشرافية أو تم فصل ارتباطه.";
     case "rpc_missing":
     case "table_missing":
-      return "عقد قاعدة بيانات الإشراف غير مكتمل. نفّذ ترحيل Build 76 ثم شغّل فحص الجاهزية المرفق.";
+      return "عقد قاعدة بيانات الإشراف غير مكتمل. لا تعاود P7.3 القديمة؛ نفّذ مسار Build 75/76 الحالي ثم شغّل فحص الجاهزية.";
     default:
       if (health && !health.ready) {
         return "عقود الإشراف موجودة، لكن الحساب ليس مالكًا أو عضوًا نشطًا في جهة إشرافية. راجع العضوية أو اقبل دعوة الفريق.";
       }
-      return "تعذر إتمام عملية الإشراف. شغّل فحص جاهزية Build 76؛ لن تحتاج إلى إعادة إنشاء البيانات أو الجهة.";
+      if (health && health.direct_center_creation === false) {
+        return "إنشاء المراكز المباشر غير متاح في عقد القاعدة الحالي. لا تعاود P7.3 القديمة؛ أكمل Build 75/76 ثم تحقق من الجاهزية.";
+      }
+      const shape = errorShape(error);
+      const reference = typeof shape.code === "string" && shape.code ? shape.code : "UNKNOWN";
+      return `تعذر إتمام عملية الإشراف. الرمز: SUPERVISION_${reference}. لا تعاود P7.3 القديمة؛ شغّل فحص Build 82 للبوابة والإشراف.`;
   }
 }
 

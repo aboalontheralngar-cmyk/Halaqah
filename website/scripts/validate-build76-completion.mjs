@@ -12,9 +12,9 @@ const assert = (condition, message) => {
 };
 
 // Release identity / local migration.
-assert(read("pubspec.yaml").includes("version: 4.3.0-alpha.24+80"), "pubspec is not Build 76");
+assert(read("pubspec.yaml").includes("version: 4.3.0-alpha.25+82"), "pubspec is not Build 76");
 const buildInfo = read("lib/app/build_info.dart");
-assert(buildInfo.includes("versionName = '4.3.0-alpha.24'") && buildInfo.includes("buildNumber = 80"), "AppBuildInfo is not Build 76");
+assert(buildInfo.includes("versionName = '4.3.0-alpha.25'") && buildInfo.includes("buildNumber = 82"), "AppBuildInfo is not Build 76");
 const schema = read("lib/services/local_database_schema.dart");
 assert(schema.includes("static const int version = 26"), "SQLite v25 migration missing");
 assert(schema.includes("CREATE TABLE IF NOT EXISTS sync_delete_outbox"), "local durable delete outbox missing");

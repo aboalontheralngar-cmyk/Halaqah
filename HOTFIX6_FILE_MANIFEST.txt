@@ -1,0 +1,42 @@
+P1.27 Build 81 Hotfix 6 modified-files package
+
+Files:
+- BUILD81_HOTFIX6_VALIDATION_REPORT.md
+- CHANGELOG.md
+- P1.27_BUILD81_HOTFIX6_INSTALL_NOTE.md
+- docs/INDEX.md
+- docs/P1.27_BUILD81_HOTFIX6_DELETE_SYNC.md
+- docs/release_notes.md
+- lib/app/build_info.dart
+- lib/services/database_service.dart
+- lib/services/local_sync_delete_outbox.dart
+- lib/services/supabase_service.dart
+- pubspec.yaml
+- website/scripts/run-all-validations.mjs
+- website/scripts/validate-build74-hardening.mjs
+- website/scripts/validate-build75-p127.mjs
+- website/scripts/validate-build76-completion.mjs
+- website/scripts/validate-build77-ux-reports.mjs
+- website/scripts/validate-build78-completion.mjs
+- website/scripts/validate-build80-hotfix5.mjs
+- website/scripts/validate-build81-hotfix6.mjs
+- website/scripts/validate-data-privacy.mjs
+- website/scripts/validate-operational-diagnostics.mjs
+- website/scripts/validate-p1-16-plan-recitation.mjs
+- website/scripts/validate-p1-17-1-qr-direct-entry.mjs
+- website/scripts/validate-p1-17-2-settings-hub.mjs
+- website/scripts/validate-p1-17-learning-workspace.mjs
+- website/scripts/validate-p1-18-plan-qr-ui.mjs
+- website/scripts/validate-p1-19-1-flutter-build-hotfix.mjs
+- website/scripts/validate-p1-19-ui-refresh.mjs
+- website/scripts/validate-p1-20-comprehensive.mjs
+- website/scripts/validate-p1-21-completion.mjs
+- website/scripts/validate-p1-22-daily-operations.mjs
+- website/scripts/validate-p1-23-ui-pdf-modernization.mjs
+- website/scripts/validate-p1-24-learning-reports-courses.mjs
+- website/scripts/validate-p1-25-cloud-pdf-performance.mjs
+- website/scripts/validate-p1-26-competition-contrast-bootstrap.mjs
+- website/scripts/validate-staged-release.mjs
+- website/scripts/validate-unified-identity.mjs
+- BUILD81_HOTFIX6_CHANGED_FILES.txt
+- HOTFIX6_FILE_MANIFEST.txt

@@ -14,8 +14,10 @@ const assert = (condition, message) => {
 const pubspec = read('pubspec.yaml');
 const buildInfo = read('lib/app/build_info.dart');
 const schema = read('lib/services/local_database_schema.dart');
-assert(pubspec.includes('version: 4.3.0-alpha.24+80'), 'pubspec is not Build 78');
-assert(buildInfo.includes("versionName = '4.3.0-alpha.24'") && buildInfo.includes('buildNumber = 80'), 'AppBuildInfo is not Build 78');
+const pubspecBuild = Number(pubspec.match(/version:\s+4\.3\.0-alpha\.24\+(\d+)/)?.[1] ?? 0);
+const appBuild = Number(buildInfo.match(/buildNumber\s*=\s*(\d+)/)?.[1] ?? 0);
+assert(pubspecBuild >= 78, 'pubspec is older than Build 78');
+assert(buildInfo.includes("versionName = '4.3.0-alpha.25'") && appBuild >= 78, 'AppBuildInfo is older than Build 78');
 assert(schema.includes('static const int version = 26'), 'SQLite schema is not v26');
 for (const dependency of [
   'supabase_flutter: 2.14.2',
