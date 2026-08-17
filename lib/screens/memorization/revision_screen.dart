@@ -506,6 +506,11 @@ class _RevisionScreenState extends State<RevisionScreen> {
                   child: Text('${_selectedSurahs.length} محددة'),
                 ),
                 IconButton(
+                  onPressed: _showConnectedRevisionRange,
+                  tooltip: 'مراجعة متصلة من سورة إلى سورة',
+                  icon: const Icon(Icons.route_outlined),
+                ),
+                IconButton(
                   onPressed: _showReviewSettings,
                   tooltip: 'إعداد مقدار المراجعة',
                   icon: const Icon(Icons.tune),
@@ -647,6 +652,205 @@ class _RevisionScreenState extends State<RevisionScreen> {
     // Build 78: حتى مقترحات التثبيت ليست إلزامية. يستطيع المعلم مسح
     // الاختيار كله ثم تسجيل ما سمعه الطالب فعلًا فقط.
     setState(_selectedSurahs.clear);
+  }
+
+  Future<void> _showConnectedRevisionRange() async {
+    if (_memorizedSurahs.isEmpty) return;
+    final ordered = List<MemorizedSurah>.from(_memorizedSurahs)
+      ..sort((a, b) => _ascending ? a.id.compareTo(b.id) : b.id.compareTo(a.id));
+    var startSurahId = ordered.first.id;
+    var endSurahId = ordered.first.id;
+    var startAyah = ordered.first.minMemorizedAyah;
+    var endAyah = ordered.first.maxMemorizedAyah;
+
+    MemorizedSurah byId(int id) => ordered.firstWhere((item) => item.id == id);
+    int indexOf(int id) => ordered.indexWhere((item) => item.id == id);
+
+    final apply = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      showDragHandle: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, setSheetState) {
+          final startSurah = byId(startSurahId);
+          final allowedEndSurahs = ordered.skip(indexOf(startSurahId)).toList();
+          if (!allowedEndSurahs.any((item) => item.id == endSurahId)) {
+            endSurahId = startSurahId;
+            endAyah = startSurah.maxMemorizedAyah;
+          }
+          final endSurah = byId(endSurahId);
+          List<DropdownMenuItem<int>> ayahItems(MemorizedSurah surah) => [
+                for (var ayah = surah.minMemorizedAyah;
+                    ayah <= surah.maxMemorizedAyah;
+                    ayah++)
+                  DropdownMenuItem(value: ayah, child: Text('آية $ayah')),
+              ];
+          return Padding(
+            padding: EdgeInsets.fromLTRB(
+              20,
+              4,
+              20,
+              20 + MediaQuery.viewInsetsOf(context).bottom,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'نطاق مراجعة متصل',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'اختر بداية المراجعة ونهايتها؛ سيملأ التطبيق كل السور الواقعة بينهما بالترتيب دون تجاوز محفوظ الطالب.',
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    fontSize: 12,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: DropdownButtonFormField<int>(
+                        key: ValueKey('connected_start_surah_$startSurahId'),
+                        initialValue: startSurahId,
+                        isExpanded: true,
+                        decoration: const InputDecoration(labelText: 'من سورة'),
+                        items: ordered
+                            .map((item) => DropdownMenuItem(
+                                  value: item.id,
+                                  child: Text(item.name),
+                                ))
+                            .toList(),
+                        onChanged: (value) {
+                          if (value == null) return;
+                          setSheetState(() {
+                            startSurahId = value;
+                            final selected = byId(value);
+                            startAyah = selected.minMemorizedAyah;
+                            if (indexOf(endSurahId) < indexOf(value)) {
+                              endSurahId = value;
+                              endAyah = selected.maxMemorizedAyah;
+                            }
+                          });
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: DropdownButtonFormField<int>(
+                        key: ValueKey(
+                          'connected_start_ayah_${startSurah.id}_$startAyah',
+                        ),
+                        initialValue: startAyah,
+                        isExpanded: true,
+                        decoration: const InputDecoration(labelText: 'من آية'),
+                        items: ayahItems(startSurah),
+                        onChanged: (value) {
+                          if (value != null) setSheetState(() => startAyah = value);
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: DropdownButtonFormField<int>(
+                        key: ValueKey('connected_end_surah_$endSurahId'),
+                        initialValue: endSurahId,
+                        isExpanded: true,
+                        decoration: const InputDecoration(labelText: 'إلى سورة'),
+                        items: allowedEndSurahs
+                            .map((item) => DropdownMenuItem(
+                                  value: item.id,
+                                  child: Text(item.name),
+                                ))
+                            .toList(),
+                        onChanged: (value) {
+                          if (value == null) return;
+                          setSheetState(() {
+                            endSurahId = value;
+                            endAyah = byId(value).maxMemorizedAyah;
+                          });
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: DropdownButtonFormField<int>(
+                        key: ValueKey(
+                          'connected_end_ayah_${endSurah.id}_$endAyah',
+                        ),
+                        initialValue: endAyah,
+                        isExpanded: true,
+                        decoration: const InputDecoration(labelText: 'إلى آية'),
+                        items: ayahItems(endSurah),
+                        onChanged: (value) {
+                          if (value != null) setSheetState(() => endAyah = value);
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 18),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: () => Navigator.pop(sheetContext, true),
+                    icon: const Icon(Icons.check),
+                    label: const Text('تطبيق النطاق المتصل'),
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+    if (apply != true || !mounted) return;
+
+    final allowedRanges = <int, QuranRangeSegment>{
+      for (final surah in _memorizedSurahs)
+        surah.id: QuranRangeSegment(
+          surahId: surah.id,
+          fromAyah: surah.minMemorizedAyah,
+          toAyah: surah.maxMemorizedAyah,
+        ),
+    };
+    final range = QuranCrossSurahRangeService.between(
+      surahs: _quran.surahs,
+      startSurahId: startSurahId,
+      startAyah: startAyah,
+      endSurahId: endSurahId,
+      endAyah: endAyah,
+      allowedRanges: allowedRanges,
+      ascendingSurahs: _ascending,
+    );
+    if (range == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('تعذر تكوين النطاق؛ تأكد أن البداية والنهاية داخل محفوظ الطالب وبالترتيب.'),
+        ),
+      );
+      return;
+    }
+    setState(() {
+      _selectedSurahs.clear();
+      _applyConnectedRange(
+        range: range,
+        availableSurahs: _memorizedSurahs,
+        selectedSurahs: _selectedSurahs,
+      );
+      _resumeText = _connectedRangeLabel(
+        range,
+        availableSurahs: _memorizedSurahs,
+        prefix: 'نطاق مراجعة متصل',
+      );
+    });
   }
 
   Future<void> _showReviewSettings() async {

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { useStore } from "@/store/useStore";
 
 export default function OAuthCallbackPage() {
   const router = useRouter();
@@ -43,7 +44,13 @@ export default function OAuthCallbackPage() {
         return;
       }
 
-      router.replace("/select-center");
+      // Persist the authenticated user in the app store before navigating.
+      // A fresh Google account may not have a profile yet, so route it to
+      // onboarding instead of showing the dashboard as an anonymous shell.
+      useStore.setState({ user: data.session.user });
+      await useStore.getState().fetchProfile();
+      if (cancelled) return;
+      router.replace(useStore.getState().profile ? "/select-center" : "/onboarding");
     };
 
     void finish();

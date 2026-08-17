@@ -21,6 +21,9 @@ class StudentPeriodDay {
   final String? suspensionReason;
   final int performanceScore;
   final int lateMinutes;
+  final double memorizationActualAmount;
+  final double memorizationPlanAmount;
+  final String memorizationUnit;
 
   const StudentPeriodDay({
     required this.date,
@@ -35,6 +38,9 @@ class StudentPeriodDay {
     required this.suspensionReason,
     required this.performanceScore,
     this.lateMinutes = 0,
+    this.memorizationActualAmount = 0,
+    this.memorizationPlanAmount = 0,
+    this.memorizationUnit = 'ayahs',
   });
 
   bool get isStudyDay => !isSuspended && !isWeeklyHoliday;
@@ -67,6 +73,13 @@ class StudentPeriodDay {
   double get revisionQuality => _quality(revision);
   String get memorizationRating => _rating(memorizationQuality);
   String get revisionRating => _rating(revisionQuality);
+  bool get exceededMemorizationPlan => memorizationPlanAmount > 0 &&
+      memorizationActualAmount > memorizationPlanAmount + 0.000001;
+  double get memorizationExcessPercent => !exceededMemorizationPlan
+      ? 0
+      : ((memorizationActualAmount - memorizationPlanAmount) /
+              memorizationPlanAmount) *
+          100;
 
   static double _quality(List<MemorizationProgress> items) => items.isEmpty
       ? 0
@@ -112,6 +125,8 @@ class StudentPeriodReport {
   final List<FundTransaction> fundTransactions;
   final List<PlanRecitationRecord> recitationRecords;
   final int? periodRank;
+  final int quranTotalAyahs;
+  final int studentMemorizedAyahs;
 
   const StudentPeriodReport({
     required this.student,
@@ -143,6 +158,8 @@ class StudentPeriodReport {
     this.fundTransactions = const [],
     this.recitationRecords = const [],
     this.periodRank,
+    this.quranTotalAyahs = 0,
+    this.studentMemorizedAyahs = 0,
   });
 
   double get memorizedPages => memorizedLines / 15;
@@ -154,6 +171,18 @@ class StudentPeriodReport {
       .toList();
   double get paidAmount => payments.fold<double>(0, (sum, item) => sum + item.amount);
   double get memorizedJuz => memorizedPages / 20;
+  double get khatmProgressPercent => quranTotalAyahs <= 0
+      ? 0
+      : (studentMemorizedAyahs.clamp(0, quranTotalAyahs) /
+              quranTotalAyahs *
+              100)
+          .clamp(0, 100)
+          .toDouble();
+  double get khatmRemainingPercent => (100 - khatmProgressPercent).clamp(0, 100).toDouble();
+  int get khatmRemainingAyahs =>
+      (quranTotalAyahs - studentMemorizedAyahs.clamp(0, quranTotalAyahs))
+          .clamp(0, quranTotalAyahs)
+          .toInt();
   int get attendanceTotal => presentDays + lateDays + absentDays + excusedDays;
   int get attendanceRate => attendanceTotal == 0
       ? 0
@@ -203,5 +232,7 @@ class StudentPeriodReport {
         fundTransactions: fundTransactions,
         recitationRecords: recitationRecords,
         periodRank: rank,
+        quranTotalAyahs: quranTotalAyahs,
+        studentMemorizedAyahs: studentMemorizedAyahs,
       );
 }

@@ -19,7 +19,7 @@
 
 ابدأ من [فهرس التوثيق الحالي](docs/INDEX.md) و[تدقيق ميزات P1.27](docs/P1.27_FEATURE_AUDIT.md) بدل الاعتماد على قوائم المراحل التاريخية أو وجود الكود وحده كدليل اكتمال.
 
-أحدث دفعة إصلاح موثقة هي **P1.27 Build 83 Hotfix 8** فوق `4.3.0-alpha.26+83` وSQLite 27. تعالج تحويل Google OAuth إلى PKCE مع callback إنتاجي، وتصلح `SYNC_NOTIFICATIONS_23514`، وتضيف مزامنة رفع خفيفة تتجاوز المجالات المحلية غير المتغيرة بعد أول رفع تأسيسي. راجع [Hotfix 8](docs/P1.27_BUILD83_HOTFIX8_AUTH_SYNC.md) و`P1.27_BUILD83_HOTFIX8_INSTALL_NOTE.md`.
+أحدث دفعة إصلاح موثقة هي **P1.27 Build 84 Hotfix 9** فوق `4.3.0-alpha.27+84` وSQLite 28. تضيف مزامنة تفاضلية تعتمد watermarks وفهارس نطاقية بدل قراءة كل الجداول، وتغلق سباق Google OAuth callback، وتصلح إنشاء الجهة الإشرافية للحساب الجديد، وتضيف نطاق مراجعة متصلًا، وشرائح نقاط للزيادة، وعلامة الزيادة ومؤشر الختمة في PDF. راجع `docs/P1.27_BUILD84_HOTFIX9_PERFORMANCE_FEATURES.md` و`P1.27_BUILD84_HOTFIX9_INSTALL_NOTE.md`.
 
 ## البنية
 

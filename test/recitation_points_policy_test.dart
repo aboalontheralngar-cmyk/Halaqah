@@ -54,6 +54,43 @@ void main() {
       expect(result.totalPoints, 7);
     });
 
+    test('extra reward scales every 25 percent above the plan', () {
+      final fiftyPercentExtra = RecitationPointsPolicy.calculate(
+        actualAmount: 30,
+        planAmount: 20,
+        completionReward: 5,
+        extraReward: 2,
+      );
+      final fiftyFivePercentExtra = RecitationPointsPolicy.calculate(
+        actualAmount: 31,
+        planAmount: 20,
+        completionReward: 5,
+        extraReward: 2,
+      );
+
+      expect(fiftyPercentExtra.excessPercent, 50);
+      expect(fiftyPercentExtra.bonusTier, 2);
+      expect(fiftyPercentExtra.bonusPoints, 4);
+      expect(fiftyPercentExtra.totalPoints, 9);
+      expect(fiftyFivePercentExtra.bonusTier, 3);
+      expect(fiftyFivePercentExtra.bonusPoints, 6);
+      expect(fiftyFivePercentExtra.totalPoints, 11);
+    });
+
+    test('extra reward is capped at four bonus tiers', () {
+      final result = RecitationPointsPolicy.calculate(
+        actualAmount: 40,
+        planAmount: 20,
+        completionReward: 5,
+        extraReward: 2,
+      );
+
+      expect(result.excessPercent, 100);
+      expect(result.bonusTier, 4);
+      expect(result.bonusPoints, 8);
+      expect(result.totalPoints, 13);
+    });
+
     test('zero work never produces positive points', () {
       final result = RecitationPointsPolicy.calculate(
         actualAmount: 0,

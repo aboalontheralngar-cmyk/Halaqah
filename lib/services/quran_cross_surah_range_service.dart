@@ -53,6 +53,7 @@ class QuranCrossSurahRangeService {
     required int startAyah,
     required int endSurahId,
     required int endAyah,
+    Map<int, QuranRangeSegment> allowedRanges = const {},
     bool ascendingSurahs = true,
   }) {
     final orderedSurahs = List<Surah>.from(surahs)
@@ -73,7 +74,18 @@ class QuranCrossSurahRangeService {
       (ayah) => ayah.surahNumber == endSurahId && ayah.number == endAyah,
     );
     if (startIndex < 0 || endIndex < startIndex) return null;
-    return fromAyahs(allAyahs.sublist(startIndex, endIndex + 1));
+    final selected = allAyahs.sublist(startIndex, endIndex + 1);
+    if (allowedRanges.isNotEmpty) {
+      for (final ayah in selected) {
+        final allowed = allowedRanges[ayah.surahNumber];
+        if (allowed == null ||
+            ayah.number < allowed.fromAyah ||
+            ayah.number > allowed.toAyah) {
+          return null;
+        }
+      }
+    }
+    return fromAyahs(selected);
   }
 
   static QuranRangeUnit unitFromPlanType(String value) {

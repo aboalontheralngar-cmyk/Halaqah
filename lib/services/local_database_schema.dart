@@ -9,9 +9,9 @@ import 'package:sqflite/sqflite.dart';
 class LocalDatabaseSchema {
   const LocalDatabaseSchema();
 
-  // Build 83 adds upload dirty-stage journaling for lightweight incremental sync.
-  // Previous release database version: 26.
-  static const int version = 27;
+  // Build 84 prevents cloud replay writes from re-dirtying upload stages.
+  // Previous release database version: 27.
+  static const int version = 28;
 
   Future<void> onCreate(Database db, int version) async {
     await db.execute('''
@@ -166,6 +166,7 @@ class LocalDatabaseSchema {
     await _upgradeToVersion25(db);
     await _upgradeToVersion26(db);
     await _upgradeToVersion27(db);
+    await _upgradeToVersion28(db);
   }
 
   Future<void> onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -247,6 +248,9 @@ class LocalDatabaseSchema {
     if (oldVersion < 27) {
       await _upgradeToVersion27(db);
     }
+    if (oldVersion < 28) {
+      await _upgradeToVersion28(db);
+    }
   }
 
 
@@ -300,6 +304,19 @@ class LocalDatabaseSchema {
     'plan_recitation',
   ];
 
+  Future<void> _upgradeToVersion28(Database db) async {
+    // Recreate dirty-stage triggers with a cloud-replay guard. Without this,
+    // a bidirectional pull marks the same stage dirty again and the next sync
+    // needlessly uploads the rows it just downloaded.
+    for (final entry in _syncDirtyStageByTable.entries) {
+      await _createSyncDirtyStageTriggers(
+        db,
+        localTable: entry.key,
+        stageId: entry.value,
+      );
+    }
+  }
+
   Future<void> _upgradeToVersion27(Database db) async {
     await db.execute('''
       CREATE TABLE IF NOT EXISTS sync_dirty_stages (
@@ -352,6 +369,10 @@ class LocalDatabaseSchema {
       await db.execute('''
         CREATE TRIGGER $trigger
         AFTER $event ON $safeTable
+        WHEN COALESCE(
+          (SELECT value FROM settings WHERE key = 'sync_remote_write_replay'),
+          '0'
+        ) != '1'
         BEGIN
           INSERT OR IGNORE INTO sync_dirty_stages (
             stage_id, generation, changed_at

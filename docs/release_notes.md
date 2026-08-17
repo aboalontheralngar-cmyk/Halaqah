@@ -1,3 +1,13 @@
+# Build 84 Hotfix 9 — sync delta engine, OAuth completion, revision ranges and report rewards
+
+- **Sync:** one authenticated `get_halaqah_sync_watermarks` preflight identifies changed cloud domains and the latest tombstone id. Unchanged domains are skipped without table `SELECT`s, while local cloud-replay guards stop downloaded rows from becoming dirty uploads again. Server-side scope/updated-at indexes support the same predicates used by Flutter.
+- **OAuth:** `/auth/callback` is a public route, exchanges the PKCE code, hydrates the Zustand user/profile before navigation, and sends a fresh Google account to onboarding. The root page also forwards a fallback `?code=` return to the callback.
+- **Supervision:** Build 84 recreates the exact `create_supervisor_organization(text)` RPC idempotently and reloads the PostgREST schema cache; onboarding can resume an organization created by a prior partial attempt.
+- **Revision:** a new connected-range picker lets the teacher choose a memorized start surah/ayah and end surah/ayah, with direction-aware validation and no jumps across unmemorized gaps.
+- **Points:** excess memorization is rewarded in 25% bands: 1–25% = one extra-reward tier, >25–50% = two, >50–75% = three, and >75% = four (cap).
+- **PDF:** days above target receive a star and excess percentage; the report header adds a circular remaining-to-khatm percentage/ayah count.
+- **Version:** Flutter `4.3.0-alpha.27+84`, SQLite schema 28.
+
 # Build 83 Hotfix 8 — OAuth production + lightweight upload sync
 
 - Web Google OAuth now uses PKCE and a dedicated `/auth/callback` exchange route instead of exposing session tokens in a URL fragment.

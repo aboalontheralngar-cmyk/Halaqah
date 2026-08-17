@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import {
   Activity,
@@ -42,6 +42,22 @@ export default function Dashboard() {
     getClientSnapshot,
     getServerSnapshot,
   );
+  useEffect(() => {
+    // Defensive OAuth fallback: if Supabase fell back to the Site URL because
+    // /auth/callback was not yet allow-listed, preserve the PKCE code and send
+    // it to the dedicated exchanger instead of silently rendering the dashboard.
+    const url = new URL(window.location.href);
+    const code = url.searchParams.get("code");
+    if (!code) return;
+    const callback = new URL("/auth/callback", window.location.origin);
+    callback.searchParams.set("code", code);
+    for (const key of ["error", "error_description"]) {
+      const value = url.searchParams.get(key);
+      if (value) callback.searchParams.set(key, value);
+    }
+    router.replace(`${callback.pathname}${callback.search}`);
+  }, [router]);
+
   const {
     students,
     attendance,

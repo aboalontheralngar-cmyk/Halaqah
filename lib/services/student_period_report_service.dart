@@ -250,6 +250,15 @@ class StudentPeriodReportService {
       final heard = memorization.isNotEmpty || (record?.memorizationDone ?? false);
       final reviewed = revision.isNotEmpty || (record?.revisionDone ?? false);
       final pointBalance = dailyPoints.fold<double>(0, (sum, item) => sum + item.points);
+      final dailyTarget = _dailyMemorizationTarget(dailyPoints, student);
+      var dailyActual = DailyExcellenceService.calculateActualAmount(
+        progress: memorization,
+        surahs: surahsById,
+        unit: dailyTarget.unit,
+      );
+      if (dailyActual <= 0 && (record?.memorizationDone ?? false)) {
+        dailyActual = (record?.memorizationAmount ?? 0).toDouble();
+      }
       var score = 0;
       if (!suspended && !weeklyHoliday && record != null && hold == null) {
         score += record.attendance == 'present'
@@ -260,15 +269,8 @@ class StudentPeriodReportService {
                     ? 10
                     : 0;
         if (attended && heard) {
-          var actual = DailyExcellenceService.calculateActualAmount(
-            progress: memorization,
-            surahs: surahsById,
-            unit: student.planType,
-          );
-          if (actual <= 0 && record.memorizationDone) {
-            actual = record.memorizationAmount.toDouble();
-          }
-          final ratio = actual / (student.planAmount <= 0 ? 1 : student.planAmount);
+          final ratio = dailyActual /
+              (dailyTarget.amount <= 0 ? 1 : dailyTarget.amount);
           score += (ratio.clamp(0, 1) * 40).round();
         }
         if (attended && reviewed) score += 10;
@@ -288,6 +290,9 @@ class StudentPeriodReportService {
         suspensionReason: suspensionReasons[key],
         performanceScore: score.clamp(0, 100).toInt(),
         lateMinutes: lateMinutes,
+        memorizationActualAmount: dailyActual,
+        memorizationPlanAmount: dailyTarget.amount,
+        memorizationUnit: dailyTarget.unit,
       ));
     }
 
@@ -366,6 +371,36 @@ class StudentPeriodReportService {
       exams: List<Exam>.from(exams),
       fundTransactions: List<FundTransaction>.from(fundTransactions),
       recitationRecords: List<PlanRecitationRecord>.from(recitationRecords),
+      quranTotalAyahs: quran.surahs.fold<int>(
+        0,
+        (sum, surah) => sum + surah.totalAyahs,
+      ),
+      studentMemorizedAyahs: student.totalMemorized,
+    );
+  }
+
+  static ({String unit, double amount}) _dailyMemorizationTarget(
+    List<BehaviorPoint> points,
+    Student student,
+  ) {
+    for (final point in points) {
+      if (point.reason != 'إنجاز المقرر اليومي (تلقائي)') continue;
+      final note = point.notes ?? '';
+      final match = RegExp(
+        r'\[rule completion=\d+;extra=\d+;target=([0-9.]+);unit=([a-z_]+)',
+      ).firstMatch(note);
+      if (match == null) continue;
+      final amount = double.tryParse(match.group(1) ?? '');
+      final unit = match.group(2);
+      if (amount != null &&
+          amount > 0 &&
+          const {'ayahs', 'pages', 'lines', 'hizbs'}.contains(unit)) {
+        return (unit: unit!, amount: amount);
+      }
+    }
+    return (
+      unit: student.planType,
+      amount: (student.planAmount <= 0 ? 1 : student.planAmount).toDouble(),
     );
   }
 

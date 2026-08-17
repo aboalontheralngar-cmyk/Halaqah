@@ -78,6 +78,8 @@ export function supervisionErrorCode(error: unknown): string {
   if (message.includes("invalid_center_address")) return "invalid_center_address";
   if (message.includes("invalid_halaqah_name")) return "invalid_halaqah_name";
   if (message.includes("invalid_teacher_name")) return "invalid_teacher_name";
+  if (message.includes("invalid_supervisor_name")) return "invalid_supervisor_name";
+  if (message.includes("supervisor_already_exists")) return "supervisor_already_exists";
   if (message.includes("supervisor_not_found")) return "supervisor_not_found";
   if (message.includes("supervised_center_not_found")) return "supervised_center_not_found";
   if (code === "42501") return "permission_denied";
@@ -120,13 +122,18 @@ export function supervisionErrorMessage(
       return "اسم الحلقة الأولى أطول من الحد المسموح.";
     case "invalid_teacher_name":
       return "اسم المعلم أطول من الحد المسموح.";
+    case "invalid_supervisor_name":
+      return "اسم الجهة الإشرافية يجب أن يكون بين 3 و160 حرفًا.";
+    case "supervisor_already_exists":
+      return "للحساب جهة إشرافية موجودة بالفعل؛ أعد تحميل الصفحة وسيتم استئنافها تلقائيًا.";
     case "supervisor_not_found":
       return "الجهة الإشرافية لم تعد موجودة أو لا يمكن الوصول إليها.";
     case "supervised_center_not_found":
       return "المركز غير تابع لهذه الجهة الإشرافية أو تم فصل ارتباطه.";
     case "rpc_missing":
+      return "واجهة الإشراف موجودة في المشروع لكن PostgREST لا يرى دالة الإنشاء. نفّذ SQL Build 84 لإصلاح create_supervisor_organization وإعادة تحميل schema cache ثم أعد المحاولة.";
     case "table_missing":
-      return "عقد قاعدة بيانات الإشراف غير مكتمل. لا تعاود P7.3 القديمة؛ نفّذ مسار Build 75/76 الحالي ثم شغّل فحص الجاهزية.";
+      return "أحد جداول الإشراف غير موجود في قاعدة البيانات. شغّل فحص Build 84 قبل أي ترحيل قديم.";
     default:
       if (health && !health.ready) {
         return "عقود الإشراف موجودة، لكن الحساب ليس مالكًا أو عضوًا نشطًا في جهة إشرافية. راجع العضوية أو اقبل دعوة الفريق.";
@@ -149,7 +156,21 @@ export async function fetchSupervisionHealth(): Promise<SupervisionHealth | null
 
 export async function createSupervisorOrganization(name: string) {
   if (!supabase) return { data: null, error: new Error("supabase_not_configured") };
-  return supabase.rpc("create_supervisor_organization", { p_name: name.trim() });
+  const response = await supabase.rpc("create_supervisor_organization", {
+    p_name: name.trim(),
+  });
+  if (!response.error || supervisionErrorCode(response.error) !== "supervisor_already_exists") {
+    return response;
+  }
+
+  // A previous onboarding attempt may have created the organization before the
+  // browser navigated away. Treat that as resumable, not as a fatal duplicate.
+  const existing = await supabase.rpc("get_my_supervisors");
+  const organizations = Array.isArray(existing.data) ? existing.data : [];
+  if (!existing.error && organizations.length > 0) {
+    return { data: organizations[0], error: null };
+  }
+  return response;
 }
 
 

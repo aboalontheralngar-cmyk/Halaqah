@@ -142,6 +142,69 @@ void main() {
     expect(report.performanceScore, greaterThanOrEqualTo(90));
   });
 
+  test('marks a day when memorization exceeds its daily plan', () {
+    final student = Student(
+      name: 'طالب الزيادة',
+      planType: 'ayahs',
+      planAmount: 5,
+    );
+    final date = DateTime(2026, 7, 6);
+    final report = StudentPeriodReportService.calculate(
+      student: student,
+      startDate: date,
+      endDate: date,
+      records: [_record(student.id, date, 'present', heard: true)],
+      progress: [
+        MemorizationProgress(
+          studentId: student.id,
+          surahId: 1,
+          fromAyah: 1,
+          toAyah: 7,
+          date: date,
+          qualityRating: 4,
+        ),
+      ],
+      points: const [],
+      vacations: const [],
+      suspendedDates: const {},
+      suspensionReasons: const {},
+      holidayWeekdays: const [],
+      quran: QuranService.instance,
+    );
+
+    expect(report.days.single.exceededMemorizationPlan, isTrue);
+    expect(report.days.single.memorizationActualAmount, 7);
+    expect(report.days.single.memorizationPlanAmount, 5);
+    expect(report.days.single.memorizationExcessPercent, closeTo(40, 0.001));
+  });
+
+  test('calculates remaining Quran progress for the printed khatm indicator', () {
+    final student = Student(
+      name: 'طالب الختمة',
+      totalMemorized: 100,
+    );
+    final date = DateTime(2026, 7, 6);
+    final report = StudentPeriodReportService.calculate(
+      student: student,
+      startDate: date,
+      endDate: date,
+      records: const [],
+      progress: const [],
+      points: const [],
+      vacations: const [],
+      suspendedDates: const {},
+      suspensionReasons: const {},
+      holidayWeekdays: const [],
+      quran: QuranService.instance,
+    );
+
+    expect(report.quranTotalAyahs, greaterThan(100));
+    expect(report.studentMemorizedAyahs, 100);
+    expect(report.khatmRemainingAyahs, report.quranTotalAyahs - 100);
+    expect(report.khatmProgressPercent, greaterThan(0));
+    expect(report.khatmRemainingPercent, lessThan(100));
+  });
+
   test('separates violations and calculates late minutes and settlements', () {
     final student = Student(name: 'طالب المتابعة');
     final date = DateTime(2026, 7, 6);

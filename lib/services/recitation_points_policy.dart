@@ -4,6 +4,8 @@ class RecitationPointsResult {
   final double completionPoints;
   final double bonusPoints;
   final double workloadPoints;
+  final double excessPercent;
+  final int bonusTier;
 
   const RecitationPointsResult({
     required this.actualAmount,
@@ -11,6 +13,8 @@ class RecitationPointsResult {
     required this.completionPoints,
     required this.bonusPoints,
     this.workloadPoints = 0,
+    this.excessPercent = 0,
+    this.bonusTier = 0,
   });
 
   double get completionRatio =>
@@ -23,14 +27,16 @@ class RecitationPointsResult {
 /// سياسة النقاط التلقائية للحفظ اليومي.
 ///
 /// مكافأة الإتمام نسبية إلى ما سُمّع فعليًا من المقرر بدل حجب كل النقاط
-/// حتى بلوغ 100%. Build 78 يحفظ الكسر الحقيقي افتراضيًا (مثل 2.5)،
-/// ويُبقي أوضاع التقريب القديمة اختيارية لمن يريد الأقرب أو لأسفل أو لأعلى،
-/// مع منع تجاوز مكافأة الإتمام المحددة.
+/// حتى بلوغ 100%. Build 84 يحفظ الكسر الحقيقي افتراضيًا (مثل 2.5)،
+/// ويزيد مكافأة التجاوز كل 25% إضافية من المقرر حتى أربع شرائح، مع إبقاء
+/// أوضاع التقريب القديمة اختيارية ومنع تجاوز مكافأة الإتمام الأساسية.
 class RecitationPointsPolicy {
   const RecitationPointsPolicy._();
 
   static const int defaultCompletionReward = 5;
   static const int defaultExtraReward = 2;
+  static const int defaultBonusStepPercent = 25;
+  static const int defaultMaxBonusTiers = 4;
 
   static RecitationPointsResult calculate({
     required double actualAmount,
@@ -38,6 +44,8 @@ class RecitationPointsPolicy {
     String unit = 'ayahs',
     int completionReward = defaultCompletionReward,
     int extraReward = defaultExtraReward,
+    int bonusStepPercent = defaultBonusStepPercent,
+    int maxBonusTiers = defaultMaxBonusTiers,
     String roundingMode = 'exact',
   }) {
     final safeActual = actualAmount.clamp(0, double.infinity).toDouble();
@@ -47,6 +55,17 @@ class RecitationPointsPolicy {
     final ratio = (safeActual / safePlan).clamp(0, 1).toDouble();
     final completed = safeActual + 0.000001 >= safePlan;
     final exceeded = safeActual > safePlan + 0.000001;
+    final safeBonusStep = bonusStepPercent.clamp(1, 1000).toInt();
+    final safeMaxBonusTiers = maxBonusTiers.clamp(1, 100).toInt();
+    final excessPercent = exceeded
+        ? (((safeActual - safePlan) / safePlan) * 100).clamp(0, double.infinity).toDouble()
+        : 0.0;
+    final bonusTier = exceeded
+        ? (excessPercent / safeBonusStep)
+            .ceil()
+            .clamp(1, safeMaxBonusTiers)
+            .toInt()
+        : 0;
 
     final rawReward = safeCompletionReward * ratio;
     double proportionalReward = switch (roundingMode) {
@@ -71,8 +90,12 @@ class RecitationPointsPolicy {
       actualAmount: safeActual,
       planAmount: safePlan,
       completionPoints: proportionalReward,
-      bonusPoints: completed && exceeded ? safeExtraReward.toDouble() : 0,
+      bonusPoints: completed && exceeded
+          ? (safeExtraReward * bonusTier).toDouble()
+          : 0,
       workloadPoints: 0,
+      excessPercent: excessPercent,
+      bonusTier: bonusTier,
     );
   }
 }

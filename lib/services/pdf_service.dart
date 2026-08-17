@@ -1131,6 +1131,34 @@ class PdfService {
               height: 72,
               decoration: pw.BoxDecoration(
                 color: PdfColors.white,
+                border: pw.Border.all(color: _pdfPrimary, width: 2),
+                shape: pw.BoxShape.circle,
+              ),
+              child: pw.Column(
+                mainAxisAlignment: pw.MainAxisAlignment.center,
+                children: [
+                  pw.Text(
+                    '${report.khatmRemainingPercent.toStringAsFixed(0)}%',
+                    style: _textStyle(
+                      fontSize: 15,
+                      fontWeight: pw.FontWeight.bold,
+                      color: _pdfPrimary,
+                    ),
+                  ),
+                  pw.Text('متبقي للختم', style: _textStyle(fontSize: 6.5)),
+                  pw.Text(
+                    '${report.khatmRemainingAyahs} آية',
+                    style: _textStyle(fontSize: 5.8, color: _pdfMuted),
+                  ),
+                ],
+              ),
+            ),
+            pw.SizedBox(width: 7),
+            pw.Container(
+              width: 72,
+              height: 72,
+              decoration: pw.BoxDecoration(
+                color: PdfColors.white,
                 border: pw.Border.all(color: scoreColor, width: 2),
                 shape: pw.BoxShape.circle,
               ),
@@ -1200,7 +1228,7 @@ class PdfService {
         child: pw.Text(
           'المقرر الشخصي: حفظ ${report.student.planAmount} ${_getPlanLabel(report.student.planType)} يوميًا، '
           'ومراجعة ${report.student.reviewPlanAmount} ${_getPlanLabel(report.student.reviewPlanType)} يوميًا. '
-          'تُمنح مكافأة إتمام المقرر عند بلوغه كاملًا، وتُمنح مكافأة الزيادة فقط عند تجاوز المقرر فعليًا.',
+          'تُمنح مكافأة إتمام المقرر عند بلوغه كاملًا، وتتصاعد مكافأة الزيادة كل 25% إضافية من المقرر حتى أربع شرائح.',
           style: _textStyle(fontSize: 7.5),
         ),
       ),
@@ -1495,10 +1523,13 @@ class PdfService {
                 '${_progressText(day.revision)}\nتقييم المراجعة: ${day.revisionRating}',
               ),
               _periodCell(
-                '${_progressText(day.memorization)}\nتقييم الحفظ: ${day.memorizationRating}',
+                '${_progressText(day.memorization)}\nتقييم الحفظ: ${day.memorizationRating}'
+                '${day.exceededMemorizationPlan ? '\n★ زيادة ${day.memorizationExcessPercent.toStringAsFixed(0)}%' : ''}',
               ),
               _periodCell(_periodAttendance(day)),
-              _periodCell(_reportDate(day.date, hijri: useHijriCalendar)),
+              _periodCell(
+                '${day.exceededMemorizationPlan ? '★ ' : ''}${_reportDate(day.date, hijri: useHijriCalendar)}',
+              ),
             ],
           ),
         ),

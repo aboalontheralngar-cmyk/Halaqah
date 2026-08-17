@@ -145,6 +145,38 @@ void main() {
     expect(range.segments.last.toAyah, 2);
   });
 
+  test('explicit range respects memorized ranges across surahs', () {
+    final range = QuranCrossSurahRangeService.between(
+      surahs: surahs,
+      startSurahId: 1,
+      startAyah: 2,
+      endSurahId: 2,
+      endAyah: 2,
+      allowedRanges: const {
+        1: QuranRangeSegment(surahId: 1, fromAyah: 1, toAyah: 2),
+        2: QuranRangeSegment(surahId: 2, fromAyah: 1, toAyah: 2),
+      },
+    );
+
+    expect(range, isNotNull);
+    expect(range!.segments.map((segment) => segment.surahId), [1, 2]);
+  });
+
+  test('explicit range rejects a gap in recorded memorization', () {
+    final range = QuranCrossSurahRangeService.between(
+      surahs: surahs,
+      startSurahId: 1,
+      startAyah: 2,
+      endSurahId: 2,
+      endAyah: 2,
+      allowedRanges: const {
+        1: QuranRangeSegment(surahId: 1, fromAyah: 1, toAyah: 2),
+      },
+    );
+
+    expect(range, isNull);
+  });
+
   test('explicit range follows descending surah direction', () {
     final range = QuranCrossSurahRangeService.between(
       surahs: surahs,

@@ -87,6 +87,16 @@ class _CloudSyncScope {
   });
 }
 
+class _CloudSyncWatermarks {
+  final Map<String, DateTime?> stages;
+  final int? tombstoneMaxId;
+
+  const _CloudSyncWatermarks({
+    this.stages = const {},
+    this.tombstoneMaxId,
+  });
+}
+
 class SupabaseService {
   static String get projectUrl => CloudConfig.projectUrl;
   static String get publishableKey => CloudConfig.publishableKey;
@@ -303,15 +313,6 @@ class SupabaseService {
         stackTrace: stackTrace,
       );
       throw failure;
-    }
-  }
-
-  Future<void> _ensureCloudReachable() async {
-    final diagnostic = await diagnoseConnection();
-    if (!diagnostic.isHealthy) {
-      throw CloudSyncUnavailableException(
-        '${diagnostic.title}. ${diagnostic.message}',
-      );
     }
   }
 
@@ -657,6 +658,28 @@ class SupabaseService {
         (direction.shouldDownload ? 2 : 0) +
         (direction.shouldUpload ? 3 : 0);
     var stageIndex = 0;
+    String? activeCenterId;
+    String? activeHalaqahId;
+    Map<String, DateTime?> remoteWatermarks = const {};
+    int? remoteTombstoneMaxId;
+
+    Future<bool> remoteStageNeedsPull(String stageId) async {
+      if (!direction.shouldDownload) return false;
+      if (!remoteWatermarks.containsKey(stageId)) return true;
+      final remoteLatest = remoteWatermarks[stageId];
+      if (remoteLatest == null) return false;
+      final centerId = activeCenterId;
+      final halaqahId = activeHalaqahId;
+      if (centerId == null || halaqahId == null) return true;
+      final cursor = DateTime.tryParse(
+        await _db.getSetting(
+              _cloudPullCursorKey(stageId, centerId, halaqahId),
+            ) ??
+            '',
+      );
+      if (cursor == null) return true;
+      return remoteLatest.toUtc().isAfter(cursor.toUtc());
+    }
 
     Future<void> runStage(
       String id,
@@ -679,20 +702,60 @@ class SupabaseService {
       String label,
       Future<void> Function(CloudSyncDirection stageDirection) action,
     ) async {
-      int? dirtyGeneration;
-      if (direction == CloudSyncDirection.uploadOnly) {
-        dirtyGeneration = await _db.getSyncDirtyStageGeneration(id);
-        if (dirtyGeneration == null) {
+      final dirtyGeneration = direction.shouldUpload
+          ? await _db.getSyncDirtyStageGeneration(id)
+          : null;
+      final needsRemotePull = await remoteStageNeedsPull(id);
+
+      if (direction == CloudSyncDirection.uploadOnly &&
+          dirtyGeneration == null) {
+        await runStage(id, label, () async {
+          AppLogger.info('stage_skipped_clean', source: 'supabase.sync.$id');
+        });
+        return;
+      }
+
+      CloudSyncDirection stageDirection = direction;
+      if (direction == CloudSyncDirection.bidirectional) {
+        if (dirtyGeneration == null && !needsRemotePull) {
           await runStage(id, label, () async {
-            AppLogger.info('stage_skipped_clean', source: 'supabase.sync.$id');
+            AppLogger.info(
+              'stage_skipped_no_delta',
+              source: 'supabase.sync.$id',
+            );
           });
           return;
         }
+        if (dirtyGeneration == null) {
+          stageDirection = CloudSyncDirection.downloadOnly;
+        } else if (!needsRemotePull) {
+          stageDirection = CloudSyncDirection.uploadOnly;
+        }
+      } else if (direction == CloudSyncDirection.downloadOnly &&
+          !needsRemotePull) {
+        await runStage(id, label, () async {
+          AppLogger.info(
+            'stage_skipped_no_delta',
+            source: 'supabase.sync.$id',
+          );
+        });
+        return;
       }
 
-      await runStage(id, label, () => action(direction));
-      if (direction == CloudSyncDirection.uploadOnly &&
-          dirtyGeneration != null) {
+      await runStage(id, label, () => action(stageDirection));
+      if (stageDirection.shouldDownload &&
+          remoteWatermarks.containsKey(id) &&
+          remoteWatermarks[id] != null &&
+          activeCenterId != null &&
+          activeHalaqahId != null) {
+        await _advanceCloudPullCursorTo(
+          id,
+          activeCenterId,
+          activeHalaqahId,
+          remoteWatermarks[id]!,
+        );
+      }
+      if (dirtyGeneration != null) {
         await _db.acknowledgeSyncDirtyStage(id, dirtyGeneration);
       }
     }
@@ -703,21 +766,15 @@ class SupabaseService {
       Future<void> Function() action,
     ) async {
       if (!direction.shouldUpload) return;
-      int? dirtyGeneration;
-      if (direction == CloudSyncDirection.uploadOnly) {
-        dirtyGeneration = await _db.getSyncDirtyStageGeneration(id);
-        if (dirtyGeneration == null) {
-          await runStage(id, label, () async {
-            AppLogger.info('stage_skipped_clean', source: 'supabase.sync.$id');
-          });
-          return;
-        }
+      final dirtyGeneration = await _db.getSyncDirtyStageGeneration(id);
+      if (dirtyGeneration == null) {
+        await runStage(id, label, () async {
+          AppLogger.info('stage_skipped_clean', source: 'supabase.sync.$id');
+        });
+        return;
       }
       await runStage(id, label, action);
-      if (direction == CloudSyncDirection.uploadOnly &&
-          dirtyGeneration != null) {
-        await _db.acknowledgeSyncDirtyStage(id, dirtyGeneration);
-      }
+      await _db.acknowledgeSyncDirtyStage(id, dirtyGeneration);
     }
 
     syncProgress.value = CloudSyncProgress(
@@ -729,16 +786,26 @@ class SupabaseService {
     );
 
     try {
-      await runStage('connection', 'فحص الاتصال بالسحابة', () async {
-        await _ensureCloudReachable();
-      });
-
       late final _CloudSyncScope scope;
       await runStage('scope', 'تحديد المركز والحلقة', () async {
         scope = await _resolveSyncScope();
       });
       final centerId = scope.centerId;
       final halaqahId = scope.halaqahId;
+      activeCenterId = centerId;
+      activeHalaqahId = halaqahId;
+
+      // The watermark RPC is also the synchronization connectivity probe. The
+      // previous DNS + unauthenticated HTTP probe added a complete extra
+      // round-trip before every real sync request (and auto-sync already owns
+      // its own network diagnostic). Upload-only with no dirty domains can now
+      // finish without touching the network at all.
+      await runStage('connection', 'فحص التغييرات السحابية', () async {
+        if (!direction.shouldDownload) return;
+        final watermarks = await _fetchSyncWatermarks(centerId, halaqahId);
+        remoteWatermarks = watermarks.stages;
+        remoteTombstoneMaxId = watermarks.tombstoneMaxId;
+      });
 
       if (direction.shouldDownload) {
         await runStage(
@@ -756,7 +823,11 @@ class SupabaseService {
       // a stale offline device from resurrecting a record deleted elsewhere.
       if (direction.shouldDownload) {
         await runStage('tombstones', 'مزامنة الحذف القادم من السحابة', () async {
-          await _syncCloudTombstones(centerId, halaqahId);
+          await _syncCloudTombstones(
+            centerId,
+            halaqahId,
+            remoteMaxId: remoteTombstoneMaxId,
+          );
         });
       }
       if (direction.shouldUpload) {
@@ -1403,10 +1474,18 @@ class SupabaseService {
 
   Future<void> _syncCloudTombstones(
     String centerId,
-    String halaqahId,
-  ) async {
+    String halaqahId, {
+    int? remoteMaxId,
+  }) async {
     final cursorKey = 'cloud_tombstone_cursor_${centerId}_$halaqahId';
     var cursor = int.tryParse(await _db.getSetting(cursorKey) ?? '') ?? 0;
+    if (remoteMaxId != null && remoteMaxId <= cursor) {
+      AppLogger.info(
+        'stage_skipped_no_delta',
+        source: 'supabase.sync.tombstones',
+      );
+      return;
+    }
     const pageSize = 500;
 
     while (true) {
@@ -1533,22 +1612,23 @@ class SupabaseService {
             .from('families')
             .select()
             .eq('halaqa_id', halaqId);
-        await _db.upsertFamiliesFromSync(
-          (remoteFamilies as List<dynamic>).map(
-            (remote) => Family.fromMap(Map<String, dynamic>.from(remote)),
-          ),
-        );
-
         final remoteGuardians = await client
             .from('family_guardians')
             .select()
             .eq('halaqa_id', halaqId);
-        await _db.upsertFamilyGuardiansFromSync(
-          (remoteGuardians as List<dynamic>).map(
-            (remote) =>
-                FamilyGuardian.fromMap(Map<String, dynamic>.from(remote)),
-          ),
-        );
+        await _db.runAsCloudReplay(() async {
+          await _db.upsertFamiliesFromSync(
+            (remoteFamilies as List<dynamic>).map(
+              (remote) => Family.fromMap(Map<String, dynamic>.from(remote)),
+            ),
+          );
+          await _db.upsertFamilyGuardiansFromSync(
+            (remoteGuardians as List<dynamic>).map(
+              (remote) =>
+                  FamilyGuardian.fromMap(Map<String, dynamic>.from(remote)),
+            ),
+          );
+        });
       }
     } on PostgrestException catch (error) {
       if (error.code == 'PGRST205' ||
@@ -1689,7 +1769,9 @@ class SupabaseService {
 
       mergedStudents.add(localStudent);
     }
-    await _db.upsertStudentsFromSync(mergedStudents);
+    await _db.runAsCloudReplay(
+      () => _db.upsertStudentsFromSync(mergedStudents),
+    );
   }
 
   Future<void> _upsertStudentsWithSchemaCompatibility(
@@ -1753,36 +1835,39 @@ class SupabaseService {
         table: 'homework_grades',
         settingKey: 'deleted_homework_grade_ids',
       );
-    }
-    final beforeResponse = await client
-        .from('homework_grades')
-        .select()
-        .eq('halaqa_id', halaqahId);
-    final beforeRows = List<Map<String, dynamic>>.from(
-      beforeResponse as List<dynamic>,
-    );
-    final deletedIds = beforeRows
-        .where((row) => row['deleted_at'] != null)
-        .map((row) => row['id'].toString())
-        .toSet();
-    if (direction.shouldDownload) {
-      for (final id in deletedIds) {
-        await _db.deleteHomeworkGrade(id);
+
+      final uploadSince = await _localUploadSince(
+        'homework',
+        centerId,
+        halaqahId,
+      );
+      final localRows = await _db.getHomeworkGradesUpdatedSince(uploadSince);
+      final remoteById = <String, Map<String, dynamic>>{};
+      final localIds = localRows.map((row) => row.id).toList(growable: false);
+      for (final idChunk in _chunks(localIds, 200)) {
+        final response = await client
+            .from('homework_grades')
+            .select('id,updated_at,created_at,deleted_at')
+            .eq('center_id', centerId)
+            .eq('halaqa_id', halaqahId)
+            .inFilter('id', idChunk);
+        for (final row in _remoteMapRows(response)) {
+          final id = row['id']?.toString();
+          if (id != null && id.isNotEmpty) remoteById[id] = row;
+        }
       }
-    }
 
-    final remoteActive = <String, HomeworkGrade>{};
-    for (final row in beforeRows.where((row) => row['deleted_at'] == null)) {
-      final grade = _homeworkGradeFromRemote(row);
-      remoteActive[grade.id] = grade;
-    }
-
-    if (direction.shouldUpload) {
       final payload = <Map<String, dynamic>>[];
-      for (final grade in await _db.getAllHomeworkGrades()) {
-        if (deletedIds.contains(grade.id)) continue;
-        final remote = remoteActive[grade.id];
-        if (remote != null && !grade.updatedAt.isAfter(remote.updatedAt)) {
+      for (final grade in localRows) {
+        final remote = remoteById[grade.id];
+        if (remote?['deleted_at'] != null) continue;
+        final remoteUpdatedAt = remote == null
+            ? null
+            : _remoteDateTimeOrEpoch(
+                remote['updated_at'] ?? remote['created_at'],
+              );
+        if (remoteUpdatedAt != null &&
+            !grade.updatedAt.toUtc().isAfter(remoteUpdatedAt.toUtc())) {
           continue;
         }
         payload.add({
@@ -1798,30 +1883,57 @@ class SupabaseService {
           'mistakes_count': grade.mistakesCount,
           'is_revision': grade.isRevision,
           'remark': grade.remark,
-          'created_at': grade.createdAt.toIso8601String(),
-          'updated_at': grade.updatedAt.toIso8601String(),
+          'created_at': grade.createdAt.toUtc().toIso8601String(),
+          'updated_at': grade.updatedAt.toUtc().toIso8601String(),
         });
       }
       for (var i = 0; i < payload.length; i += 500) {
         final end = i + 500 > payload.length ? payload.length : i + 500;
         await client.from('homework_grades').upsert(payload.sublist(i, end));
       }
+      await _advanceLocalUploadCursor(
+        'homework',
+        centerId,
+        halaqahId,
+        localRows.map((row) => row.updatedAt),
+      );
     }
 
     if (!direction.shouldDownload) return;
-    final finalResponse = await client
+    final since = await _cloudPullSince('homework', centerId, halaqahId);
+    dynamic query = client
         .from('homework_grades')
         .select()
+        .eq('center_id', centerId)
         .eq('halaqa_id', halaqahId);
-    for (final row in List<Map<String, dynamic>>.from(
-      finalResponse as List<dynamic>,
-    )) {
+    if (since != null) {
+      query = query.gte('updated_at', since.toIso8601String());
+    }
+    final response = await query.order('updated_at');
+    final remoteRows = _remoteMapRows(response);
+    if (remoteRows.isEmpty) return;
+
+    final deletedIds = <String>[];
+    final grades = <HomeworkGrade>[];
+    for (final row in remoteRows) {
+      final id = row['id']?.toString() ?? '';
+      if (id.isEmpty) continue;
       if (row['deleted_at'] != null) {
-        await _db.deleteHomeworkGrade(row['id'].toString());
+        deletedIds.add(id);
       } else {
-        await _db.insertHomeworkGrade(_homeworkGradeFromRemote(row));
+        grades.add(_homeworkGradeFromRemote(row));
       }
     }
+    await _db.runAsCloudReplay(() async {
+      await _db.deleteHomeworkGradesFromSync(deletedIds);
+      await _db.upsertHomeworkGradesFromSync(grades);
+    });
+    await _advanceCloudPullCursor(
+      'homework',
+      centerId,
+      halaqahId,
+      remoteRows,
+    );
   }
 
   HomeworkGrade _homeworkGradeFromRemote(Map<String, dynamic> remote) {
@@ -1858,30 +1970,43 @@ class SupabaseService {
         final deletedKeys = <String>[];
         try {
           final decoded = jsonDecode(deletedRaw);
-          if (decoded is List) deletedKeys.addAll(decoded.map((item) => item.toString()));
+          if (decoded is List) {
+            deletedKeys.addAll(decoded.map((item) => item.toString()));
+          }
         } catch (_) {}
-        for (final key in deletedKeys) {
-          final separator = key.lastIndexOf('|');
-          if (separator <= 0) continue;
-          final studentId = key.substring(0, separator);
-          final date = key.substring(separator + 1);
-          await client
-              .from('attendance')
-              .delete()
-              .eq('center_id', centerId)
-              .eq('student_id', studentId)
-              .eq('date', date);
+        // Legacy keys are grouped into short OR batches instead of one network
+        // round trip per deleted day.
+        for (final chunk in _chunks(deletedKeys, 40)) {
+          final filters = <String>[];
+          for (final key in chunk) {
+            final separator = key.lastIndexOf('|');
+            if (separator <= 0) continue;
+            final studentId = key.substring(0, separator);
+            final date = key.substring(separator + 1);
+            filters.add('and(student_id.eq.$studentId,date.eq.$date)');
+          }
+          if (filters.isNotEmpty) {
+            await client
+                .from('attendance')
+                .delete()
+                .eq('center_id', centerId)
+                .eq('halaqa_id', halaqahId)
+                .or(filters.join(','));
+          }
         }
         await _db.saveSetting('deleted_attendance_keys', '[]');
       }
 
-      final localRecords = await _db.getAllDailyRecords();
-      final List<Map<String, dynamic>> attendancePayload = [];
+      final uploadSince = await _localUploadSince(
+        'attendance',
+        centerId,
+        halaqahId,
+      );
+      final localRecords = await _db.getDailyRecordsUpdatedSince(uploadSince);
+      final attendancePayload = <Map<String, dynamic>>[];
       for (final record in localRecords) {
         final date = record.date.toIso8601String().split('T')[0];
-        final uniqueId = '${record.studentId}_$date';
         attendancePayload.add({
-          'id': remoteUUID(uniqueId),
           'student_id': record.studentId,
           'center_id': centerId,
           'halaqa_id': halaqahId,
@@ -1896,6 +2021,7 @@ class SupabaseService {
           'talaqqin_done': record.talaqqinDone,
           'talaqqin_amount': record.talaqqinAmount,
           'talaqqin_note': record.talaqqinNote,
+          'updated_at': record.updatedAt.toUtc().toIso8601String(),
         });
       }
       for (var i = 0; i < attendancePayload.length; i += 500) {
@@ -1907,18 +2033,28 @@ class SupabaseService {
         );
         await _upsertAttendanceWithSchemaCompatibility(chunk);
       }
+      await _advanceLocalUploadCursor(
+        'attendance',
+        centerId,
+        halaqahId,
+        localRecords.map((record) => record.updatedAt),
+      );
     }
 
     if (!direction.shouldDownload) return;
     final scopedStudentIds = await _fetchHalaqahStudentIds(halaqahId);
     if (scopedStudentIds.isEmpty) return;
-    final response = await client
+    final since = await _cloudPullSince('attendance', centerId, halaqahId);
+    dynamic query = client
         .from('attendance')
         .select()
-        .eq('center_id', centerId);
-
-    final remoteAttendance = (response as List<dynamic>)
-        .map((raw) => Map<String, dynamic>.from(raw as Map))
+        .eq('center_id', centerId)
+        .eq('halaqa_id', halaqahId);
+    if (since != null) {
+      query = query.gte('updated_at', since.toIso8601String());
+    }
+    final response = await query.order('updated_at');
+    final remoteAttendance = _remoteMapRows(response)
         .where(
           (row) => scopedStudentIds.contains(row['student_id']?.toString()),
         )
@@ -1935,9 +2071,6 @@ class SupabaseService {
       if (date.isAfter(maxDate)) maxDate = date;
     }
 
-    // One indexed local read + one SQLite batch replaces a query/write pair for
-    // every remote attendance row. This is especially noticeable on long-lived
-    // halaqah databases during a full cloud pull.
     final existingRows = await _db.getDailyRecordsInRange(minDate, maxDate);
     final existingByStudentDate = <String, DailyRecord>{
       for (final record in existingRows)
@@ -1949,9 +2082,14 @@ class SupabaseService {
     for (final remote in remoteAttendance) {
       final remoteDate = DateTime.parse(remote['date'].toString());
       final studentId = remote['student_id'].toString();
-      final key =
-          '$studentId|${remoteDate.toIso8601String().split('T').first}';
+      final key = '$studentId|${remoteDate.toIso8601String().split('T').first}';
       final existing = existingByStudentDate[key];
+      final remoteUpdatedAt = _remoteDateTimeOrEpoch(
+        remote['updated_at'] ?? remote['created_at'],
+      );
+      if (existing != null && !remoteUpdatedAt.isAfter(existing.updatedAt)) {
+        continue;
+      }
       final hasActivityFields = remote.containsKey('activity_type') ||
           remote.containsKey('activity_note') ||
           remote.containsKey('recitation_exempt');
@@ -1965,9 +2103,7 @@ class SupabaseService {
           date: remoteDate,
           attendance: remote['status'] ?? 'absent',
           arrivalTime: remote['arrival_time'] != null
-              ? DateTime.parse(
-                  '${remote['date']}T${remote['arrival_time']}',
-                )
+              ? DateTime.parse('${remote['date']}T${remote['arrival_time']}')
               : null,
           absenceReason: remote['absence_reason'],
           absenceNote: existing?.absenceNote,
@@ -1997,11 +2133,20 @@ class SupabaseService {
               ? remote['talaqqin_note']
               : existing?.talaqqinNote,
           createdAt: existing?.createdAt,
+          updatedAt: remoteUpdatedAt,
         ),
       );
     }
 
-    await _db.saveDailyRecords(pending);
+    if (pending.isNotEmpty) {
+      await _db.runAsCloudReplay(() => _db.saveDailyRecords(pending));
+    }
+    await _advanceCloudPullCursor(
+      'attendance',
+      centerId,
+      halaqahId,
+      remoteAttendance,
+    );
   }
 
   Future<void> _upsertAttendanceWithSchemaCompatibility(
@@ -2049,7 +2194,11 @@ class SupabaseService {
     }
 
     final legacyRows = withoutP122
-        .map((row) => Map<String, dynamic>.from(row)..remove('halaqa_id'))
+        .map(
+          (row) => Map<String, dynamic>.from(row)
+            ..remove('halaqa_id')
+            ..remove('updated_at'),
+        )
         .toList();
     await upsertRows(legacyRows);
   }
@@ -2091,7 +2240,7 @@ class SupabaseService {
   ) async {
     if (direction.shouldUpload) {
       final localProgressList = await _db.getAllMushafProgress();
-      final List<Map<String, dynamic>> mushafPayload = [];
+      final mushafPayload = <Map<String, dynamic>>[];
       for (final progress in localProgressList) {
         final uniqueId =
             '${progress.studentId}_${progress.hizbNumber}_${progress.thumunNumber}';
@@ -2112,9 +2261,6 @@ class SupabaseService {
           i,
           i + 500 > mushafPayload.length ? mushafPayload.length : i + 500,
         );
-        // The mobile id is deterministic for student+hizb+thumun, so the
-        // primary key is sufficient for an idempotent upsert. Do not require a
-        // composite UNIQUE constraint just to make mobile synchronization work.
         await client.from('mushaf_progress').upsert(chunk);
       }
     }
@@ -2122,31 +2268,52 @@ class SupabaseService {
     if (!direction.shouldDownload) return;
     final scopedStudentIds = await _fetchHalaqahStudentIds(halaqahId);
     if (scopedStudentIds.isEmpty) return;
-    final response = await client
-        .from('mushaf_progress')
-        .select()
-        .eq('center_id', centerId);
-
-    final List<dynamic> remoteProgressList = response as List<dynamic>;
-
-    for (final remote in remoteProgressList) {
-      if (!scopedStudentIds.contains(remote['student_id']?.toString())) {
-        continue;
+    final since = await _cloudPullSince('mushaf', centerId, halaqahId);
+    final remoteRows = <Map<String, dynamic>>[];
+    final studentIds = scopedStudentIds.toList(growable: false);
+    for (final studentChunk in _chunks(studentIds, 100)) {
+      dynamic query = client
+          .from('mushaf_progress')
+          .select()
+          .eq('center_id', centerId)
+          .inFilter('student_id', studentChunk);
+      if (since != null) {
+        query = query.gte('updated_at', since.toIso8601String());
       }
-      final localProgress = MushafProgress(
-        id: remote['id'],
-        studentId: remote['student_id'],
-        hizbNumber: remote['hizb_number'],
-        thumunNumber: remote['thumun_number'],
-        averageGrade: (remote['average_grade'] ?? 0.0).toDouble(),
-        lastGradedDate: remote['last_graded_date'] != null
-            ? DateTime.parse(remote['last_graded_date'])
-            : null,
-        isPreMemorized: remote['is_pre_memorized'] ?? false,
-      );
-
-      await _db.insertOrUpdateMushafProgress(localProgress);
+      remoteRows.addAll(_remoteMapRows(await query.order('updated_at')));
     }
+    if (remoteRows.isEmpty) return;
+
+    final progressRows = <MushafProgress>[];
+    for (final remote in remoteRows) {
+      final studentId = remote['student_id']?.toString();
+      if (studentId == null || !scopedStudentIds.contains(studentId)) continue;
+      progressRows.add(
+        MushafProgress(
+          id: remote['id']?.toString(),
+          studentId: studentId,
+          hizbNumber: (remote['hizb_number'] as num?)?.toInt() ?? 1,
+          thumunNumber: (remote['thumun_number'] as num?)?.toInt() ?? 1,
+          averageGrade: (remote['average_grade'] as num?)?.toDouble() ?? 0.0,
+          lastGradedDate: DateTime.tryParse(
+            remote['last_graded_date']?.toString() ?? '',
+          ),
+          isPreMemorized: remote['is_pre_memorized'] == true ||
+              remote['is_pre_memorized'] == 1,
+        ),
+      );
+    }
+    if (progressRows.isNotEmpty) {
+      await _db.runAsCloudReplay(
+        () => _db.upsertMushafProgressFromSync(progressRows),
+      );
+    }
+    await _advanceCloudPullCursor(
+      'mushaf',
+      centerId,
+      halaqahId,
+      remoteRows,
+    );
   }
 
   // Fetch all centers associated with the current user
@@ -2320,7 +2487,7 @@ class SupabaseService {
     }
 
     if (!direction.shouldDownload) return;
-    await _db.replaceStudySuspensions(mergedRemoteState);
+    await _db.replaceStudySuspensionsFromSync(mergedRemoteState);
     await _db.saveSetting(
       _studySuspensionFingerprintKey,
       _studySuspensionFingerprint(mergedRemoteState),
@@ -2385,46 +2552,41 @@ class SupabaseService {
       );
     }
 
-    final beforeResponse = await client
-        .from('memorization')
-        .select()
-        .eq('center_id', centerId)
-        .eq('halaqa_id', halaqahId);
-    final beforeRows = _remoteMapRows(beforeResponse);
-    final deletedIds = beforeRows
-        .where((row) => row['deleted_at'] != null)
-        .map((row) => row['id']?.toString() ?? '')
-        .where((id) => id.isNotEmpty)
-        .toSet();
-    final affectedStudents = <String>{};
-
-    if (direction.shouldDownload) {
-      for (final id in deletedIds) {
-        final studentId = await _db.deleteMemorizationProgressFromSync(id);
-        if (studentId != null) affectedStudents.add(studentId);
-      }
-    }
-
-    // Upload-only recovery must not depend on decoding every historical cloud
-    // memorization row. Older schemas allowed nullable range fields, and one
-    // malformed legacy row previously aborted the whole upload with an
-    // ArgumentError before the valid local backup could repair the cloud.
-    final remoteUpdatedAtById = <String, DateTime>{};
-    for (final row in beforeRows.where((row) => row['deleted_at'] == null)) {
-      final id = row['id']?.toString() ?? '';
-      if (id.isEmpty) continue;
-      remoteUpdatedAtById[id] = _remoteDateTimeOrEpoch(
-        row['updated_at'] ?? row['created_at'],
-      );
-    }
-
     if (direction.shouldUpload) {
+      final uploadSince = await _localUploadSince(
+        'memorization',
+        centerId,
+        halaqahId,
+      );
+      final localRows =
+          await _db.getMemorizationProgressUpdatedSince(uploadSince);
+      final remoteById = <String, Map<String, dynamic>>{};
+      final localIds = localRows.map((row) => row.id).toList(growable: false);
+      for (final idChunk in _chunks(localIds, 200)) {
+        if (idChunk.isEmpty) continue;
+        final response = await client
+            .from('memorization')
+            .select('id,updated_at,created_at,deleted_at')
+            .eq('center_id', centerId)
+            .eq('halaqa_id', halaqahId)
+            .inFilter('id', idChunk);
+        for (final row in _remoteMapRows(response)) {
+          final id = row['id']?.toString();
+          if (id != null && id.isNotEmpty) remoteById[id] = row;
+        }
+      }
+
       final payload = <Map<String, dynamic>>[];
-      for (final progress in await _db.getAllMemorizationProgress()) {
-        if (deletedIds.contains(progress.id)) continue;
-        final remoteUpdatedAt = remoteUpdatedAtById[progress.id];
+      for (final progress in localRows) {
+        final remote = remoteById[progress.id];
+        if (remote?['deleted_at'] != null) continue;
+        final remoteUpdatedAt = remote == null
+            ? null
+            : _remoteDateTimeOrEpoch(
+                remote['updated_at'] ?? remote['created_at'],
+              );
         if (remoteUpdatedAt != null &&
-            !progress.updatedAt.isAfter(remoteUpdatedAt)) {
+            !progress.updatedAt.toUtc().isAfter(remoteUpdatedAt.toUtc())) {
           continue;
         }
         payload.add({
@@ -2439,39 +2601,62 @@ class SupabaseService {
           'session_type': progress.isRevision ? 'review' : 'new',
           'date': progress.date.toIso8601String().split('T')[0],
           'notes': progress.notes,
-          'created_at': progress.createdAt.toIso8601String(),
-          'updated_at': progress.updatedAt.toIso8601String(),
+          'created_at': progress.createdAt.toUtc().toIso8601String(),
+          'updated_at': progress.updatedAt.toUtc().toIso8601String(),
         });
       }
-      for (var i = 0; i < payload.length; i += 100) {
-        final end = i + 100 > payload.length ? payload.length : i + 100;
+      for (var i = 0; i < payload.length; i += 500) {
+        final end = i + 500 > payload.length ? payload.length : i + 500;
         await client.from('memorization').upsert(payload.sublist(i, end));
       }
+      await _advanceLocalUploadCursor(
+        'memorization',
+        centerId,
+        halaqahId,
+        localRows.map((row) => row.updatedAt),
+      );
     }
 
     if (!direction.shouldDownload) return;
 
-    final finalResponse = await client
+    final since = await _cloudPullSince('memorization', centerId, halaqahId);
+    dynamic query = client
         .from('memorization')
         .select()
         .eq('center_id', centerId)
         .eq('halaqa_id', halaqahId);
+    if (since != null) {
+      query = query.gte('updated_at', since.toIso8601String());
+    }
+    final response = await query.order('updated_at');
+    final remoteRows = _remoteMapRows(response);
+    if (remoteRows.isEmpty) return;
+
+    final localById = <String, MemorizationProgress>{
+      for (final row in await _db.getAllMemorizationProgress()) row.id: row,
+    };
+    final validRows = <MemorizationProgress>[];
+    final deletedIds = <String>[];
     var skippedMalformedRows = 0;
-    for (final row in _remoteMapRows(finalResponse)) {
+
+    for (final row in remoteRows) {
+      final id = row['id']?.toString() ?? '';
+      if (id.isEmpty) {
+        skippedMalformedRows++;
+        continue;
+      }
       if (row['deleted_at'] != null) {
-        final id = row['id']?.toString() ?? '';
-        if (id.isEmpty) {
-          skippedMalformedRows++;
-          continue;
-        }
-        final studentId = await _db.deleteMemorizationProgressFromSync(id);
-        if (studentId != null) affectedStudents.add(studentId);
+        deletedIds.add(id);
         continue;
       }
       try {
         final progress = _memorizationProgressFromRemote(row);
-        await _db.upsertMemorizationProgressFromSync(progress);
-        affectedStudents.add(progress.studentId);
+        final existing = localById[progress.id];
+        if (existing != null &&
+            !progress.updatedAt.toUtc().isAfter(existing.updatedAt.toUtc())) {
+          continue;
+        }
+        validRows.add(progress);
       } on Object catch (error) {
         if (!_isMalformedRemoteMemorizationError(error)) rethrow;
         skippedMalformedRows++;
@@ -2481,9 +2666,27 @@ class SupabaseService {
         );
       }
     }
+
+    final affectedStudents = <String>{};
+    await _db.runAsCloudReplay(() async {
+      for (final id in deletedIds) {
+        final studentId = await _db.deleteMemorizationProgressFromSync(id);
+        if (studentId != null) affectedStudents.add(studentId);
+      }
+      affectedStudents.addAll(
+        await _db.upsertMemorizationProgressBatchFromSync(validRows),
+      );
+    });
+
     await _db.saveSetting(
       'last_cloud_memorization_skipped_count',
       skippedMalformedRows.toString(),
+    );
+    await _advanceCloudPullCursor(
+      'memorization',
+      centerId,
+      halaqahId,
+      remoteRows,
     );
     for (final studentId in affectedStudents) {
       await _mushaf.rebuildStudentProgress(studentId);
@@ -2503,9 +2706,171 @@ class SupabaseService {
       error is FormatException ||
       error is TypeError;
 
+  Future<_CloudSyncWatermarks> _fetchSyncWatermarks(
+    String centerId,
+    String halaqahId,
+  ) async {
+    try {
+      final response = await client.rpc(
+        'get_halaqah_sync_watermarks',
+        params: {
+          'p_center_id': centerId,
+          'p_halaqa_id': halaqahId,
+        },
+      );
+      if (response is! Map) return const _CloudSyncWatermarks();
+      final raw = Map<String, dynamic>.from(response);
+      final stages = <String, DateTime?>{};
+      const stageIds = <String>[
+        'families',
+        'students',
+        'homework',
+        'attendance',
+        'study_suspensions',
+        'memorization',
+        'mushaf',
+        'points',
+        'achievements',
+        'vacations',
+        'exam_templates',
+        'exams',
+        'notifications',
+        'fund',
+        'student_holds',
+        'talaqqin',
+        'admin_actions',
+        'plans',
+        'courses',
+        'plan_recitation',
+      ];
+      for (final stageId in stageIds) {
+        if (!raw.containsKey(stageId)) continue;
+        final value = raw[stageId];
+        stages[stageId] = value == null
+            ? null
+            : DateTime.tryParse(value.toString())?.toUtc();
+      }
+      final rawTombstoneId = raw['tombstone_max_id'];
+      final tombstoneMaxId = rawTombstoneId is num
+          ? rawTombstoneId.toInt()
+          : int.tryParse(rawTombstoneId?.toString() ?? '');
+      return _CloudSyncWatermarks(
+        stages: stages,
+        tombstoneMaxId: tombstoneMaxId,
+      );
+    } on PostgrestException catch (error) {
+      final message = error.message.toLowerCase();
+      if (error.code == 'PGRST202' ||
+          error.code == '42883' ||
+          message.contains('get_halaqah_sync_watermarks')) {
+        // Compatibility with a cloud that has not received Build 84 yet:
+        // unknown watermarks deliberately fall back to the safe full-pull path.
+        AppLogger.warning(
+          'watermark_contract_missing',
+          source: 'supabase.sync.watermarks',
+        );
+        return const _CloudSyncWatermarks();
+      }
+      rethrow;
+    }
+  }
+
   DateTime _remoteDateTimeOrEpoch(dynamic value) =>
       DateTime.tryParse(value?.toString() ?? '') ??
       DateTime.fromMillisecondsSinceEpoch(0, isUtc: true);
+
+  String _cloudPullCursorKey(
+    String stageId,
+    String centerId,
+    String halaqahId,
+  ) =>
+      'cloud_pull_cursor_v1_${stageId}_${centerId}_$halaqahId';
+
+  Future<DateTime?> _cloudPullSince(
+    String stageId,
+    String centerId,
+    String halaqahId,
+  ) async {
+    final raw = await _db.getSetting(
+      _cloudPullCursorKey(stageId, centerId, halaqahId),
+    );
+    final parsed = DateTime.tryParse(raw ?? '');
+    if (parsed == null) return null;
+    // Rewind slightly so equal/near-equal server timestamps cannot create a
+    // lost update at the cursor boundary. Replaying five seconds is cheap and
+    // all cloud-pull writes are idempotent.
+    return parsed.toUtc().subtract(const Duration(seconds: 5));
+  }
+
+  Future<void> _advanceCloudPullCursor(
+    String stageId,
+    String centerId,
+    String halaqahId,
+    Iterable<Map<String, dynamic>> rows,
+  ) async {
+    DateTime? latest;
+    for (final row in rows) {
+      final candidate = DateTime.tryParse(
+        (row['updated_at'] ?? row['created_at'])?.toString() ?? '',
+      );
+      if (candidate == null) continue;
+      final utc = candidate.toUtc();
+      if (latest == null || utc.isAfter(latest)) latest = utc;
+    }
+    if (latest == null) return;
+    await _advanceCloudPullCursorTo(stageId, centerId, halaqahId, latest);
+  }
+
+  Future<void> _advanceCloudPullCursorTo(
+    String stageId,
+    String centerId,
+    String halaqahId,
+    DateTime candidate,
+  ) async {
+    final key = _cloudPullCursorKey(stageId, centerId, halaqahId);
+    final current = DateTime.tryParse(await _db.getSetting(key) ?? '')?.toUtc();
+    final next = candidate.toUtc();
+    if (current != null && !next.isAfter(current)) return;
+    await _db.saveSetting(key, next.toIso8601String());
+  }
+
+  String _localUploadCursorKey(
+    String stageId,
+    String centerId,
+    String halaqahId,
+  ) =>
+      'local_upload_cursor_v1_${stageId}_${centerId}_$halaqahId';
+
+  Future<DateTime?> _localUploadSince(
+    String stageId,
+    String centerId,
+    String halaqahId,
+  ) async {
+    final raw = await _db.getSetting(
+      _localUploadCursorKey(stageId, centerId, halaqahId),
+    );
+    var parsed = DateTime.tryParse(raw ?? '');
+    parsed ??= DateTime.tryParse(await _db.getSetting('last_cloud_upload_at') ?? '');
+    return parsed?.toUtc().subtract(const Duration(seconds: 5));
+  }
+
+  Future<void> _advanceLocalUploadCursor(
+    String stageId,
+    String centerId,
+    String halaqahId,
+    Iterable<DateTime> timestamps,
+  ) async {
+    DateTime? latest;
+    for (final value in timestamps) {
+      final utc = value.toUtc();
+      if (latest == null || utc.isAfter(latest)) latest = utc;
+    }
+    if (latest == null) return;
+    await _db.saveSetting(
+      _localUploadCursorKey(stageId, centerId, halaqahId),
+      latest.toIso8601String(),
+    );
+  }
 
   int _requiredRemoteInt(Map<String, dynamic> row, String key) {
     final value = row[key];
@@ -2654,14 +3019,19 @@ class SupabaseService {
 
     if (!direction.shouldDownload) return;
     try {
-      final response = await client
+      final since = await _cloudPullSince('points', centerId, halaqahId);
+      dynamic query = client
           .from('points')
           .select()
           .eq('center_id', centerId)
           .eq('halaqa_id', halaqahId);
+      if (since != null) {
+        query = query.gte('updated_at', since.toIso8601String());
+      }
+      final response = await query.order('updated_at');
+      final remoteRows = _remoteMapRows(response);
       final points = <BehaviorPoint>[];
-      for (final dynamic raw in response as List<dynamic>) {
-        final row = Map<String, dynamic>.from(raw as Map);
+      for (final row in remoteRows) {
         final amount = (row['amount'] as num?)?.toDouble() ?? 0.0;
         points.add(
           BehaviorPoint(
@@ -2684,7 +3054,17 @@ class SupabaseService {
           ),
         );
       }
-      await _db.upsertBehaviorPointsFromSync(points);
+      if (points.isNotEmpty) {
+        await _db.runAsCloudReplay(
+          () => _db.upsertBehaviorPointsFromSync(points),
+        );
+      }
+      await _advanceCloudPullCursor(
+        'points',
+        centerId,
+        halaqahId,
+        remoteRows,
+      );
     } on PostgrestException catch (error) {
       if (_isMissingSchemaTable(error)) return;
       rethrow;
@@ -2806,7 +3186,9 @@ class SupabaseService {
             ),
           )
           .toList(growable: false);
-      await _db.upsertDailyAchievementsFromSync(achievements);
+      await _db.runAsCloudReplay(
+        () => _db.upsertDailyAchievementsFromSync(achievements),
+      );
     } on PostgrestException catch (error) {
       if (_isMissingSchemaTable(error)) return;
       rethrow;
@@ -2887,7 +3269,9 @@ class SupabaseService {
           ),
         );
       }
-      await _db.upsertVacationsFromSync(vacations);
+      await _db.runAsCloudReplay(
+        () => _db.upsertVacationsFromSync(vacations),
+      );
     } on PostgrestException catch (error) {
       if (_isMissingSchemaTable(error)) return;
       rethrow;
@@ -2951,15 +3335,17 @@ class SupabaseService {
           .from('student_holds')
           .select()
           .eq('center_id', centerId);
-      for (final dynamic raw in response as List<dynamic>) {
-        final row = Map<String, dynamic>.from(raw as Map);
-        if (!scopedStudentIds.contains(row['student_id']?.toString())) continue;
-        try {
-          await _db.saveStudentHold(StudentHold.fromMap(row));
-        } on StateError {
-          // Preserve a conflicting local hold for explicit user resolution.
+      await _db.runAsCloudReplay(() async {
+        for (final dynamic raw in response as List<dynamic>) {
+          final row = Map<String, dynamic>.from(raw as Map);
+          if (!scopedStudentIds.contains(row['student_id']?.toString())) continue;
+          try {
+            await _db.saveStudentHold(StudentHold.fromMap(row));
+          } on StateError {
+            // Preserve a conflicting local hold for explicit user resolution.
+          }
         }
-      }
+      });
     } on PostgrestException catch (error) {
       if (_isMissingSchemaTable(error)) return;
       rethrow;
@@ -3017,7 +3403,9 @@ class SupabaseService {
         if (!scopedStudentIds.contains(row['student_id']?.toString())) continue;
         records.add(TalaqqinRecord.fromMap(row));
       }
-      await _db.upsertTalaqqinRecordsFromSync(records);
+      await _db.runAsCloudReplay(
+        () => _db.upsertTalaqqinRecordsFromSync(records),
+      );
     } on PostgrestException catch (error) {
       if (error.code == '42P01' || error.code == 'PGRST205') return;
       rethrow;
@@ -3075,7 +3463,9 @@ class SupabaseService {
         if (!scopedStudentIds.contains(row['student_id']?.toString())) continue;
         actions.add(StudentAdminAction.fromMap(row));
       }
-      await _db.upsertStudentAdminActionsFromSync(actions);
+      await _db.runAsCloudReplay(
+        () => _db.upsertStudentAdminActionsFromSync(actions),
+      );
     } on PostgrestException catch (error) {
       if (error.code == '42P01' || error.code == 'PGRST205') return;
       rethrow;
@@ -3220,7 +3610,9 @@ class SupabaseService {
           ),
         );
       }
-      await _db.upsertExamsFromSync(exams);
+      await _db.runAsCloudReplay(
+        () => _db.upsertExamsFromSync(exams),
+      );
     } on PostgrestException catch (error) {
       if (_isMissingSchemaTable(error)) return;
       rethrow;
@@ -3234,11 +3626,15 @@ class SupabaseService {
   ) async {
     if (direction.shouldUpload) {
       final templates = await _db.getExamTemplates();
-      for (var i = 0; i < templates.length; i += 100) {
-        final chunk = templates.sublist(
-          i,
-          i + 100 > templates.length ? templates.length : i + 100,
-        );
+      final allQuestions = await _db.getAllExamTemplateQuestions();
+      final questionsByTemplate = <String, List<ExamTemplateQuestion>>{};
+      for (final question in allQuestions) {
+        questionsByTemplate
+            .putIfAbsent(question.templateId, () => <ExamTemplateQuestion>[])
+            .add(question);
+      }
+
+      for (final chunk in _chunks(templates, 100)) {
         final payload = chunk.map((template) => {
           'id': template.id,
           'center_id': centerId,
@@ -3249,130 +3645,165 @@ class SupabaseService {
           'category': template.category,
           'criteria_json': _decodeJsonObject(template.criteriaJson),
           'questions_count': template.questionsCount,
-          'created_at': template.createdAt.toIso8601String(),
-          'updated_at': template.updatedAt.toIso8601String(),
-        }).toList();
+          'created_at': template.createdAt.toUtc().toIso8601String(),
+          'updated_at': template.updatedAt.toUtc().toIso8601String(),
+        }).toList(growable: false);
         try {
           await client.from('exam_templates').upsert(payload);
+          final templateIds = chunk.map((template) => template.id).toList();
+          await client
+              .from('exam_questions')
+              .delete()
+              .inFilter('template_id', templateIds);
+
+          final questionsPayload = <Map<String, dynamic>>[];
+          for (final template in chunk) {
+            for (final question in
+                questionsByTemplate[template.id] ?? const <ExamTemplateQuestion>[]) {
+              questionsPayload.add({
+                'id': question.id,
+                'template_id': template.id,
+                'question_order': question.questionOrder,
+                'surah': question.surahId,
+                'to_surah': question.toSurahId,
+                'from_ayah': question.fromAyah,
+                'to_ayah': question.toAyah,
+                'question_type': question.questionType,
+                'prompt_text': question.promptText,
+                'answer_text': question.answerText,
+                'page': question.page,
+                'juz': question.juz,
+                'hizb': question.hizb,
+                'difficulty': question.difficulty,
+                'lines': question.lines,
+                'is_assessed': question.isAssessed,
+                'memorization_errors': question.memorizationErrors,
+                'tashkeel_errors': question.tashkeelErrors,
+                'recitation_errors': question.recitationErrors,
+                'prompt_count': question.promptCount,
+                'question_score': question.questionScore,
+                'created_at': question.createdAt.toUtc().toIso8601String(),
+              });
+            }
+          }
+          for (final questionsChunk in _chunks(questionsPayload, 500)) {
+            if (questionsChunk.isNotEmpty) {
+              await client.from('exam_questions').upsert(questionsChunk);
+            }
+          }
         } on PostgrestException catch (error) {
           if (_isMissingSchemaTable(error)) return;
           rethrow;
-        }
-
-        for (final template in chunk) {
-          final questions = await _db.getExamTemplateQuestions(template.id);
-          try {
-            await client
-                .from('exam_questions')
-                .delete()
-                .eq('template_id', template.id);
-          } on PostgrestException catch (error) {
-            if (_isMissingSchemaTable(error)) return;
-            rethrow;
-          }
-          if (questions.isEmpty) continue;
-          final questionsPayload = questions.map((question) => {
-            'id': question.id,
-            'template_id': template.id,
-            'question_order': question.questionOrder,
-            'surah': question.surahId,
-            'to_surah': question.toSurahId,
-            'from_ayah': question.fromAyah,
-            'to_ayah': question.toAyah,
-            'question_type': question.questionType,
-            'prompt_text': question.promptText,
-            'answer_text': question.answerText,
-            'page': question.page,
-            'juz': question.juz,
-            'hizb': question.hizb,
-            'difficulty': question.difficulty,
-            'lines': question.lines,
-            'is_assessed': question.isAssessed,
-            'memorization_errors': question.memorizationErrors,
-            'tashkeel_errors': question.tashkeelErrors,
-            'recitation_errors': question.recitationErrors,
-            'prompt_count': question.promptCount,
-            'question_score': question.questionScore,
-            'created_at': question.createdAt.toIso8601String(),
-          }).toList();
-          try {
-            await client.from('exam_questions').upsert(questionsPayload);
-          } on PostgrestException catch (error) {
-            if (_isMissingSchemaTable(error)) return;
-            rethrow;
-          }
         }
       }
     }
 
     if (!direction.shouldDownload) return;
     try {
-      final remoteTemplates = await client
+      final since = await _cloudPullSince('exam_templates', centerId, halaqahId);
+      dynamic templatesQuery = client
           .from('exam_templates')
           .select()
           .eq('center_id', centerId)
           .eq('halaqa_id', halaqahId);
-      for (final dynamic raw in remoteTemplates as List<dynamic>) {
-        final row = Map<String, dynamic>.from(raw as Map);
-        final templateId = row['id']?.toString();
-        final studentId = row['student_id']?.toString();
-        if (templateId == null || studentId == null) continue;
-        final template = ExamTemplate(
-          id: templateId,
-          studentId: studentId,
-          title: row['title']?.toString() ?? 'نموذج اختبار',
-          category: row['category']?.toString() ?? 'custom',
-          criteriaJson: jsonEncode(row['criteria_json'] ?? const <String, dynamic>{}),
-          questionsCount: (row['questions_count'] as num?)?.toInt() ?? 0,
-          createdAt: DateTime.tryParse(row['created_at']?.toString() ?? '') ??
-              DateTime.now(),
-          updatedAt: DateTime.tryParse(row['updated_at']?.toString() ?? '') ??
-              DateTime.now(),
-        );
-        final remoteQuestions = await client
+      if (since != null) {
+        templatesQuery =
+            templatesQuery.gte('updated_at', since.toIso8601String());
+      }
+      final remoteRows = _remoteMapRows(
+        await templatesQuery.order('updated_at'),
+      );
+      if (remoteRows.isEmpty) return;
+
+      final templateIds = remoteRows
+          .map((row) => row['id']?.toString())
+          .whereType<String>()
+          .where((id) => id.isNotEmpty)
+          .toList(growable: false);
+      final questionsByTemplate = <String, List<Map<String, dynamic>>>{};
+      for (final idChunk in _chunks(templateIds, 100)) {
+        final response = await client
             .from('exam_questions')
             .select()
-            .eq('template_id', templateId)
+            .inFilter('template_id', idChunk)
             .order('question_order');
-        final questions = <ExamTemplateQuestion>[];
-        for (final dynamic rawQuestion in remoteQuestions as List<dynamic>) {
-          final question = Map<String, dynamic>.from(rawQuestion as Map);
-          questions.add(
-            ExamTemplateQuestion(
-              id: question['id']?.toString(),
-              templateId: templateId,
-              questionOrder: (question['question_order'] as num?)?.toInt() ?? 0,
-              surahId: (question['surah'] as num?)?.toInt() ?? 1,
-              toSurahId: (question['to_surah'] as num?)?.toInt(),
-              fromAyah: (question['from_ayah'] as num?)?.toInt() ?? 1,
-              toAyah: (question['to_ayah'] as num?)?.toInt() ?? 1,
-              questionType: question['question_type']?.toString() ?? 'recite_from',
-              promptText: question['prompt_text']?.toString() ?? '',
-              answerText: question['answer_text']?.toString() ?? '',
-              page: (question['page'] as num?)?.toInt() ?? 0,
-              juz: (question['juz'] as num?)?.toInt() ?? 0,
-              hizb: (question['hizb'] as num?)?.toInt() ?? 0,
-              difficulty: (question['difficulty'] as num?)?.toInt() ?? 0,
-              lines: (question['lines'] as num?)?.toDouble() ?? 0,
-              isAssessed: question['is_assessed'] == true ||
-                  question['is_assessed'] == 1,
-              memorizationErrors:
-                  (question['memorization_errors'] as num?)?.toInt() ?? 0,
-              tashkeelErrors:
-                  (question['tashkeel_errors'] as num?)?.toInt() ?? 0,
-              recitationErrors:
-                  (question['recitation_errors'] as num?)?.toInt() ?? 0,
-              promptCount: (question['prompt_count'] as num?)?.toInt() ?? 0,
-              questionScore:
-                  (question['question_score'] as num?)?.toDouble() ?? 0,
-              createdAt:
-                  DateTime.tryParse(question['created_at']?.toString() ?? '') ??
-                      template.createdAt,
-            ),
-          );
+        for (final question in _remoteMapRows(response)) {
+          final templateId = question['template_id']?.toString();
+          if (templateId == null) continue;
+          questionsByTemplate
+              .putIfAbsent(templateId, () => <Map<String, dynamic>>[])
+              .add(question);
         }
-        await _db.saveExamTemplate(template, questions);
       }
+
+      await _db.runAsCloudReplay(() async {
+        for (final row in remoteRows) {
+          final templateId = row['id']?.toString();
+          final studentId = row['student_id']?.toString();
+          if (templateId == null || studentId == null) continue;
+          final template = ExamTemplate(
+            id: templateId,
+            studentId: studentId,
+            title: row['title']?.toString() ?? 'نموذج اختبار',
+            category: row['category']?.toString() ?? 'custom',
+            criteriaJson:
+                jsonEncode(row['criteria_json'] ?? const <String, dynamic>{}),
+            questionsCount: (row['questions_count'] as num?)?.toInt() ?? 0,
+            createdAt: DateTime.tryParse(row['created_at']?.toString() ?? '') ??
+                DateTime.now(),
+            updatedAt: DateTime.tryParse(row['updated_at']?.toString() ?? '') ??
+                DateTime.now(),
+          );
+          final questions = <ExamTemplateQuestion>[];
+          for (final question in
+              questionsByTemplate[templateId] ?? const <Map<String, dynamic>>[]) {
+            questions.add(
+              ExamTemplateQuestion(
+                id: question['id']?.toString(),
+                templateId: templateId,
+                questionOrder:
+                    (question['question_order'] as num?)?.toInt() ?? 0,
+                surahId: (question['surah'] as num?)?.toInt() ?? 1,
+                toSurahId: (question['to_surah'] as num?)?.toInt(),
+                fromAyah: (question['from_ayah'] as num?)?.toInt() ?? 1,
+                toAyah: (question['to_ayah'] as num?)?.toInt() ?? 1,
+                questionType:
+                    question['question_type']?.toString() ?? 'recite_from',
+                promptText: question['prompt_text']?.toString() ?? '',
+                answerText: question['answer_text']?.toString() ?? '',
+                page: (question['page'] as num?)?.toInt() ?? 0,
+                juz: (question['juz'] as num?)?.toInt() ?? 0,
+                hizb: (question['hizb'] as num?)?.toInt() ?? 0,
+                difficulty: (question['difficulty'] as num?)?.toInt() ?? 0,
+                lines: (question['lines'] as num?)?.toDouble() ?? 0,
+                isAssessed: question['is_assessed'] == true ||
+                    question['is_assessed'] == 1,
+                memorizationErrors:
+                    (question['memorization_errors'] as num?)?.toInt() ?? 0,
+                tashkeelErrors:
+                    (question['tashkeel_errors'] as num?)?.toInt() ?? 0,
+                recitationErrors:
+                    (question['recitation_errors'] as num?)?.toInt() ?? 0,
+                promptCount:
+                    (question['prompt_count'] as num?)?.toInt() ?? 0,
+                questionScore:
+                    (question['question_score'] as num?)?.toDouble() ?? 0,
+                createdAt: DateTime.tryParse(
+                      question['created_at']?.toString() ?? '',
+                    ) ??
+                    template.createdAt,
+              ),
+            );
+          }
+          await _db.saveExamTemplate(template, questions);
+        }
+      });
+      await _advanceCloudPullCursor(
+        'exam_templates',
+        centerId,
+        halaqahId,
+        remoteRows,
+      );
     } on PostgrestException catch (error) {
       if (_isMissingSchemaTable(error)) return;
       rethrow;
@@ -3504,7 +3935,9 @@ class SupabaseService {
           ),
         );
       }
-      await _db.upsertFundTransactionsFromSync(transactions);
+      await _db.runAsCloudReplay(
+        () => _db.upsertFundTransactionsFromSync(transactions),
+      );
     } on PostgrestException catch (error) {
       if (_isMissingSchemaTable(error)) return;
       rethrow;
@@ -3523,22 +3956,21 @@ class SupabaseService {
       );
     }
     final localData = await _db.getSmartPlans();
-    final response = await client
-        .from('plans')
-        .select()
-        .eq('center_id', centerId);
-    final remoteRows = (response as List<dynamic>)
-        .map((row) => row as Map<String, dynamic>)
-        .toList();
-    final scopedStudentIds = await _fetchHalaqahStudentIds(halaqahId);
-    final scopedRemoteRows = remoteRows
-        .where(
-          (row) => scopedStudentIds.contains(row['student_id']?.toString()),
-        )
-        .toList();
-    final remoteById = {
-      for (final row in scopedRemoteRows) row['id'].toString(): row,
-    };
+    var scopedRemoteRows = <Map<String, dynamic>>[];
+    var remoteById = <String, Map<String, dynamic>>{};
+    if (direction.shouldDownload) {
+      final response = await client
+          .from('plans')
+          .select()
+          .eq('center_id', centerId)
+          .eq('halaqa_id', halaqahId);
+      scopedRemoteRows = (response as List<dynamic>)
+          .map((row) => Map<String, dynamic>.from(row as Map))
+          .toList(growable: false);
+      remoteById = {
+        for (final row in scopedRemoteRows) row['id'].toString(): row,
+      };
+    }
     if (direction.shouldUpload) {
       final payload = localData.where((plan) {
         final remote = remoteById[plan.id];
@@ -3610,50 +4042,52 @@ class SupabaseService {
 
     if (!direction.shouldDownload) return;
     final localById = {for (final plan in localData) plan.id: plan};
-    for (final remote in scopedRemoteRows) {
-      final createdAt = DateTime.tryParse(
-            remote['created_at']?.toString() ?? '',
-          ) ??
-          DateTime.now();
-      final updatedAt = DateTime.tryParse(
-            remote['updated_at']?.toString() ?? '',
-          ) ??
-          createdAt;
-      final existing = localById[remote['id']];
-      if (existing != null && !updatedAt.isAfter(existing.updatedAt)) continue;
-      if (remote['deleted_at'] != null) {
-        await _db.deleteSmartPlanFromSync(remote['id']);
-        continue;
-      }
-      await _db.upsertSmartPlanFromSync(
-        SmartPlan(
-          id: remote['id'],
-          studentId: remote['student_id'],
-          period: remote['period'] ?? 'weekly',
-          startDate: DateTime.parse(remote['start_date']),
-          endDate: DateTime.parse(remote['end_date']),
-          unit: remote['unit'] ?? 'ayahs',
-          reviewUnit: remote['review_unit'] ?? remote['unit'] ?? 'ayahs',
-          newAmount: (remote['new_amount'] as num?)?.toInt() ?? 5,
-          reviewAmount: (remote['review_amount'] as num?)?.toInt() ?? 10,
-          recitationAmount:
-              (remote['recitation_amount'] as num?)?.toInt() ?? 1,
-          fridayMode: const {'catchup_recitation', 'full_plan', 'holiday'}
-                  .contains(remote['friday_mode'])
-              ? remote['friday_mode']
-              : 'catchup_recitation',
-          status: remote['status'] ?? 'active',
-          testStatus: remote['test_status'] ?? 'not_required',
-          completionExamId: remote['completion_exam_id'],
-          completedAt: DateTime.tryParse(
-            remote['completed_at']?.toString() ?? '',
+    await _db.runAsCloudReplay(() async {
+      for (final remote in scopedRemoteRows) {
+        final createdAt = DateTime.tryParse(
+              remote['created_at']?.toString() ?? '',
+            ) ??
+            DateTime.now();
+        final updatedAt = DateTime.tryParse(
+              remote['updated_at']?.toString() ?? '',
+            ) ??
+            createdAt;
+        final existing = localById[remote['id']];
+        if (existing != null && !updatedAt.isAfter(existing.updatedAt)) continue;
+        if (remote['deleted_at'] != null) {
+          await _db.deleteSmartPlanFromSync(remote['id']);
+          continue;
+        }
+        await _db.upsertSmartPlanFromSync(
+          SmartPlan(
+            id: remote['id'],
+            studentId: remote['student_id'],
+            period: remote['period'] ?? 'weekly',
+            startDate: DateTime.parse(remote['start_date']),
+            endDate: DateTime.parse(remote['end_date']),
+            unit: remote['unit'] ?? 'ayahs',
+            reviewUnit: remote['review_unit'] ?? remote['unit'] ?? 'ayahs',
+            newAmount: (remote['new_amount'] as num?)?.toInt() ?? 5,
+            reviewAmount: (remote['review_amount'] as num?)?.toInt() ?? 10,
+            recitationAmount:
+                (remote['recitation_amount'] as num?)?.toInt() ?? 1,
+            fridayMode: const {'catchup_recitation', 'full_plan', 'holiday'}
+                    .contains(remote['friday_mode'])
+                ? remote['friday_mode']
+                : 'catchup_recitation',
+            status: remote['status'] ?? 'active',
+            testStatus: remote['test_status'] ?? 'not_required',
+            completionExamId: remote['completion_exam_id'],
+            completedAt: DateTime.tryParse(
+              remote['completed_at']?.toString() ?? '',
+            ),
+            notes: remote['notes'],
+            createdAt: createdAt,
+            updatedAt: updatedAt,
           ),
-          notes: remote['notes'],
-          createdAt: createdAt,
-          updatedAt: updatedAt,
-        ),
-      );
-    }
+        );
+      }
+    });
   }
 
   Future<void> _syncQuranCourses(
@@ -3738,8 +4172,6 @@ class SupabaseService {
                 Map<String, dynamic>.from(raw as Map),
               ))
           .toList();
-      await _db.upsertQuranCoursesFromSync(remoteCourses);
-
       final enrollmentResponse = await client
           .from('quran_course_enrollments')
           .select()
@@ -3750,7 +4182,10 @@ class SupabaseService {
                 Map<String, dynamic>.from(raw as Map),
               ))
           .toList();
-      await _db.upsertQuranCourseEnrollmentsFromSync(remoteEnrollments);
+      await _db.runAsCloudReplay(() async {
+        await _db.upsertQuranCoursesFromSync(remoteCourses);
+        await _db.upsertQuranCourseEnrollmentsFromSync(remoteEnrollments);
+      });
     } on PostgrestException catch (error) {
       if (error.code == '42P01' || error.code == 'PGRST205') {
         // P1.24 migration has not been applied yet. Local courses keep working.
@@ -3774,17 +4209,20 @@ class SupabaseService {
     }
 
     final local = await _db.getAllPlanRecitationRecords();
-    final beforeResponse = await client
-        .from('plan_recitation_records')
-        .select()
-        .eq('center_id', centerId)
-        .eq('halaqa_id', halaqahId);
-    final beforeRows = List<Map<String, dynamic>>.from(
-      beforeResponse as List<dynamic>,
-    );
-    final remoteById = {
-      for (final row in beforeRows) row['id'].toString(): row,
-    };
+    var remoteById = <String, Map<String, dynamic>>{};
+    if (direction.shouldDownload) {
+      final beforeResponse = await client
+          .from('plan_recitation_records')
+          .select()
+          .eq('center_id', centerId)
+          .eq('halaqa_id', halaqahId);
+      final beforeRows = List<Map<String, dynamic>>.from(
+        beforeResponse as List<dynamic>,
+      );
+      remoteById = {
+        for (final row in beforeRows) row['id'].toString(): row,
+      };
+    }
 
     if (direction.shouldUpload) {
       final payload = local.where((record) {
@@ -3829,36 +4267,38 @@ class SupabaseService {
       finalResponse as List<dynamic>,
     );
     final finalIds = finalRows.map((row) => row['id'].toString()).toSet();
-    for (final record in local.where((item) => !finalIds.contains(item.id))) {
-      await _db.deletePlanRecitationRecordFromSync(record.id);
-    }
     final localById = {for (final record in local) record.id: record};
-    for (final row in finalRows) {
-      final createdAt =
-          DateTime.tryParse(row['created_at']?.toString() ?? '') ??
-              DateTime.now();
-      final updatedAt =
-          DateTime.tryParse(row['updated_at']?.toString() ?? '') ?? createdAt;
-      final existing = localById[row['id']?.toString()];
-      if (existing != null && !updatedAt.isAfter(existing.updatedAt)) continue;
-      await _db.upsertPlanRecitationRecordFromSync(
-        PlanRecitationRecord(
-          id: row['id']?.toString(),
-          sessionId: row['session_id']?.toString(),
-          planId: row['plan_id'].toString(),
-          studentId: row['student_id'].toString(),
-          surahId: (row['surah_id'] as num).toInt(),
-          fromAyah: (row['from_ayah'] as num).toInt(),
-          toAyah: (row['to_ayah'] as num).toInt(),
-          segmentOrder: (row['segment_order'] as num?)?.toInt() ?? 0,
-          date: DateTime.parse(row['date'].toString()),
-          qualityRating: (row['quality_rating'] as num?)?.toInt() ?? 3,
-          notes: row['notes']?.toString(),
-          createdAt: createdAt,
-          updatedAt: updatedAt,
-        ),
-      );
-    }
+    await _db.runAsCloudReplay(() async {
+      for (final record in local.where((item) => !finalIds.contains(item.id))) {
+        await _db.deletePlanRecitationRecordFromSync(record.id);
+      }
+      for (final row in finalRows) {
+        final createdAt =
+            DateTime.tryParse(row['created_at']?.toString() ?? '') ??
+                DateTime.now();
+        final updatedAt =
+            DateTime.tryParse(row['updated_at']?.toString() ?? '') ?? createdAt;
+        final existing = localById[row['id']?.toString()];
+        if (existing != null && !updatedAt.isAfter(existing.updatedAt)) continue;
+        await _db.upsertPlanRecitationRecordFromSync(
+          PlanRecitationRecord(
+            id: row['id']?.toString(),
+            sessionId: row['session_id']?.toString(),
+            planId: row['plan_id'].toString(),
+            studentId: row['student_id'].toString(),
+            surahId: (row['surah_id'] as num).toInt(),
+            fromAyah: (row['from_ayah'] as num).toInt(),
+            toAyah: (row['to_ayah'] as num).toInt(),
+            segmentOrder: (row['segment_order'] as num?)?.toInt() ?? 0,
+            date: DateTime.parse(row['date'].toString()),
+            qualityRating: (row['quality_rating'] as num?)?.toInt() ?? 3,
+            notes: row['notes']?.toString(),
+            createdAt: createdAt,
+            updatedAt: updatedAt,
+          ),
+        );
+      }
+    });
   }
 
   Future<bool> _upsertNotificationChunk(
@@ -3901,7 +4341,8 @@ class SupabaseService {
               .map(
                 (row) => Map<String, dynamic>.from(row)
                   ..remove('halaqa_id')
-                  ..remove('created_at'),
+                  ..remove('created_at')
+                  ..remove('updated_at'),
               )
               .toList(growable: false);
           await upsertRows(compatible);
@@ -3914,7 +4355,8 @@ class SupabaseService {
           .map(
             (row) => Map<String, dynamic>.from(row)
               ..remove('halaqa_id')
-              ..remove('created_at'),
+              ..remove('created_at')
+              ..remove('updated_at'),
           )
           .toList(growable: false);
       await upsertRows(compatible);
@@ -3939,12 +4381,13 @@ class SupabaseService {
         'body': notification.body,
         'read': notification.read,
         'sent_via': 'none',
-        'created_at': notification.createdAt.toIso8601String(),
+        'created_at': notification.createdAt.toUtc().toIso8601String(),
+        'updated_at': notification.createdAt.toUtc().toIso8601String(),
       }).toList(growable: false);
-      for (var i = 0; i < payload.length; i += 100) {
+      for (var i = 0; i < payload.length; i += 250) {
         final chunk = payload.sublist(
           i,
-          i + 100 > payload.length ? payload.length : i + 100,
+          i + 250 > payload.length ? payload.length : i + 250,
         );
         final tableExists = await _upsertNotificationChunk(chunk);
         if (!tableExists) return;
@@ -3955,13 +4398,19 @@ class SupabaseService {
     final scopedStudentIds = await _fetchHalaqahStudentIds(halaqahId);
     if (scopedStudentIds.isEmpty) return;
     try {
-      final response = await client
+      final since = await _cloudPullSince('notifications', centerId, halaqahId);
+      dynamic query = client
           .from('notifications')
           .select()
-          .eq('center_id', centerId);
+          .eq('center_id', centerId)
+          .eq('halaqa_id', halaqahId);
+      if (since != null) {
+        query = query.gte('updated_at', since.toIso8601String());
+      }
+      final response = await query.order('updated_at');
+      final remoteRows = _remoteMapRows(response);
       final notifications = <NotificationLog>[];
-      for (final dynamic raw in response as List<dynamic>) {
-        final row = Map<String, dynamic>.from(raw as Map);
+      for (final row in remoteRows) {
         final studentId = row['student_id']?.toString();
         if (studentId == null || !scopedStudentIds.contains(studentId)) continue;
         notifications.add(
@@ -3979,7 +4428,17 @@ class SupabaseService {
           ),
         );
       }
-      await _db.upsertNotificationsFromSync(notifications);
+      if (notifications.isNotEmpty) {
+        await _db.runAsCloudReplay(
+          () => _db.upsertNotificationsFromSync(notifications),
+        );
+      }
+      await _advanceCloudPullCursor(
+        'notifications',
+        centerId,
+        halaqahId,
+        remoteRows,
+      );
     } on PostgrestException catch (error) {
       if (_isMissingSchemaTable(error)) return;
       rethrow;

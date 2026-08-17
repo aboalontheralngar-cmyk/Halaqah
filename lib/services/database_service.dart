@@ -1867,12 +1867,14 @@ class DatabaseService {
     double effectivePlanAmount = configuredPlanAmount;
     int completionReward = configuredCompletionReward;
     int extraReward = configuredExtraReward;
+    int bonusStepPercent = RecitationPointsPolicy.defaultBonusStepPercent;
+    int maxBonusTiers = RecitationPointsPolicy.defaultMaxBonusTiers;
     String roundingMode = settings.recitationPointsRounding;
 
     if (existingRows.isNotEmpty) {
       final note = existingRows.first['notes']?.toString() ?? '';
       final snapshotMatch = RegExp(
-        r'\[rule completion=(\d+);extra=(\d+);target=([0-9.]+);unit=([a-z_]+)(?:;rounding=([a-z_]+))?\]',
+        r'\[rule completion=(\d+);extra=(\d+);target=([0-9.]+);unit=([a-z_]+)(?:;rounding=([a-z_]+))?(?:;bonusStep=(\d+);maxBonusTiers=(\d+))?\]',
       ).firstMatch(note);
       if (snapshotMatch != null) {
         completionReward = int.tryParse(snapshotMatch.group(1) ?? '') ??
@@ -1895,6 +1897,16 @@ class DatabaseService {
             storedRounding == 'ceil') {
           roundingMode = storedRounding!;
         }
+        final storedBonusStep = int.tryParse(snapshotMatch.group(6) ?? '');
+        final storedMaxBonusTiers = int.tryParse(snapshotMatch.group(7) ?? '');
+        if (storedBonusStep != null && storedMaxBonusTiers != null) {
+          bonusStepPercent = storedBonusStep;
+          maxBonusTiers = storedMaxBonusTiers;
+        } else {
+          // Historical automatic point rows used one fixed +extra reward.
+          // Preserve those days when they are recalculated after Build 84.
+          maxBonusTiers = 1;
+        }
       }
     }
 
@@ -1909,17 +1921,21 @@ class DatabaseService {
       unit: effectiveUnit,
       completionReward: completionReward,
       extraReward: extraReward,
+      bonusStepPercent: bonusStepPercent,
+      maxBonusTiers: maxBonusTiers,
       roundingMode: roundingMode,
     );
 
     final courseLabel = activeCourse == null ? '' : ' ضمن دورة ${activeCourse.title}';
     final ruleSnapshot =
         '[rule completion=$completionReward;extra=$extraReward;'
-        'target=${result.planAmount};unit=$effectiveUnit;rounding=$roundingMode]';
+        'target=${result.planAmount};unit=$effectiveUnit;rounding=$roundingMode;'
+        'bonusStep=$bonusStepPercent;maxBonusTiers=$maxBonusTiers]';
     final details =
         'المسمّع ${result.actualAmount.toStringAsFixed(2)} من '
         '${result.planAmount.toStringAsFixed(2)} $effectiveUnit$courseLabel؛ '
         '${result.completionPoints.toStringAsFixed(result.completionPoints % 1 == 0 ? 0 : 2)} نقطة بحسب إنجاز ${result.completionPercent}% من المقرر (سياسة $roundingMode) و${result.bonusPoints.toStringAsFixed(result.bonusPoints % 1 == 0 ? 0 : 2)} للزيادة الفعلية '
+        '(${result.excessPercent.toStringAsFixed(1)}%، شريحة ${result.bonusTier}/$maxBonusTiers؛ كل $bonusStepPercent%) '
         '$ruleSnapshot';
 
     await db.transaction((txn) async {
@@ -2589,6 +2605,15 @@ class DatabaseService {
     return rows.map(ExamTemplateQuestion.fromMap).toList();
   }
 
+  Future<List<ExamTemplateQuestion>> getAllExamTemplateQuestions() async {
+    final db = await database;
+    final rows = await db.query(
+      'exam_template_questions',
+      orderBy: 'template_id ASC, question_order ASC',
+    );
+    return rows.map(ExamTemplateQuestion.fromMap).toList(growable: false);
+  }
+
   Future<void> deleteExamTemplate(String templateId) async {
     final db = await database;
     final current = await getSetting('deleted_exam_template_ids');
@@ -2960,8 +2985,18 @@ class DatabaseService {
   }
 
 
-  /// Returns the current local generation for an upload domain, or null when
-  /// nothing in that domain changed since the last successful upload-only sync.
+  /// Runs local writes originating from a cloud pull without making the same
+  /// domain look like a new device-side edit. The flag is deliberately scoped
+  /// to the short SQLite transaction, never to network I/O.
+  Future<T> runAsCloudReplay<T>(Future<T> Function() action) async {
+    await saveSetting('sync_remote_write_replay', '1');
+    try {
+      return await action();
+    } finally {
+      await saveSetting('sync_remote_write_replay', '0');
+    }
+  }
+
   Future<int?> getSyncDirtyStageGeneration(String stageId) async {
     final db = await database;
     final rows = await db.query(
@@ -4496,6 +4531,35 @@ class DatabaseService {
     });
   }
 
+  Future<void> deleteHomeworkGradesFromSync(Iterable<String> ids) async {
+    final values = ids.where((id) => id.isNotEmpty).toSet().toList();
+    if (values.isEmpty) return;
+    final db = await database;
+    await db.transaction((txn) async {
+      const chunkSize = 800;
+      for (var start = 0; start < values.length; start += chunkSize) {
+        final end = (start + chunkSize < values.length)
+            ? start + chunkSize
+            : values.length;
+        final chunk = values.sublist(start, end);
+        final placeholders = List.filled(chunk.length, '?').join(',');
+        await txn.delete(
+          'homework_grades',
+          where: 'id IN ($placeholders)',
+          whereArgs: chunk,
+        );
+      }
+    });
+  }
+
+  Future<void> upsertHomeworkGradesFromSync(
+    Iterable<HomeworkGrade> grades,
+  ) =>
+      _batchUpsertMapsById(
+        'homework_grades',
+        grades.map((grade) => Map<String, dynamic>.from(grade.toMap())),
+      );
+
   Future<String?> deleteMemorizationProgressFromSync(String id) async {
     final db = await database;
     return db.transaction((txn) async {
@@ -4566,6 +4630,88 @@ class DatabaseService {
     });
   }
 
+  Future<Set<String>> upsertMemorizationProgressBatchFromSync(
+    Iterable<MemorizationProgress> progressRows,
+  ) async {
+    final rows = progressRows.toList(growable: false);
+    if (rows.isEmpty) return <String>{};
+    for (final progress in rows) {
+      _validateMemorizationRange(progress);
+    }
+
+    final db = await database;
+    return db.transaction((txn) async {
+      final affectedStudents = <String>{};
+      final affectedDays = <String, Set<DateTime>>{};
+      final previousCounts = <String, int>{};
+
+      for (final progress in rows) {
+        affectedStudents.add(progress.studentId);
+        previousCounts.putIfAbsent(
+          progress.studentId,
+          () => 0,
+        );
+      }
+      for (final studentId in affectedStudents) {
+        previousCounts[studentId] = await _countTrackedMemorized(txn, studentId);
+      }
+
+      for (final progress in rows) {
+        final existingRows = await txn.query(
+          'memorization_progress',
+          columns: const ['student_id', 'date'],
+          where: 'id = ?',
+          whereArgs: [progress.id],
+          limit: 1,
+        );
+        if (existingRows.isNotEmpty) {
+          final oldStudent = existingRows.first['student_id']?.toString();
+          final oldDate = DateTime.tryParse(existingRows.first['date']?.toString() ?? '');
+          if (oldStudent != null && oldDate != null) {
+            affectedStudents.add(oldStudent);
+            affectedDays.putIfAbsent(oldStudent, () => <DateTime>{}).add(oldDate);
+            previousCounts.putIfAbsent(
+              oldStudent,
+              () => 0,
+            );
+            if (previousCounts[oldStudent] == 0) {
+              previousCounts[oldStudent] = await _countTrackedMemorized(txn, oldStudent);
+            }
+          }
+        }
+
+        await txn.insert(
+          'memorization_progress',
+          progress.toMap(),
+          conflictAlgorithm: ConflictAlgorithm.ignore,
+        );
+        await txn.update(
+          'memorization_progress',
+          progress.toMap(),
+          where: 'id = ?',
+          whereArgs: [progress.id],
+        );
+        affectedDays
+            .putIfAbsent(progress.studentId, () => <DateTime>{})
+            .add(progress.date);
+      }
+
+      for (final entry in affectedDays.entries) {
+        for (final date in entry.value) {
+          await _recomputeRecitationState(txn, entry.key, date);
+        }
+      }
+      for (final studentId in affectedStudents) {
+        await _recomputeStudentMemorizedTotal(
+          txn,
+          studentId,
+          previousTrackedCount: previousCounts[studentId] ?? 0,
+        );
+      }
+      return affectedStudents;
+    });
+  }
+
   // MushafProgress CRUD methods
   Future<void> insertOrUpdateMushafProgress(MushafProgress progress) async {
     final db = await database;
@@ -4574,6 +4720,25 @@ class DatabaseService {
       progress.toMap(),
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
+  }
+
+  Future<void> upsertMushafProgressFromSync(
+    Iterable<MushafProgress> progressRows,
+  ) async {
+    final rows = progressRows.toList(growable: false);
+    if (rows.isEmpty) return;
+    final db = await database;
+    await db.transaction((txn) async {
+      final batch = txn.batch();
+      for (final progress in rows) {
+        batch.insert(
+          'mushaf_progress',
+          progress.toMap(),
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      }
+      await batch.commit(noResult: true);
+    });
   }
 
   Future<List<MushafProgress>> getStudentMushafProgress(String studentId) async {
@@ -4644,10 +4809,36 @@ class DatabaseService {
     return List.generate(maps.length, (i) => HomeworkGrade.fromMap(maps[i]));
   }
 
+  Future<List<HomeworkGrade>> getHomeworkGradesUpdatedSince(
+    DateTime? since,
+  ) async {
+    if (since == null) return getAllHomeworkGrades();
+    final db = await database;
+    final maps = await db.query(
+      'homework_grades',
+      where: 'updated_at > ?',
+      whereArgs: [since.toUtc().toIso8601String()],
+      orderBy: 'updated_at ASC',
+    );
+    return maps.map(HomeworkGrade.fromMap).toList(growable: false);
+  }
+
   Future<List<DailyRecord>> getAllDailyRecords() async {
     final db = await database;
     final List<Map<String, dynamic>> maps = await db.query('daily_records');
     return List.generate(maps.length, (i) => DailyRecord.fromMap(maps[i]));
+  }
+
+  Future<List<DailyRecord>> getDailyRecordsUpdatedSince(DateTime? since) async {
+    if (since == null) return getAllDailyRecords();
+    final db = await database;
+    final maps = await db.query(
+      'daily_records',
+      where: 'updated_at > ?',
+      whereArgs: [since.toUtc().toIso8601String()],
+      orderBy: 'updated_at ASC',
+    );
+    return maps.map(DailyRecord.fromMap).toList(growable: false);
   }
 
   Future<List<MushafProgress>> getAllMushafProgress() async {
@@ -4660,6 +4851,20 @@ class DatabaseService {
     final db = await database;
     final List<Map<String, dynamic>> maps = await db.query('memorization_progress');
     return List.generate(maps.length, (i) => MemorizationProgress.fromMap(maps[i]));
+  }
+
+  Future<List<MemorizationProgress>> getMemorizationProgressUpdatedSince(
+    DateTime? since,
+  ) async {
+    if (since == null) return getAllMemorizationProgress();
+    final db = await database;
+    final maps = await db.query(
+      'memorization_progress',
+      where: 'updated_at > ?',
+      whereArgs: [since.toUtc().toIso8601String()],
+      orderBy: 'updated_at ASC',
+    );
+    return maps.map(MemorizationProgress.fromMap).toList(growable: false);
   }
 
   Future<List<BehaviorPoint>> getAllBehaviorPoints() async {
@@ -4979,13 +5184,26 @@ class DatabaseService {
   }
 
   Future<void> replaceStudySuspensions(Map<String, String> reasonsByDate) async {
+    await _replaceStudySuspensionSettings(reasonsByDate);
+    await markSyncStageDirty('study_suspensions');
+  }
+
+  /// Applies the authoritative cloud suspension set without echoing the same
+  /// state back to Supabase on the next incremental synchronization.
+  Future<void> replaceStudySuspensionsFromSync(
+    Map<String, String> reasonsByDate,
+  ) =>
+      _replaceStudySuspensionSettings(reasonsByDate);
+
+  Future<void> _replaceStudySuspensionSettings(
+    Map<String, String> reasonsByDate,
+  ) async {
     final dates = reasonsByDate.keys.toList()..sort();
     await saveSetting('suspended_dates', dates.join(','));
     final encoded = dates
         .map((date) => '$date=${reasonsByDate[date] ?? ''}')
         .join(';');
     await saveSetting('suspension_reasons', encoded);
-    await markSyncStageDirty('study_suspensions');
   }
 
   Future<bool> isDateSuspended(DateTime date) async {

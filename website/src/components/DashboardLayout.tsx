@@ -87,7 +87,15 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
   );
 
   const isAuthPage = pathname === "/login" || pathname === "/onboarding" || pathname === "/select-center";
-  const isPublicPage = isAuthPage || pathname.startsWith("/portal");
+  const hasOAuthReturnCode =
+    typeof window !== "undefined" &&
+    pathname === "/" &&
+    new URLSearchParams(window.location.search).has("code");
+  const isPublicPage =
+    isAuthPage ||
+    hasOAuthReturnCode ||
+    pathname.startsWith("/portal") ||
+    pathname.startsWith("/auth/");
   const isCenterIndependentPage = pathname.startsWith("/supervision");
 
   const navItems = useMemo(() => {

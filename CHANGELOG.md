@@ -1,3 +1,13 @@
+## 4.3.0-alpha.27+84 — P1.27 Build 84 Hotfix 9
+
+- Reworked cloud synchronization around one scoped watermark RPC, server `updated_at` triggers, and center/halaqa indexes so unchanged domains do not issue table reads; tombstone polling now skips when the remote max id did not advance.
+- Cloud-pull writes no longer mark the same SQLite domain dirty; attendance, homework, memorization, mushaf, points, notifications, and exam-template paths use incremental/delta work where their local model supports it.
+- Fixed Google OAuth callback routing/store hydration and added a defensive root-code handoff; fresh Google users now continue to onboarding instead of returning to an unauthenticated dashboard shell.
+- Added an idempotent `create_supervisor_organization(text)` repair plus PostgREST schema reload for fresh supervisory onboarding.
+- Revision can now select one continuous memorized range from a start surah/ayah to an end surah/ayah while retaining the existing selected-surah workflow.
+- Extra memorization rewards scale in 25% bands above the daily target, capped at four bonus tiers; legacy automatic point snapshots retain their historical one-tier behavior.
+- Student period PDF marks days that exceeded the memorization target and includes a circular remaining-to-khatm indicator.
+
 ## 4.3.0-alpha.26+83 — P1.27 Build 83 Hotfix 8
 
 - Google OAuth web flow moved to PKCE with a dedicated `/auth/callback` route and production app-origin configuration.
