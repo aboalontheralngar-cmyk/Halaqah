@@ -33,6 +33,9 @@ class _PlansScreenState extends State<PlansScreen> {
   Map<String, SmartPlanProgress> _progressByPlan = {};
   bool _isLoading = true;
   bool _isBulkCreating = false;
+  bool _isBulkActionRunning = false;
+  bool _selectionMode = false;
+  final Set<String> _selectedPlanIds = <String>{};
   String _filter = 'all';
 
   @override
@@ -75,6 +78,10 @@ class _PlansScreenState extends State<PlansScreen> {
       setState(() {
         _plans = plans;
         _students = students;
+        _selectedPlanIds.removeWhere(
+          (id) => !plans.any((plan) => plan.id == id),
+        );
+        if (_selectedPlanIds.isEmpty) _selectionMode = false;
         _progressByPlan = {
           for (final entry in progressEntries.whereType<MapEntry<String, SmartPlanProgress>>())
             entry.key: entry.value,
@@ -96,6 +103,42 @@ class _PlansScreenState extends State<PlansScreen> {
         }
         return true;
       }).toList();
+
+  List<SmartPlan> get _selectedPlans => _plans
+      .where((plan) => _selectedPlanIds.contains(plan.id))
+      .toList();
+
+  void _toggleSelection(SmartPlan plan) {
+    setState(() {
+      _selectionMode = true;
+      if (!_selectedPlanIds.add(plan.id)) {
+        _selectedPlanIds.remove(plan.id);
+      }
+      if (_selectedPlanIds.isEmpty) _selectionMode = false;
+    });
+  }
+
+  void _setSelectionMode(bool enabled) {
+    setState(() {
+      _selectionMode = enabled;
+      if (!enabled) _selectedPlanIds.clear();
+    });
+  }
+
+  void _selectAllVisible() {
+    final visibleIds = _visiblePlans.map((plan) => plan.id).toSet();
+    setState(() {
+      _selectionMode = true;
+      final allSelected = visibleIds.isNotEmpty &&
+          visibleIds.every(_selectedPlanIds.contains);
+      if (allSelected) {
+        _selectedPlanIds.removeAll(visibleIds);
+      } else {
+        _selectedPlanIds.addAll(visibleIds);
+      }
+      if (_selectedPlanIds.isEmpty) _selectionMode = false;
+    });
+  }
 
   Future<void> _showPlanSheet({SmartPlan? existing}) async {
     var studentId = existing?.studentId;
@@ -497,10 +540,13 @@ class _PlansScreenState extends State<PlansScreen> {
                             }
                             if (!context.mounted) return;
                             Navigator.pop(context);
+                            if (!mounted) return;
                             await _loadData();
-                            _message(existing == null
-                                ? 'تم إنشاء الخطة وتحديث مقرر الطالب'
-                                : 'تم تعديل الخطة');
+                            if (mounted) {
+                              _message(existing == null
+                                  ? 'تم إنشاء الخطة وتحديث مقرر الطالب'
+                                  : 'تم تعديل الخطة');
+                            }
                           } catch (error) {
                             if (context.mounted) {
                               ScaffoldMessenger.of(this.context).showSnackBar(
@@ -537,8 +583,9 @@ class _PlansScreenState extends State<PlansScreen> {
         ),
       );
       await _loadData();
+      if (!mounted) return;
     } catch (error) {
-      _message(_cleanError(error), error: true);
+      if (mounted) _message(_cleanError(error), error: true);
     }
   }
 
@@ -558,7 +605,7 @@ class _PlansScreenState extends State<PlansScreen> {
     if (!confirmed) return;
     await _db.completeSmartPlan(plan);
     await _loadData();
-    _message('اكتملت الخطة وأصبحت بانتظار اختبار التجاوز');
+    if (mounted) _message('اكتملت الخطة وأصبحت بانتظار اختبار التجاوز');
   }
 
   Future<void> _cancelPlan(SmartPlan plan) async {
@@ -615,9 +662,9 @@ class _PlansScreenState extends State<PlansScreen> {
     try {
       await _db.approveSmartPlanExam(plan, exam);
       await _loadData();
-      _message('تم اعتماد اختبار التجاوز، ويمكن إنشاء الخطة التالية');
+      if (mounted) _message('تم اعتماد اختبار التجاوز، ويمكن إنشاء الخطة التالية');
     } catch (error) {
-      _message(_cleanError(error), error: true);
+      if (mounted) _message(_cleanError(error), error: true);
     }
   }
 
@@ -629,6 +676,30 @@ class _PlansScreenState extends State<PlansScreen> {
     if (!confirmed) return;
     await _db.deleteSmartPlan(plan);
     await _loadData();
+  }
+
+  Future<void> _deleteSelectedPlans() async {
+    final selected = _selectedPlans;
+    if (selected.isEmpty || _isBulkActionRunning) return;
+    final confirmed = await _confirm(
+      'حذف ${selected.length} خطة؟',
+      'ستُحذف الخطط المحددة من الجهاز، وتُرفع سجلات حذفها إلى السحابة في المزامنة التالية.',
+    );
+    if (!confirmed || !mounted) return;
+    setState(() => _isBulkActionRunning = true);
+    try {
+      await _db.deleteSmartPlans(selected);
+      _selectedPlanIds.clear();
+      _selectionMode = false;
+      await _loadData();
+      if (mounted) _message('تم حذف ${selected.length} خطة');
+    } catch (error) {
+      if (mounted) {
+        _message('تعذر حذف الخطط المحددة: ${_cleanError(error)}', error: true);
+      }
+    } finally {
+      if (mounted) setState(() => _isBulkActionRunning = false);
+    }
   }
 
   Future<void> _printPlan(SmartPlan plan, {required bool cashier}) async {
@@ -659,6 +730,67 @@ class _PlansScreenState extends State<PlansScreen> {
     }
   }
 
+  Future<void> _printPlans(List<SmartPlan> plans) async {
+    if (plans.isEmpty || _isBulkActionRunning) {
+      if (plans.isEmpty) _message('لا توجد خطط للطباعة', error: true);
+      return;
+    }
+    setState(() => _isBulkActionRunning = true);
+    try {
+      final settings = await _db.getSettings();
+      final assignmentsByPlan = <String, List<SmartPlanDailyAssignment>>{};
+      final printable = <SmartPlan>[];
+      final skipped = <String>[];
+
+      for (final plan in plans) {
+        final student = _student(plan.studentId);
+        if (student == null) {
+          final shortId = plan.id.length > 8 ? plan.id.substring(0, 8) : plan.id;
+          skipped.add('طالب غير متاح للخطة $shortId');
+          continue;
+        }
+        try {
+          final assignments = await _scheduleService.generate(
+            plan: plan,
+            student: student,
+          );
+          assignmentsByPlan[plan.id] = assignments;
+          printable.add(plan);
+        } catch (error) {
+          skipped.add('${student.name}: ${_cleanError(error)}');
+        }
+      }
+
+      if (printable.isEmpty) {
+        _message('تعذر تجهيز أي خطة للطباعة', error: true);
+        if (skipped.isNotEmpty && mounted) await _showBulkPlanIssues(skipped);
+        return;
+      }
+
+      final bytes = await _pdf.generateAllSmartPlans(
+        students: _students,
+        plans: printable,
+        halaqahName: settings.halaqahName,
+        mosqueName: settings.mosqueName,
+        holidayWeekdays: settings.holidayWeekdays,
+        dailyAssignmentsByPlan: assignmentsByPlan,
+      );
+      await Printing.layoutPdf(onLayout: (_) async => bytes);
+      if (!mounted) return;
+      _message(
+        'تم تجهيز ${printable.length} خطة للطباعة'
+        '${skipped.isEmpty ? '' : ' وتجاوز ${skipped.length} خطة تحتاج مراجعة'}',
+      );
+      if (skipped.isNotEmpty) await _showBulkPlanIssues(skipped);
+    } catch (error) {
+      if (mounted) {
+        _message('تعذرت طباعة الخطط: ${_cleanError(error)}', error: true);
+      }
+    } finally {
+      if (mounted) setState(() => _isBulkActionRunning = false);
+    }
+  }
+
   Future<void> _openPlanRecitation(SmartPlan plan) async {
     final student = _student(plan.studentId);
     if (student == null) {
@@ -674,7 +806,7 @@ class _PlansScreenState extends State<PlansScreen> {
         ),
       ),
     );
-    await _loadData();
+    if (mounted) await _loadData();
   }
 
   Future<void> _createAndPrintAllPlans() async {
@@ -837,10 +969,12 @@ class _PlansScreenState extends State<PlansScreen> {
       );
       await Printing.layoutPdf(onLayout: (_) async => bytes);
       await _loadData();
-      _message(
-        'تم إنشاء ${created.length} خطة دقيقة'
-        '${skippedReasons.isEmpty ? '' : ' وتجاوز ${skippedReasons.length} طالبًا'}',
-      );
+      if (mounted) {
+        _message(
+          'تم إنشاء ${created.length} خطة دقيقة'
+          '${skippedReasons.isEmpty ? '' : ' وتجاوز ${skippedReasons.length} طالبًا'}',
+        );
+      }
       if (skippedReasons.isNotEmpty && mounted) {
         await _showBulkPlanIssues(skippedReasons);
       }
@@ -880,26 +1014,77 @@ class _PlansScreenState extends State<PlansScreen> {
     final visible = _visiblePlans;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('الخطط الأسبوعية والشهرية'),
-        actions: [
-          IconButton(
-            onPressed: _isBulkCreating ? null : _createAndPrintAllPlans,
-            tooltip: 'إنشاء وطباعة خطط جميع الطلاب',
-            icon: _isBulkCreating
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.library_add_check_outlined),
-          ),
-        ],
+        title: Text(
+          _selectionMode
+              ? 'تم تحديد ${_selectedPlanIds.length}'
+              : 'الخطط الأسبوعية والشهرية',
+        ),
+        leading: _selectionMode
+            ? IconButton(
+                onPressed: () => _setSelectionMode(false),
+                tooltip: 'إلغاء التحديد',
+                icon: const Icon(Icons.close),
+              )
+            : null,
+        actions: _selectionMode
+            ? [
+                IconButton(
+                  onPressed: _isBulkActionRunning ? null : _selectAllVisible,
+                  tooltip: 'تحديد/إلغاء تحديد الكل المعروض',
+                  icon: const Icon(Icons.select_all),
+                ),
+                IconButton(
+                  onPressed: _selectedPlanIds.isEmpty || _isBulkActionRunning
+                      ? null
+                      : () => _printPlans(_selectedPlans),
+                  tooltip: 'طباعة المحدد',
+                  icon: const Icon(Icons.print_outlined),
+                ),
+                IconButton(
+                  onPressed: _selectedPlanIds.isEmpty || _isBulkActionRunning
+                      ? null
+                      : _deleteSelectedPlans,
+                  tooltip: 'حذف المحدد',
+                  icon: const Icon(Icons.delete_outline),
+                ),
+              ]
+            : [
+                IconButton(
+                  onPressed: _plans.isEmpty || _isBulkActionRunning
+                      ? null
+                      : () => _printPlans(_plans),
+                  tooltip: 'طباعة جميع الخطط الحالية',
+                  icon: const Icon(Icons.print_outlined),
+                ),
+                IconButton(
+                  onPressed: _plans.isEmpty || _isBulkActionRunning
+                      ? null
+                      : () => _setSelectionMode(true),
+                  tooltip: 'تحديد خطط',
+                  icon: const Icon(Icons.checklist_rtl_outlined),
+                ),
+                IconButton(
+                  onPressed: _isBulkCreating || _isBulkActionRunning
+                      ? null
+                      : _createAndPrintAllPlans,
+                  tooltip: 'إنشاء وطباعة خطط جميع الطلاب',
+                  icon: _isBulkCreating
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.library_add_check_outlined),
+                ),
+              ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _showPlanSheet(),
-        icon: const Icon(Icons.playlist_add),
-        label: const Text('خطة جديدة'),
-      ),
+      floatingActionButton: _selectionMode
+          ? null
+          : FloatingActionButton.extended(
+              onPressed: () => _showPlanSheet(),
+              icon: const Icon(Icons.playlist_add),
+              label: const Text('خطة جديدة'),
+            ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : Column(
@@ -986,15 +1171,27 @@ class _PlansScreenState extends State<PlansScreen> {
     final status = _status(plan);
     final revisionOnly = student != null &&
         StudentLearningPolicy.hasCompletedQuran(student);
+    final selected = _selectedPlanIds.contains(plan.id);
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onLongPress: () => _toggleSelection(plan),
+        onTap: _selectionMode ? () => _toggleSelection(plan) : null,
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
+                if (_selectionMode) ...[
+                  Checkbox(
+                    value: selected,
+                    onChanged: (_) => _toggleSelection(plan),
+                  ),
+                  const SizedBox(width: 4),
+                ],
                 CircleAvatar(
                   backgroundColor: status.color.withValues(alpha: 0.12),
                   child: Icon(status.icon, color: status.color),
@@ -1020,6 +1217,7 @@ class _PlansScreenState extends State<PlansScreen> {
                   labelStyle: TextStyle(fontSize: 10, color: status.color),
                   backgroundColor: status.color.withValues(alpha: 0.08),
                 ),
+                if (!_selectionMode)
                 PopupMenuButton<String>(
                   onSelected: (action) {
                     if (action == 'edit') _showPlanSheet(existing: plan);
@@ -1059,7 +1257,7 @@ class _PlansScreenState extends State<PlansScreen> {
                 title: 'الحفظ اليومي',
                 value: plan.newAmount,
                 unit: plan.unit,
-                enabled: plan.isActive,
+                enabled: plan.isActive && !_selectionMode,
                 onMinus: () => _adjustAmount(plan, newDelta: -1),
                 onPlus: () => _adjustAmount(plan, newDelta: 1),
               ),
@@ -1069,7 +1267,7 @@ class _PlansScreenState extends State<PlansScreen> {
               title: 'المراجعة اليومية',
               value: plan.reviewAmount,
               unit: plan.unit,
-              enabled: plan.isActive,
+              enabled: plan.isActive && !_selectionMode,
               onMinus: () => _adjustAmount(plan, reviewDelta: -1),
               onPlus: () => _adjustAmount(plan, reviewDelta: 1),
             ),
@@ -1078,7 +1276,7 @@ class _PlansScreenState extends State<PlansScreen> {
               title: 'السرد/التلاوة اليومية',
               value: plan.recitationAmount,
               unit: plan.unit,
-              enabled: plan.isActive,
+              enabled: plan.isActive && !_selectionMode,
               onMinus: () => _adjustAmount(plan, recitationDelta: -1),
               onPlus: () => _adjustAmount(plan, recitationDelta: 1),
             ),
@@ -1097,7 +1295,7 @@ class _PlansScreenState extends State<PlansScreen> {
             SizedBox(
               width: double.infinity,
               child: OutlinedButton.icon(
-                onPressed: () => _openPlanRecitation(plan),
+                onPressed: _selectionMode ? null : () => _openPlanRecitation(plan),
                 icon: const Icon(Icons.record_voice_over_outlined),
                 label: Text(
                   plan.isActive
@@ -1119,14 +1317,14 @@ class _PlansScreenState extends State<PlansScreen> {
               Row(
                 children: [
                   OutlinedButton.icon(
-                    onPressed: () => _cancelPlan(plan),
+                    onPressed: _selectionMode ? null : () => _cancelPlan(plan),
                     icon: const Icon(Icons.cancel_outlined),
                     label: const Text('إلغاء'),
                   ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: FilledButton.icon(
-                      onPressed: () => _completePlan(plan),
+                      onPressed: _selectionMode ? null : () => _completePlan(plan),
                       icon: const Icon(Icons.task_alt),
                       label: const Text('إكمال وطلب اختبار تجاوز'),
                     ),
@@ -1137,12 +1335,13 @@ class _PlansScreenState extends State<PlansScreen> {
               SizedBox(
                 width: double.infinity,
                 child: FilledButton.icon(
-                  onPressed: () => _approveExam(plan),
+                  onPressed: _selectionMode ? null : () => _approveExam(plan),
                   icon: const Icon(Icons.verified),
                   label: const Text('اعتماد اختبار التجاوز'),
                 ),
               ),
           ],
+          ),
         ),
       ),
     );

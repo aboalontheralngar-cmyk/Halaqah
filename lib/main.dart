@@ -198,6 +198,20 @@ void _installGlobalErrorCapture(OperationalIncidentService incidents) {
                           fontWeight: FontWeight.w700,
                         ),
                       ),
+                      const SizedBox(height: 8),
+                      Builder(
+                        builder: (buttonContext) {
+                          final navigator = Navigator.maybeOf(buttonContext);
+                          if (navigator == null || !navigator.canPop()) {
+                            return const SizedBox.shrink();
+                          }
+                          return OutlinedButton.icon(
+                            onPressed: () => navigator.maybePop(),
+                            icon: const Icon(Icons.arrow_back_rounded),
+                            label: const Text('العودة بأمان'),
+                          );
+                        },
+                      ),
                     ],
                   ),
                 );

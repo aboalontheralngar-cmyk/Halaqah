@@ -3778,6 +3778,24 @@ class DatabaseService {
     });
   }
 
+  /// Deletes multiple smart plans atomically and records one compact cloud
+  /// tombstone batch. Keeping the operation in a single transaction avoids
+  /// partial selection deletion when the user removes several plans at once.
+  Future<void> deleteSmartPlans(Iterable<SmartPlan> plans) async {
+    final planIds = plans.map((plan) => plan.id).toSet().toList();
+    if (planIds.isEmpty) return;
+    final db = await database;
+    await db.transaction((txn) async {
+      final placeholders = List.filled(planIds.length, '?').join(',');
+      await txn.delete(
+        'plans',
+        where: 'id IN ($placeholders)',
+        whereArgs: planIds,
+      );
+      await _appendDeletedIds(txn, 'deleted_plan_ids', planIds);
+    });
+  }
+
   void _validateSmartPlan(SmartPlan plan) {
     if (!const ['weekly', 'monthly'].contains(plan.period) ||
         !const ['ayahs', 'pages', 'lines', 'hizbs'].contains(plan.unit) ||

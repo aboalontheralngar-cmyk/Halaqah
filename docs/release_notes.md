@@ -1,3 +1,11 @@
+# Build 86 Hotfix 11 — bulk plans, slidable recitation and responsive UI
+
+- **Plans:** selection mode supports bulk delete and one-file printing for selected plans, plus a separate print-all action without creating new plans.
+- **Recitation:** one student list replaces the three tabs; swipe right opens memorization, swipe left opens revision, while talaqqin/session/memorized view live under the three-dot menu. The obsolete general memorization-plan page is removed.
+- **Responsive UI:** Hijri calendar cells and aggregate report metric cards no longer overflow on compact phones; advanced home tools use a compact grid.
+- **Incident hardening:** navigation-return reloads are lifecycle guarded, debug incident logs include privacy-safe source metadata, and the fallback error widget can safely return to the previous route.
+- **Version:** Flutter `4.3.0-alpha.29+86`, SQLite remains 28, no SQL migration.
+
 # Build 85 Hotfix 10 — memorization sync resilience and first-account onboarding
 
 - **Memorization sync:** cloud rows are validated against the real surah ayah count before local replay. A defensive row fallback skips only malformed legacy rows instead of failing the whole `memorization` stage.

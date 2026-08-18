@@ -1,22 +1,24 @@
 import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:flutter_slidable/flutter_slidable.dart';
+
+import '../../app/design_tokens.dart';
+import '../../app/theme.dart';
+import '../../models/daily_record.dart';
+import '../../models/quran_course.dart';
+import '../../models/student.dart';
+import '../../models/student_hold.dart';
 import '../../services/database_service.dart';
 import '../../services/student_learning_policy.dart';
-import '../../models/student.dart';
-import '../../models/daily_record.dart';
-import '../../models/student_hold.dart';
-import '../../models/quran_course.dart';
 import '../../utils/helpers.dart';
+import '../../widgets/app_design_widgets.dart';
 import 'add_memorization_screen.dart';
+import 'recitation_history_screen.dart';
+import 'recitation_screen.dart';
 import 'revision_screen.dart';
 import 'student_memorization_view.dart';
-import 'memorization_plan_screen.dart';
-import 'recitation_screen.dart';
-import 'recitation_history_screen.dart';
 import 'talaqqin_screen.dart';
-import '../../app/theme.dart';
-import '../../app/design_tokens.dart';
-import '../../widgets/app_design_widgets.dart';
 
 class MemorizationScreen extends StatefulWidget {
   const MemorizationScreen({super.key});
@@ -25,10 +27,8 @@ class MemorizationScreen extends StatefulWidget {
   State<MemorizationScreen> createState() => _MemorizationScreenState();
 }
 
-class _MemorizationScreenState extends State<MemorizationScreen>
-    with SingleTickerProviderStateMixin {
+class _MemorizationScreenState extends State<MemorizationScreen> {
   final DatabaseService _db = DatabaseService();
-  late TabController _tabController;
   List<Student> _students = [];
   Map<String, DailyRecord> _todayRecords = {};
   Map<String, StudentHold> _activeHolds = {};
@@ -41,23 +41,11 @@ class _MemorizationScreenState extends State<MemorizationScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
-    _tabController.addListener(_handleTabChanged);
     _loadData();
   }
 
-  void _handleTabChanged() {
-    if (!_tabController.indexIsChanging && mounted) setState(() {});
-  }
-
-  @override
-  void dispose() {
-    _tabController.removeListener(_handleTabChanged);
-    _tabController.dispose();
-    super.dispose();
-  }
-
   Future<void> _loadData() async {
+    if (!mounted) return;
     setState(() => _isLoading = true);
     try {
       final results = await Future.wait<dynamic>([
@@ -89,15 +77,30 @@ class _MemorizationScreenState extends State<MemorizationScreen>
       final activeCoursesById = <String, QuranCourse>{
         for (final course in courses)
           if (course.status == 'active' &&
-              !todayKey.isBefore(DateTime(course.startDate.year, course.startDate.month, course.startDate.day)) &&
-              !todayKey.isAfter(DateTime(course.endDate.year, course.endDate.month, course.endDate.day)) &&
+              !todayKey.isBefore(
+                DateTime(
+                  course.startDate.year,
+                  course.startDate.month,
+                  course.startDate.day,
+                ),
+              ) &&
+              !todayKey.isAfter(
+                DateTime(
+                  course.endDate.year,
+                  course.endDate.month,
+                  course.endDate.day,
+                ),
+              ) &&
               course.studyWeekdays.contains(today.weekday))
             course.id: course,
       };
       final courseByStudent = <String, QuranCourse>{};
-      for (final enrollment in enrollments.where((item) => item.status == 'active')) {
+      for (final enrollment
+          in enrollments.where((item) => item.status == 'active')) {
         final course = activeCoursesById[enrollment.courseId];
-        if (course != null) courseByStudent.putIfAbsent(enrollment.studentId, () => course);
+        if (course != null) {
+          courseByStudent.putIfAbsent(enrollment.studentId, () => course);
+        }
       }
 
       final recordsMap = <String, DailyRecord>{};
@@ -109,9 +112,11 @@ class _MemorizationScreenState extends State<MemorizationScreen>
       if (storedOrder != null && storedOrder.isNotEmpty) {
         try {
           final raw = jsonDecode(storedOrder);
-          if (raw is List) parsedOrder.addAll(raw.map((item) => item.toString()));
+          if (raw is List) {
+            parsedOrder.addAll(raw.map((item) => item.toString()));
+          }
         } catch (_) {
-          // ترتيب قديم/تالف لا يمنع تحميل شاشة التسميع.
+          // A legacy/corrupt order must not block the recitation workspace.
         }
       }
       final studentIds = students.map((student) => student.id).toSet();
@@ -129,32 +134,20 @@ class _MemorizationScreenState extends State<MemorizationScreen>
         _todayCourseByStudent = courseByStudent;
         _isLoading = false;
       });
-    } catch (e) {
+    } catch (_) {
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  List<Student> _filteredStudentsFor({required bool revision}) {
-    final eligible = _students.where(
-      revision
-          ? StudentLearningPolicy.canReceiveRevision
-          : StudentLearningPolicy.canReceiveNewMemorization,
-    );
-    List<Student> list;
-    if (_filter == 'all') {
-      list = List<Student>.from(eligible);
-    } else {
-      list = eligible.where((student) {
-        final record = _todayRecords[student.id];
-        if (_filter == 'completed') {
-          return revision
-              ? record?.revisionDone == true
-              : record?.memorizationDone == true;
-        } else {
-          return revision
-              ? record?.revisionDone != true
-              : record?.memorizationDone != true;
-        }
+  List<Student> _filteredStudents() {
+    var list = _students.where(_hasRecitationAction).toList();
+    if (_filter != 'all') {
+      list = list.where((student) {
+        final completed = _isCoreWorkCompleted(
+          student,
+          _todayRecords[student.id],
+        );
+        return _filter == 'completed' ? completed : !completed;
       }).toList();
     }
 
@@ -162,10 +155,29 @@ class _MemorizationScreenState extends State<MemorizationScreen>
       list.sort((a, b) => a.name.compareTo(b.name));
     } else if (_sortBy == 'memorized') {
       list.sort((a, b) => b.totalMemorized.compareTo(a.totalMemorized));
-    } else if (_sortBy == 'manual') {
+    } else {
       list.sort((a, b) => _manualIndex(a.id).compareTo(_manualIndex(b.id)));
     }
     return list;
+  }
+
+  bool _hasRecitationAction(Student student) =>
+      StudentLearningPolicy.canReceiveNewMemorization(student) ||
+      StudentLearningPolicy.canReceiveRevision(student) ||
+      StudentLearningPolicy.canReceiveTalaqqin(student);
+
+  bool _isCoreWorkCompleted(Student student, DailyRecord? record) {
+    final states = <bool>[];
+    if (StudentLearningPolicy.canReceiveNewMemorization(student)) {
+      states.add(record?.memorizationDone == true);
+    }
+    if (StudentLearningPolicy.canReceiveRevision(student)) {
+      states.add(record?.revisionDone == true);
+    }
+    if (states.isEmpty && StudentLearningPolicy.canReceiveTalaqqin(student)) {
+      states.add(record?.talaqqinDone == true);
+    }
+    return states.isNotEmpty && states.every((done) => done);
   }
 
   int _manualIndex(String studentId) {
@@ -195,19 +207,17 @@ class _MemorizationScreenState extends State<MemorizationScreen>
     for (var index = 0; index < positions.length; index++) {
       master[positions[index]] = reordered[index].id;
     }
+    if (!mounted) return;
     setState(() => _manualOrder = master);
     await _db.saveSetting('recitation_manual_order', jsonEncode(master));
   }
 
-  Widget _buildReorderableStudentList(
-    List<Student> students,
-    Widget Function(Student student) builder,
-  ) {
+  Widget _buildStudentList(List<Student> students) {
     if (_sortBy != 'manual' || _filter != 'all') {
       return ListView.builder(
         padding: AppSpacing.page,
         itemCount: students.length,
-        itemBuilder: (context, index) => builder(students[index]),
+        itemBuilder: (context, index) => _buildStudentCard(students[index]),
       );
     }
     return ReorderableListView.builder(
@@ -220,69 +230,31 @@ class _MemorizationScreenState extends State<MemorizationScreen>
         final student = students[index];
         return KeyedSubtree(
           key: ValueKey('recitation_order_${student.id}'),
-          child: builder(student),
+          child: _buildStudentCard(student),
         );
       },
     );
   }
 
-  List<Student> _filteredTalaqqinStudents() {
-    var list = _students.where(StudentLearningPolicy.canReceiveTalaqqin).toList();
-    if (_filter != 'all') {
-      list = list.where((student) {
-        final done = _todayRecords[student.id]?.talaqqinDone == true;
-        return _filter == 'completed' ? done : !done;
-      }).toList();
-    }
-    if (_sortBy == 'name') {
-      list.sort((a, b) => a.name.compareTo(b.name));
-    } else if (_sortBy == 'memorized') {
-      list.sort((a, b) => b.totalMemorized.compareTo(a.totalMemorized));
-    } else {
-      list.sort((a, b) => _manualIndex(a.id).compareTo(_manualIndex(b.id)));
-    }
-    return list;
-  }
-
   @override
   Widget build(BuildContext context) {
+    final students = _filteredStudents();
     return Scaffold(
       appBar: AppBar(
         title: const Text('التسميع والتلقين'),
-        bottom: TabBar(
-          labelColor: Theme.of(context).colorScheme.onPrimary,
-          unselectedLabelColor: Theme.of(context).colorScheme.onPrimary.withValues(alpha: 0.72),
-          indicatorColor: Theme.of(context).colorScheme.secondary,
-          controller: _tabController,
-          tabs: const [
-            Tab(text: 'الحفظ الجديد'),
-            Tab(text: 'المراجعة'),
-            Tab(text: 'التلقين'),
-          ],
-        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.history),
             onPressed: () async {
-              await Navigator.push(
+              await Navigator.push<void>(
                 context,
                 MaterialPageRoute(
                   builder: (context) => const RecitationHistoryScreen(),
                 ),
               );
-              await _loadData();
+              if (mounted) await _loadData();
             },
             tooltip: 'سجل التسميع والتعديل',
-          ),
-          IconButton(
-            icon: const Icon(Icons.calendar_month),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => const MemorizationPlanScreen()),
-              );
-            },
-            tooltip: 'خطة الحفظ',
           ),
           PopupMenuButton<String>(
             icon: const Icon(Icons.tune_rounded),
@@ -297,36 +269,9 @@ class _MemorizationScreenState extends State<MemorizationScreen>
               });
             },
             itemBuilder: (context) => [
-              PopupMenuItem(
-                value: 'sort_manual',
-                child: Row(
-                  children: [
-                    Icon(Icons.drag_indicator, color: _sortBy == 'manual' ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.onSurfaceVariant),
-                    const SizedBox(width: 8),
-                    const Text('ترتيب يدوي بالسحب'),
-                  ],
-                ),
-              ),
-              PopupMenuItem(
-                value: 'sort_name',
-                child: Row(
-                  children: [
-                    Icon(Icons.sort_by_alpha, color: _sortBy == 'name' ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.onSurfaceVariant),
-                    const SizedBox(width: 8),
-                    const Text('ترتيب أبجدي (الاسم)'),
-                  ],
-                ),
-              ),
-              PopupMenuItem(
-                value: 'sort_memorized',
-                child: Row(
-                  children: [
-                    Icon(Icons.star, color: _sortBy == 'memorized' ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.onSurfaceVariant),
-                    const SizedBox(width: 8),
-                    const Text('ترتيب حسب المحفوظ'),
-                  ],
-                ),
-              ),
+              _sortMenuItem('sort_manual', 'ترتيب يدوي بالسحب', Icons.drag_indicator),
+              _sortMenuItem('sort_name', 'ترتيب أبجدي', Icons.sort_by_alpha),
+              _sortMenuItem('sort_memorized', 'ترتيب حسب المحفوظ', Icons.star),
               const PopupMenuDivider(),
               const PopupMenuItem(
                 value: 'filter_all',
@@ -348,56 +293,92 @@ class _MemorizationScreenState extends State<MemorizationScreen>
         child: Column(
           children: [
             _buildWorkspaceSummary(),
-            Expanded(
-              child: TabBarView(
-                controller: _tabController,
-                children: [
-                  _buildMemorizationTab(),
-                  _buildRevisionTab(),
-                  _buildTalaqqinTab(),
-                ],
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.md,
+                0,
+                AppSpacing.md,
+                AppSpacing.xs,
               ),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.sm,
+                  vertical: AppSpacing.xs,
+                ),
+                decoration: BoxDecoration(
+                  color: Theme.of(context)
+                      .colorScheme
+                      .primaryContainer
+                      .withValues(alpha: 0.45),
+                  borderRadius: BorderRadius.circular(AppRadii.sm),
+                ),
+                child: const Text(
+                  'اسحب البطاقة يمينًا للحفظ، ويسارًا للمراجعة. بقية الإجراءات من ⋮',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
+                ),
+              ),
+            ),
+            Expanded(
+              child: _isLoading
+                  ? const Center(child: CircularProgressIndicator())
+                  : students.isEmpty
+                      ? _buildEmptyState('لا يوجد طلاب مطابقون للتصفية')
+                      : RefreshIndicator(
+                          onRefresh: _loadData,
+                          child: Center(
+                            child: ConstrainedBox(
+                              constraints: const BoxConstraints(maxWidth: 880),
+                              child: _buildStudentList(students),
+                            ),
+                          ),
+                        ),
             ),
           ],
         ),
       ),
-      floatingActionButton: _tabController.index == 0
-          ? FloatingActionButton.extended(
-              onPressed: () => _navigateToAddMemorization(null),
-              tooltip: 'إضافة حفظ جديد',
-              icon: const Icon(Icons.add_rounded),
-              label: const Text('حفظ مباشر'),
-            )
-          : null,
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () => _navigateToAddMemorization(null),
+        tooltip: 'إضافة حفظ مباشر',
+        icon: const Icon(Icons.add_rounded),
+        label: const Text('حفظ مباشر'),
+      ),
+    );
+  }
+
+  PopupMenuItem<String> _sortMenuItem(
+    String value,
+    String label,
+    IconData icon,
+  ) {
+    final selected = _sortBy == value.substring(5);
+    return PopupMenuItem(
+      value: value,
+      child: Row(
+        children: [
+          Icon(
+            icon,
+            color: selected
+                ? Theme.of(context).colorScheme.primary
+                : Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+          const SizedBox(width: 8),
+          Text(label),
+        ],
+      ),
     );
   }
 
   Widget _buildWorkspaceSummary() {
-    final revision = _tabController.index == 1;
-    final talaqqin = _tabController.index == 2;
-    final eligible = _students
+    final eligible = _students.where(_hasRecitationAction).toList();
+    final completed = eligible
         .where(
-          revision || talaqqin
-              ? StudentLearningPolicy.canReceiveRevision
-              : StudentLearningPolicy.canReceiveNewMemorization,
+          (student) =>
+              _isCoreWorkCompleted(student, _todayRecords[student.id]),
         )
-        .toList();
-    int completed = 0;
-    int pending = 0;
-    for (final student in eligible) {
-      final record = _todayRecords[student.id];
-      final isDone = talaqqin
-          ? record?.talaqqinDone == true
-          : revision
-              ? record?.revisionDone == true
-              : record?.memorizationDone == true;
-      if (isDone) {
-        completed++;
-      } else {
-        pending++;
-      }
-    }
-
+        .length;
+    final pending = eligible.length - completed;
     final scheme = Theme.of(context).colorScheme;
     final semantic = context.semanticColors;
     final progress = eligible.isEmpty
@@ -418,11 +399,7 @@ class _MemorizationScreenState extends State<MemorizationScreen>
               Row(
                 children: [
                   Icon(
-                    talaqqin
-                        ? Icons.record_voice_over_outlined
-                        : revision
-                            ? Icons.replay_rounded
-                            : Icons.auto_stories_outlined,
+                    Icons.record_voice_over_outlined,
                     size: 19,
                     color: scheme.primary,
                   ),
@@ -435,15 +412,9 @@ class _MemorizationScreenState extends State<MemorizationScreen>
                       style: Theme.of(context).textTheme.labelLarge,
                     ),
                   ),
-                  AppStatusPill(
-                    label: 'تم $completed',
-                    color: semantic.success,
-                  ),
+                  AppStatusPill(label: 'تم $completed', color: semantic.success),
                   const SizedBox(width: AppSpacing.xs),
-                  AppStatusPill(
-                    label: 'باقٍ $pending',
-                    color: semantic.warning,
-                  ),
+                  AppStatusPill(label: 'باقٍ $pending', color: semantic.warning),
                 ],
               ),
               const SizedBox(height: AppSpacing.xs),
@@ -462,122 +433,212 @@ class _MemorizationScreenState extends State<MemorizationScreen>
     );
   }
 
-  Widget _buildMemorizationTab() {
-    if (_isLoading) {
-      return const Center(child: CircularProgressIndicator());
-    }
-
-    final filteredStudents = _filteredStudentsFor(revision: false);
-    if (filteredStudents.isEmpty) {
-      return _buildEmptyState(
-        _students.any(StudentLearningPolicy.hasCompletedQuran)
-            ? 'لا يوجد طلاب في مسار الحفظ الجديد؛ الخاتمون يظهرون في المراجعة فقط'
-            : 'لا يوجد طلاب في مسار الحفظ الجديد',
-      );
-    }
-
-    return RefreshIndicator(
-      onRefresh: _loadData,
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 880),
-          child: _buildReorderableStudentList(
-            filteredStudents,
-            (student) => _buildStudentMemorizationCard(
-              student,
-              _todayRecords[student.id],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildRevisionTab() {
-    if (_isLoading) {
-      return const Center(child: CircularProgressIndicator());
-    }
-
-    final filteredStudents = _filteredStudentsFor(revision: true);
-    if (filteredStudents.isEmpty) {
-      return _buildEmptyState('لا يوجد طلاب');
-    }
-
-    return RefreshIndicator(
-      onRefresh: _loadData,
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 880),
-          child: _buildReorderableStudentList(
-            filteredStudents,
-            (student) => _buildStudentRevisionCard(
-              student,
-              _todayRecords[student.id],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildTalaqqinTab() {
-    if (_isLoading) return const Center(child: CircularProgressIndicator());
-    final students = _filteredTalaqqinStudents();
-    if (students.isEmpty) return _buildEmptyState('لا يوجد طلاب للتلقين');
-    return RefreshIndicator(
-      onRefresh: _loadData,
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 880),
-          child: _buildReorderableStudentList(
-            students,
-            (student) => _buildStudentTalaqqinCard(
-              student,
-              _todayRecords[student.id],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildStudentTalaqqinCard(Student student, DailyRecord? record) {
-    final isDone = record?.talaqqinDone == true;
+  Widget _buildStudentCard(Student student) {
+    final record = _todayRecords[student.id];
     final hold = _activeHolds[student.id];
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      child: Opacity(
-        opacity: hold == null ? 1 : 0.55,
-        child: ListTile(
-          leading: CircleAvatar(
-            child: Icon(isDone
-                ? Icons.check_rounded
-                : Icons.record_voice_over_outlined),
-          ),
-          title: Row(
-            children: [
-              Expanded(
-                child: Text(
-                  student.name,
-                  style: const TextStyle(fontWeight: FontWeight.bold),
-                ),
+    final canMemorize = StudentLearningPolicy.canReceiveNewMemorization(student);
+    final canRevise = StudentLearningPolicy.canReceiveRevision(student);
+    final canTalaqqin = StudentLearningPolicy.canReceiveTalaqqin(student);
+    final memorizationDone = record?.memorizationDone == true;
+    final revisionDone = record?.revisionDone == true;
+    final course = _todayCourseByStudent[student.id];
+
+    final card = Directionality(
+      textDirection: TextDirection.rtl,
+      child: Card(
+        margin: const EdgeInsets.only(bottom: AppSpacing.sm),
+        clipBehavior: Clip.antiAlias,
+        child: Opacity(
+          opacity: hold == null ? 1 : 0.58,
+          child: ListTile(
+            contentPadding: const EdgeInsetsDirectional.fromSTEB(12, 7, 8, 7),
+            leading: CircleAvatar(
+              backgroundColor:
+                  Theme.of(context).colorScheme.primary.withValues(alpha: 0.10),
+              child: Text(
+                student.name.isNotEmpty ? student.name[0] : '؟',
+                style: TextStyle(color: Theme.of(context).colorScheme.primary),
               ),
-              _buildAttendanceBadge(record),
-              _buildHoldBadge(student.id),
-            ],
+            ),
+            title: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    student.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
+                _buildAttendanceBadge(record),
+                _buildHoldBadge(student.id),
+              ],
+            ),
+            subtitle: Padding(
+              padding: const EdgeInsets.only(top: 5),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 5,
+                    children: [
+                      if (canMemorize)
+                        _statusTag(
+                          memorizationDone ? 'الحفظ تم' : 'الحفظ',
+                          memorizationDone ? Icons.check_circle : Icons.menu_book,
+                          memorizationDone
+                              ? context.semanticColors.success
+                              : Theme.of(context).colorScheme.primary,
+                        ),
+                      if (canRevise)
+                        _statusTag(
+                          revisionDone ? 'المراجعة تمت' : 'المراجعة',
+                          revisionDone ? Icons.check_circle : Icons.replay,
+                          revisionDone
+                              ? context.semanticColors.success
+                              : context.semanticColors.info,
+                        ),
+                      if (canTalaqqin && record?.talaqqinDone == true)
+                        _statusTag(
+                          'التلقين تم',
+                          Icons.record_voice_over,
+                          context.semanticColors.success,
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 5),
+                  Text(
+                    canMemorize
+                        ? 'المقرر: ${student.planAmount} ${_getPlanLabel(student.planType)}'
+                        : 'إجمالي الحفظ: ${student.totalMemorized} آية',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  if (course != null) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      'دورة اليوم: ${course.title}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w700,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            trailing: PopupMenuButton<String>(
+              tooltip: 'المزيد',
+              onSelected: (value) {
+                if (hold != null) {
+                  _showHoldMessage(student);
+                  return;
+                }
+                switch (value) {
+                  case 'talaqqin':
+                    _navigateToTalaqqin(student);
+                    break;
+                  case 'session':
+                    _navigateToRecitation(student);
+                    break;
+                  case 'view':
+                    _navigateToStudentView(student);
+                    break;
+                }
+              },
+              itemBuilder: (_) => [
+                if (canTalaqqin)
+                  const PopupMenuItem(
+                    value: 'talaqqin',
+                    child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(Icons.record_voice_over_outlined),
+                      title: Text('التلقين'),
+                    ),
+                  ),
+                const PopupMenuItem(
+                  value: 'session',
+                  child: ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.mic_outlined),
+                    title: Text('جلسة تسميع'),
+                  ),
+                ),
+                const PopupMenuItem(
+                  value: 'view',
+                  child: ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.visibility_outlined),
+                    title: Text('عرض المحفوظ'),
+                  ),
+                ),
+              ],
+            ),
+            onTap: hold != null
+                ? () => _showHoldMessage(student)
+                : () => _navigateToStudentView(student),
           ),
-          subtitle: Text(
-            hold != null
-                ? 'التلقين موقوف مؤقتًا'
-                : isDone
-                    ? 'تم تلقين ${record?.talaqqinAmount ?? 0} آية اليوم'
-                    : 'تلقين مستقل لا يزيد المحفوظ',
-          ),
-          trailing: const Icon(Icons.chevron_left),
-          onTap: hold != null
-              ? () => _showHoldMessage(student)
-              : () => _navigateToTalaqqin(student),
         ),
+      ),
+    );
+
+    // Force physical swipe semantics independent of the app's RTL direction:
+    // swipe right => memorization, swipe left => revision.
+    return Directionality(
+      textDirection: TextDirection.ltr,
+      child: Slidable(
+        key: ValueKey('student_recitation_${student.id}'),
+        startActionPane: canMemorize
+            ? ActionPane(
+                motion: const StretchMotion(),
+                extentRatio: 0.28,
+                children: [
+                  SlidableAction(
+                    onPressed: hold == null
+                        ? (_) {
+                            _navigateToAddMemorization(student);
+                          }
+                        : (_) {
+                            _showHoldMessage(student);
+                          },
+                    backgroundColor: context.semanticColors.success,
+                    foregroundColor: Colors.white,
+                    icon: memorizationDone
+                        ? Icons.edit_note_outlined
+                        : Icons.auto_stories_outlined,
+                    label: memorizationDone ? 'تعديل الحفظ' : 'الحفظ',
+                  ),
+                ],
+              )
+            : null,
+        endActionPane: canRevise
+            ? ActionPane(
+                motion: const StretchMotion(),
+                extentRatio: 0.28,
+                children: [
+                  SlidableAction(
+                    onPressed: hold == null
+                        ? (_) {
+                            _navigateToRevision(student);
+                          }
+                        : (_) {
+                            _showHoldMessage(student);
+                          },
+                    backgroundColor: context.semanticColors.info,
+                    foregroundColor: Colors.white,
+                    icon: revisionDone ? Icons.edit_note_outlined : Icons.replay,
+                    label: revisionDone ? 'تعديل المراجعة' : 'المراجعة',
+                  ),
+                ],
+              )
+            : null,
+        child: card,
       ),
     );
   }
@@ -596,263 +657,62 @@ class _MemorizationScreenState extends State<MemorizationScreen>
   Widget _buildHoldBadge(String studentId) {
     if (!_activeHolds.containsKey(studentId)) return const SizedBox.shrink();
     return _attendanceTag(
-      'موقوف مؤقتًا',
+      'موقوف',
       Icons.pause_circle_outline,
       Colors.deepOrange,
     );
   }
 
-  Widget _attendanceTag(String label, IconData icon, Color color) {
-    return Container(
-      margin: const EdgeInsets.only(left: 6),
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withValues(alpha: 0.4)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 13, color: color),
-          const SizedBox(width: 3),
-          Text(label, style: TextStyle(fontSize: 11, color: color, fontWeight: FontWeight.bold)),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildStudentMemorizationCard(Student student, DailyRecord? record) {
-    final isDone = record?.memorizationDone == true;
-    final isAbsentOrExcused = record?.attendance == 'absent' || record?.attendance == 'excused';
-    final isHeld = _activeHolds.containsKey(student.id);
-
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      child: Opacity(
-        opacity: isAbsentOrExcused || isHeld ? 0.55 : 1.0,
-        child: InkWell(
-        onTap: isHeld
-            ? () => _showHoldMessage(student)
-            : () => _navigateToAddMemorization(student),
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            children: [
-              CircleAvatar(
-                backgroundColor: Theme.of(context).primaryColor.withValues(alpha: 0.1),
-                child: Text(
-                  student.name.isNotEmpty ? student.name[0] : '؟',
-                  style: TextStyle(color: Theme.of(context).primaryColor),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Flexible(
-                          child: Text(
-                            student.name,
-                            style: const TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                        ),
-                        _buildAttendanceBadge(record),
-                        _buildHoldBadge(student.id),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'المقرر: ${student.planAmount} ${_getPlanLabel(student.planType)}',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                    if (_todayCourseByStudent[student.id] case final course?) ...[
-                      const SizedBox(height: 2),
-                      Text(
-                        course.includesMemorization
-                            ? 'دورة ${course.title}: ${course.memorizationAmount} ${_getPlanLabel(course.memorizationUnit)}'
-                            : 'دورة ${course.title}: مراجعة فقط اليوم',
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          color: Theme.of(context).colorScheme.primary,
-                        ),
-                      ),
-                    ],
-                    const SizedBox(height: 3),
-                    Text(
-                      isHeld ? 'التسميع موقوف مؤقتًا' : isDone ? 'أُنجز مقرر اليوم' : 'بانتظار تسميع اليوم',
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        color: isHeld
-                            ? Colors.deepOrange
-                            : isDone
-                                ? Colors.green
-                                : Colors.orange,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              PopupMenuButton<String>(
-                tooltip: 'إجراءات الطالب',
-                onSelected: (value) {
-                  if (value == 'session' && !isHeld) {
-                    _navigateToRecitation(student);
-                  }
-                  if (value == 'view') _navigateToStudentView(student);
-                },
-                itemBuilder: (_) => [
-                  PopupMenuItem(
-                    value: 'session',
-                    enabled: !isHeld,
-                    child: const ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: Icon(Icons.mic_outlined),
-                      title: Text('جلسة تسميع'),
-                    ),
-                  ),
-                  const PopupMenuItem(
-                    value: 'view',
-                    child: ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: Icon(Icons.visibility_outlined),
-                      title: Text('عرض المحفوظ'),
-                    ),
-                  ),
-                ],
-                icon: Icon(
-                  isHeld
-                      ? Icons.pause_circle_outline
-                      : isDone
-                          ? Icons.check_circle_outline
-                          : Icons.more_vert,
-                  color: isHeld
-                      ? Colors.deepOrange
-                      : isDone
-                          ? Colors.green
-                          : Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
-              ),
-            ],
-          ),
+  Widget _attendanceTag(String label, IconData icon, Color color) => Container(
+        margin: const EdgeInsetsDirectional.only(start: 5),
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(10),
         ),
-      ),
-      ),
-    );
-  }
-
-  Widget _buildStudentRevisionCard(Student student, DailyRecord? record) {
-    final isDone = record?.revisionDone == true;
-    final isHeld = _activeHolds.containsKey(student.id);
-
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      child: Opacity(
-        opacity: isHeld ? 0.55 : 1,
-        child: InkWell(
-        onTap: isHeld
-            ? () => _showHoldMessage(student)
-            : () => _navigateToRevision(student),
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            children: [
-              CircleAvatar(
-                backgroundColor: Theme.of(context).primaryColor.withValues(alpha: 0.1),
-                child: Text(
-                  student.name.isNotEmpty ? student.name[0] : '؟',
-                  style: TextStyle(color: Theme.of(context).primaryColor),
-                ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 12, color: color),
+            const SizedBox(width: 2),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 10,
+                color: color,
+                fontWeight: FontWeight.bold,
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Flexible(
-                          child: Text(
-                            student.name,
-                            style: const TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                        ),
-                        _buildAttendanceBadge(record),
-                        _buildHoldBadge(student.id),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'إجمالي الحفظ: ${student.totalMemorized} آية',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: BoxDecoration(
-                  color: isHeld
-                      ? AppSemanticColors.of(context).warningContainer
-                      : isDone
-                          ? AppSemanticColors.of(context).successContainer
-                          : Theme.of(context).colorScheme.surfaceContainerHigh,
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      isHeld
-                          ? Icons.pause_circle
-                          : isDone
-                              ? Icons.check_circle
-                              : Icons.replay,
-                      size: 16,
-                      color: isHeld
-                          ? AppSemanticColors.of(context).warning
-                          : isDone
-                              ? AppSemanticColors.of(context).success
-                              : Theme.of(context).colorScheme.onSurfaceVariant,
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      isHeld ? 'موقوفة' : isDone ? 'تمت' : 'مراجعة',
-                      style: TextStyle(
-                        color: isHeld
-                            ? AppSemanticColors.of(context).warning
-                            : isDone
-                                ? AppSemanticColors.of(context).success
-                                : Theme.of(context).colorScheme.onSurface,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
-      ),
-      ),
-    );
-  }
+      );
+
+  Widget _statusTag(String label, IconData icon, Color color) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.10),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 12, color: color),
+            const SizedBox(width: 3),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 10.5,
+                color: color,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+      );
 
   void _showHoldMessage(Student student) {
     final hold = _activeHolds[student.id];
-    if (hold == null) return;
+    if (hold == null || !mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
@@ -864,28 +724,31 @@ class _MemorizationScreenState extends State<MemorizationScreen>
     );
   }
 
-  Widget _buildEmptyState(String message) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.menu_book, size: 60, color: Theme.of(context).colorScheme.onSurfaceVariant),
-          const SizedBox(height: 16),
-          Text(
-            message,
-            style: TextStyle(
+  Widget _buildEmptyState(String message) => Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.menu_book,
+              size: 60,
               color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),
-          ),
-        ],
-      ),
-    );
-  }
+            const SizedBox(height: 16),
+            Text(
+              message,
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+      );
 
-  void _navigateToAddMemorization(Student? student) async {
+  Future<void> _navigateToAddMemorization(Student? student) async {
+    if (!mounted) return;
     final course = student == null ? null : _todayCourseByStudent[student.id];
     final courseApplies = course != null && course.includesMemorization;
-    final result = await Navigator.push(
+    final result = await Navigator.push<bool>(
       context,
       MaterialPageRoute(
         builder: (context) => AddMemorizationScreen(
@@ -896,15 +759,14 @@ class _MemorizationScreenState extends State<MemorizationScreen>
         ),
       ),
     );
-    if (result == true) {
-      _loadData();
-    }
+    if (result == true && mounted) await _loadData();
   }
 
-  void _navigateToRevision(Student student) async {
+  Future<void> _navigateToRevision(Student student) async {
+    if (!mounted) return;
     final course = _todayCourseByStudent[student.id];
     final courseApplies = course != null && course.includesRevision;
-    final result = await Navigator.push(
+    final result = await Navigator.push<bool>(
       context,
       MaterialPageRoute(
         builder: (context) => RevisionScreen(
@@ -915,38 +777,38 @@ class _MemorizationScreenState extends State<MemorizationScreen>
         ),
       ),
     );
-    if (result == true) {
-      _loadData();
-    }
+    if (result == true && mounted) await _loadData();
   }
 
-  void _navigateToStudentView(Student student) {
-    Navigator.push(
+  Future<void> _navigateToStudentView(Student student) async {
+    if (!mounted) return;
+    await Navigator.push<void>(
       context,
       MaterialPageRoute(
         builder: (context) => StudentMemorizationView(student: student),
       ),
     );
+    if (mounted) await _loadData();
   }
 
-  void _navigateToRecitation(Student student) async {
-    final result = await Navigator.push(
+  Future<void> _navigateToRecitation(Student student) async {
+    if (!mounted) return;
+    final result = await Navigator.push<bool>(
       context,
       MaterialPageRoute(
         builder: (context) => RecitationScreen(student: student),
       ),
     );
-    if (result == true) {
-      _loadData();
-    }
+    if (result == true && mounted) await _loadData();
   }
 
   Future<void> _navigateToTalaqqin(Student student) async {
-    final result = await Navigator.push(
+    if (!mounted) return;
+    final result = await Navigator.push<bool>(
       context,
       MaterialPageRoute(builder: (_) => TalaqqinScreen(student: student)),
     );
-    if (result == true) await _loadData();
+    if (result == true && mounted) await _loadData();
   }
 
   String _getPlanLabel(String planType) {

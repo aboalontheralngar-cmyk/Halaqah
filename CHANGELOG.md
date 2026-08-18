@@ -1,3 +1,13 @@
+## 4.3.0-alpha.29+86 — P1.27 Build 86 Hotfix 11
+
+- Added smart-plan selection mode with bulk delete, selected-plan A4 printing, select-all, and a separate print-all command.
+- Rebuilt the recitation workspace as one slidable student list: right swipe for memorization, left swipe for revision, and a compact overflow menu for talaqqin/live session/memorized view.
+- Removed the obsolete general memorization-plan route/page in favor of the smart-plan workspace.
+- Fixed Hijri calendar sub-pixel bottom overflow and aggregate-report metric-card overflow/hidden labels on compact phones.
+- Converted advanced home tools to the compact responsive grid.
+- Hardened async navigation-return lifecycle checks and added privacy-safe incident metadata in debug logs plus a safe-back action in ErrorWidget.
+- No SQL, dependency, or SQLite schema change.
+
 ## 4.3.0-alpha.28+85 — P1.27 Build 85 Hotfix 10
 
 - مزامنة الحفظ والمراجعة تتحقق من الحد الأعلى لآيات السورة قبل إدخال الصف السحابي محليًا، ومع fallback صفّي يمنع سجلًا تاريخيًا تالفًا من إسقاط المرحلة كلها.

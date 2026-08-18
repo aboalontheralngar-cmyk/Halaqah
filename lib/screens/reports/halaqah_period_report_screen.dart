@@ -315,7 +315,10 @@ class _HalaqahPeriodReportScreenState
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
             crossAxisCount: compact ? 2 : 4,
-            childAspectRatio: compact ? 1.75 : 1.55,
+            // The previous wide aspect ratio made every stat tile a few
+            // pixels too short on compact phones, hiding the label and
+            // producing repeated BOTTOM OVERFLOW warnings.
+            childAspectRatio: compact ? 1.35 : 1.40,
             mainAxisSpacing: 10,
             crossAxisSpacing: 10,
             children: [
@@ -396,7 +399,7 @@ class _HalaqahPeriodReportScreenState
     Color color,
   ) =>
       Container(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(18),
@@ -404,11 +407,34 @@ class _HalaqahPeriodReportScreenState
         ),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, color: color, size: 22),
-            const SizedBox(height: 5),
-            Text(value, style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 16)),
-            Text(label, style: const TextStyle(color: Color(0xFF64748B), fontSize: 11)),
+            Icon(icon, color: color, size: 21),
+            const SizedBox(height: 4),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                value,
+                style: TextStyle(
+                  color: color,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                  height: 1.1,
+                ),
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              label,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: Color(0xFF64748B),
+                fontSize: 11,
+                height: 1.15,
+              ),
+            ),
           ],
         ),
       );
@@ -704,13 +730,13 @@ class _HalaqahPeriodReportScreenState
         },
       ),
     );
-    if (accepted != true) return;
+    if (accepted != true || !mounted) return;
     await _reports.saveRankingExcludedStudentIds(
       startDate: _startDate,
       endDate: _endDate,
       studentIds: selected,
     );
-    await _generate();
+    if (mounted) await _generate();
   }
 
   Future<void> _pickRange() async {

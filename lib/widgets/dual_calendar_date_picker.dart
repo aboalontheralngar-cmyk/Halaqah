@@ -149,7 +149,10 @@ Future<DateTime?> _showHijriDatePicker({
                   physics: const NeverScrollableScrollPhysics(),
                   gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                     crossAxisCount: 7,
-                    childAspectRatio: 1.05,
+                    // Two text lines are rendered in every cell. A slightly
+                    // taller cell prevents sub-pixel RenderFlex overflows on
+                    // compact Samsung/Android devices and larger text scales.
+                    childAspectRatio: 0.84,
                   ),
                   itemCount: days.length,
                   itemBuilder: (context, index) {
@@ -177,23 +180,31 @@ Future<DateTime?> _showHijriDatePicker({
                           ),
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
+                            mainAxisSize: MainAxisSize.min,
                             children: [
-                              Text(
-                                '${hijri.hDay}',
-                                style: TextStyle(
-                                  fontWeight: isSelected ? FontWeight.w800 : FontWeight.w500,
-                                  color: enabled
-                                      ? Theme.of(context).colorScheme.onSurface
-                                      : Theme.of(context).disabledColor,
+                              FittedBox(
+                                fit: BoxFit.scaleDown,
+                                child: Text(
+                                  '${hijri.hDay}',
+                                  style: TextStyle(
+                                    fontWeight: isSelected ? FontWeight.w800 : FontWeight.w500,
+                                    color: enabled
+                                        ? Theme.of(context).colorScheme.onSurface
+                                        : Theme.of(context).disabledColor,
+                                  ),
                                 ),
                               ),
-                              Text(
-                                _weekdayShort(date.weekday),
-                                style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                                      fontSize: 8,
-                                      color: enabled
-                                          ? Theme.of(context).colorScheme.onSurfaceVariant
-                                          : Theme.of(context).disabledColor,
+                              FittedBox(
+                                fit: BoxFit.scaleDown,
+                                child: Text(
+                                  _weekdayShort(date.weekday),
+                                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                                        fontSize: 8,
+                                        height: 1,
+                                        color: enabled
+                                            ? Theme.of(context).colorScheme.onSurfaceVariant
+                                            : Theme.of(context).disabledColor,
+                                      ),
                                     ),
                               ),
                             ],

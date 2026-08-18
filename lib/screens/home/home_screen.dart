@@ -1504,8 +1504,8 @@ class _HomeScreenState extends State<HomeScreen> {
             subtitle: const Text('النقاط والاختبارات والصندوق والإدارة'),
             childrenPadding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
             children: [
-              _actionGrid([
-            _buildActionItem(
+              AppCompactActionGrid(children: [
+            _buildCompactActionItem(
               'النقاط والسلوك',
               Icons.thumb_up_alt_outlined,
               const Color(0xFFEAB308),
@@ -1514,7 +1514,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 MaterialPageRoute(builder: (context) => const BehaviorScreen()),
               ).then((_) => _loadData()),
             ),
-            _buildActionItem(
+            _buildCompactActionItem(
               'لوحة الشرف',
               Icons.emoji_events_outlined,
               const Color(0xFFF59E0B),
@@ -1523,7 +1523,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 MaterialPageRoute(builder: (context) => const HonorBoardScreen()),
               ).then((_) => _loadData()),
             ),
-            _buildActionItem(
+            _buildCompactActionItem(
               'متميزو اليوم',
               Icons.auto_awesome_outlined,
               const Color(0xFF14B8A6),
@@ -1534,7 +1534,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ).then((_) => _loadData()),
             ),
-            _buildActionItem(
+            _buildCompactActionItem(
               'إجازات ${GenderHelper.students(_settings.gender)}',
               Icons.beach_access_outlined,
               const Color(0xFF06B6D4),
@@ -1543,7 +1543,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 MaterialPageRoute(builder: (context) => const VacationsScreen()),
               ).then((_) => _loadData()),
             ),
-            _buildActionItem(
+            _buildCompactActionItem(
               'الامتحانات والاختبار',
               Icons.quiz_outlined,
               const Color(0xFFA855F7),
@@ -1552,7 +1552,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 MaterialPageRoute(builder: (context) => const ExamsScreen()),
               ).then((_) => _loadData()),
             ),
-            _buildActionItem(
+            _buildCompactActionItem(
               'المسابقات والتحكيم',
               Icons.emoji_events_outlined,
               const Color(0xFFD97706),
@@ -1563,7 +1563,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ).then((_) => _loadData()),
             ),
-            _buildActionItem(
+            _buildCompactActionItem(
               'مجموعات المستوى المتقارب',
               Icons.groups_2_outlined,
               const Color(0xFF7C3AED),
@@ -1574,7 +1574,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ).then((_) => _loadData()),
             ),
-            _buildActionItem(
+            _buildCompactActionItem(
               'صندوق الحلقة',
               Icons.account_balance_wallet_outlined,
               const Color(0xFF10B981),
@@ -1584,7 +1584,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 MaterialPageRoute(builder: (context) => const FundScreen()),
               ).then((_) => _loadData()),
             ),
-            _buildActionItem(
+            _buildCompactActionItem(
               'القرعة العشوائية',
               Icons.casino_outlined,
               const Color(0xFF0F766E),
@@ -1593,7 +1593,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 MaterialPageRoute(builder: (context) => const StudentRaffleScreen()),
               ).then((_) => _loadData()),
             ),
-            _buildActionItem(
+            _buildCompactActionItem(
               'الإعدادات',
               Icons.settings_outlined,
               const Color(0xFF64748B),
@@ -1604,45 +1604,6 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
       ],
-    );
-  }
-
-  Widget _actionGrid(List<Widget> children) => LayoutBuilder(
-        builder: (context, constraints) {
-          final textScale = MediaQuery.textScalerOf(context).scale(1);
-          return AppAdaptiveGrid(
-            minItemWidth: textScale > 1.2 ? 250 : 215,
-            children: children,
-          );
-        },
-      );
-
-  Widget _buildActionItem(
-    String label,
-    IconData icon,
-    Color color,
-    VoidCallback onTap, {
-    int badgeCount = 0,
-    String? badgeText,
-  }) {
-    final badge = badgeCount > 0
-        ? AppStatusPill(
-            label: badgeCount > 99 ? '99+' : '$badgeCount',
-            color: Theme.of(context).colorScheme.error,
-          )
-        : badgeText == null
-            ? null
-            : AppStatusPill(
-                label: badgeText,
-                color: context.semanticColors.success,
-              );
-    return AppActionTile(
-      label: label,
-      description: _actionDescription(label),
-      icon: icon,
-      color: color,
-      onTap: onTap,
-      badge: badge,
     );
   }
 
@@ -1672,19 +1633,6 @@ class _HomeScreenState extends State<HomeScreen> {
       onTap: onTap,
       badge: badge,
     );
-  }
-
-  String _actionDescription(String label) {
-    if (label.contains('الحضور')) return 'رصد حضور اليوم بسرعة';
-    if (label.contains('إغلاق')) return 'اعتماد السجلات الناقصة';
-    if (label.contains('الحفظ')) return 'تسجيل الحفظ والمراجعة';
-    if (label.contains('الخطط')) return 'المقرر والتقدم اليومي';
-    if (label.contains('التقارير')) return 'متابعة الأداء والتصدير';
-    if (label.contains('التنبيهات')) {
-      return 'المستجدات التي تحتاج انتباهًا';
-    }
-    if (label.contains('الإعدادات')) return 'تهيئة الحلقة والبيانات';
-    return 'فتح $label';
   }
 
   Widget _buildRecentActivity() {

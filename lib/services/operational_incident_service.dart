@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
+import 'package:flutter/foundation.dart';
 
 import 'audit_log_service.dart';
 
@@ -28,6 +29,12 @@ class OperationalIncidentService {
     final fingerprint = stackFingerprint(error, stackTrace);
     final safeSource = _safeSource(source);
     final safeOperation = operation == null ? null : _safeSource(operation);
+    if (kDebugMode) {
+      debugPrint(
+        '[halaqah.incident] code=$fingerprint source=$safeSource '
+        'operation=${safeOperation ?? '-'} type=${error.runtimeType}',
+      );
+    }
     final deduplicationKey = '$fingerprint|$safeSource|${safeOperation ?? ''}';
     final duplicateWindow = _lastDeduplicationKey == deduplicationKey &&
         _lastRecordedAt != null &&
