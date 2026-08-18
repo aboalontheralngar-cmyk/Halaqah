@@ -6,7 +6,8 @@ type PortalAction =
   | 'logout'
   | 'familyLogin'
   | 'familyDashboard'
-  | 'familyLogout';
+  | 'familyLogout'
+  | 'health';
 
 const portalOrigins = (Deno.env.get('PORTAL_ALLOWED_ORIGINS') || '')
   .split(',')
@@ -101,6 +102,22 @@ Deno.serve(async (request) => {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 
+  if (action === 'health') {
+    const { data, error } = await admin.rpc('student_portal_runtime_health');
+    if (error) {
+      console.error('[student-portal] runtime health failed', {
+        code: error.code || 'UNKNOWN',
+        message: error.message,
+      });
+      return jsonResponse({
+        ok: false,
+        error: 'portal_contract_missing',
+        reference: error.code || 'UNKNOWN',
+      }, 503, cors);
+    }
+    return jsonResponse({ ok: true, health: data }, 200, cors);
+  }
+
   if (action === 'login' || action === 'familyLogin') {
     const accessCode = action === 'familyLogin'
       ? (typeof body.familyCode === 'string' ? body.familyCode.trim() : '')
@@ -132,9 +149,19 @@ Deno.serve(async (request) => {
       });
 
     if (error) {
-      const missingContract = ['PGRST202', 'PGRST205', '42883', '42P01'].includes(error.code || '');
+      const errorCode = error.code || 'UNKNOWN';
+      const missingContract = ['PGRST202', 'PGRST205', '42883', '42P01'].includes(errorCode);
+      console.error('[student-portal] authentication RPC failed', {
+        action,
+        code: errorCode,
+        message: error.message,
+      });
       return jsonResponse(
-        { ok: false, error: missingContract ? 'portal_contract_missing' : 'portal_unavailable' },
+        {
+          ok: false,
+          error: missingContract ? 'portal_contract_missing' : 'portal_database_error',
+          reference: errorCode,
+        },
         503,
         cors,
       );
@@ -178,7 +205,21 @@ Deno.serve(async (request) => {
         p_session_token: sessionToken,
         p_days: days,
       });
-    if (error || !data) {
+    if (error) {
+      const errorCode = error.code || 'UNKNOWN';
+      const missingContract = ['PGRST202', 'PGRST205', '42883', '42P01'].includes(errorCode);
+      console.error('[student-portal] dashboard RPC failed', {
+        action,
+        code: errorCode,
+        message: error.message,
+      });
+      return jsonResponse({
+        ok: false,
+        error: missingContract ? 'portal_contract_missing' : 'portal_database_error',
+        reference: errorCode,
+      }, 503, cors);
+    }
+    if (!data) {
       return jsonResponse({ ok: false, error: 'invalid_session' }, 401, cors);
     }
     if (action === 'familyDashboard') {

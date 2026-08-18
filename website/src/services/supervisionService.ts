@@ -82,8 +82,9 @@ export function supervisionErrorCode(error: unknown): string {
   if (message.includes("supervisor_already_exists")) return "supervisor_already_exists";
   if (message.includes("supervisor_not_found")) return "supervisor_not_found";
   if (message.includes("supervised_center_not_found")) return "supervised_center_not_found";
+  if (message.includes("gen_random_bytes") || message.includes("digest(")) return "crypto_search_path";
   if (code === "42501") return "permission_denied";
-  if (code === "PGRST202" || code === "42883" || message.toLowerCase().includes("function")) {
+  if (code === "PGRST202" || code === "42883") {
     return "rpc_missing";
   }
   if (code === "42P01" || code === "PGRST205") return "table_missing";
@@ -130,8 +131,10 @@ export function supervisionErrorMessage(
       return "الجهة الإشرافية لم تعد موجودة أو لا يمكن الوصول إليها.";
     case "supervised_center_not_found":
       return "المركز غير تابع لهذه الجهة الإشرافية أو تم فصل ارتباطه.";
+    case "crypto_search_path":
+      return "دالة الدعوة موجودة، لكن مسار pgcrypto داخل Supabase غير ظاهر لها. نفّذ SQL Build 87 مرة واحدة ثم أعد إنشاء الدعوة.";
     case "rpc_missing":
-      return "واجهة الإشراف موجودة في المشروع لكن PostgREST لا يرى دالة الإنشاء. نفّذ SQL Build 84 لإصلاح create_supervisor_organization وإعادة تحميل schema cache ثم أعد المحاولة.";
+      return "PostgREST لا يرى إحدى دوال الإشراف المطلوبة. نفّذ SQL Build 87 لإعادة تثبيت مسارات الدوال وتحميل schema cache ثم أعد المحاولة.";
     case "table_missing":
       return "أحد جداول الإشراف غير موجود في قاعدة البيانات. شغّل فحص Build 84 قبل أي ترحيل قديم.";
     default:
@@ -143,7 +146,7 @@ export function supervisionErrorMessage(
       }
       const shape = errorShape(error);
       const reference = typeof shape.code === "string" && shape.code ? shape.code : "UNKNOWN";
-      return `تعذر إتمام عملية الإشراف. الرمز: SUPERVISION_${reference}. لا تعاود P7.3 القديمة؛ شغّل فحص Build 82 للبوابة والإشراف.`;
+      return `تعذر إتمام عملية الإشراف. الرمز: SUPERVISION_${reference}. لا تعاود P7.3 القديمة؛ شغّل فحص Build 87 للبوابة والإشراف.`;
   }
 }
 

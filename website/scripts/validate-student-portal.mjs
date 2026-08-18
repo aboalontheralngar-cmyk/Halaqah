@@ -39,12 +39,19 @@ requireAll(edgeFunction, [
 ], 'Portal Edge Function');
 
 const portalClient = read('website/src/lib/studentPortal.ts');
+const portalProxy = read('website/src/app/api/student-portal/route.ts');
 requireAll(portalClient, [
-  '/functions/v1/student-portal',
+  '/api/student-portal',
   "cache: 'no-store'",
   "action: 'login'",
   "action: 'dashboard'",
 ], 'Portal browser client');
+requireAll(portalProxy, [
+  '/functions/v1/student-portal',
+  'NEXT_PUBLIC_SUPABASE_URL',
+  'NEXT_PUBLIC_SUPABASE_ANON_KEY',
+  '15_000',
+], 'Portal same-origin proxy');
 if (/SERVICE_ROLE|SECRET_KEY/.test(portalClient)) {
   throw new Error('Portal browser client must not reference privileged server keys.');
 }

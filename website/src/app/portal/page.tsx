@@ -12,11 +12,13 @@ import {
   GraduationCap,
   Loader2,
   LogOut,
+  Moon,
   RefreshCw,
   ShieldAlert,
   ShieldCheck,
   Sparkles,
   Star,
+  Sun,
 } from "lucide-react";
 import {
   FamilyPortalDashboard,
@@ -69,11 +71,11 @@ const attendanceLabel = (status: string) => ({
 }[status] || status);
 
 const attendanceStyle = (status: string) => ({
-  present: "bg-emerald-50 text-emerald-700 border-emerald-100",
-  late: "bg-amber-50 text-amber-700 border-amber-100",
-  absent: "bg-rose-50 text-rose-700 border-rose-100",
-  excused: "bg-sky-50 text-sky-700 border-sky-100",
-}[status] || "bg-gray-50 text-gray-700 border-gray-100");
+  present: "bg-emerald-50 text-emerald-700 border-emerald-100 dark:bg-emerald-950/35 dark:text-emerald-300 dark:border-emerald-900",
+  late: "bg-amber-50 text-amber-700 border-amber-100 dark:bg-amber-950/35 dark:text-amber-300 dark:border-amber-900",
+  absent: "bg-rose-50 text-rose-700 border-rose-100 dark:bg-rose-950/35 dark:text-rose-300 dark:border-rose-900",
+  excused: "bg-sky-50 text-sky-700 border-sky-100 dark:bg-sky-950/35 dark:text-sky-300 dark:border-sky-900",
+}[status] || "bg-gray-50 text-[var(--foreground)] border-gray-100");
 
 function formatStudentCode(code: string): string {
   const normalized = code.replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 20);
@@ -108,8 +110,13 @@ function errorMessage(error: unknown): string {
   if (code === "invalid_session") return "انتهت الجلسة. سجل الدخول مرة أخرى.";
   if (code === "portal_not_configured") return "خدمة البوابة منشورة لكن إعدادات الخادم السرية غير مكتملة.";
   if (code === "portal_not_deployed") return "خدمة student-portal غير منشورة على Supabase بعد.";
-  if (code === "portal_contract_missing") return "عقد قاعدة البيانات الخاص بالبوابة غير مكتمل. شغّل فحص جاهزية البوابة.";
-  return "تعذر الاتصال بالبوابة الآن. حاول لاحقًا، وإذا استمر الخطأ راجع فحص جاهزية البوابة.";
+  if (code === "portal_contract_missing") return "عقد قاعدة البيانات الخاص بالبوابة غير مكتمل. شغّل SQL/VERIFY الخاص بـ Build 87 ثم أعد نشر student-portal.";
+  if (code === "portal_timeout") return "استغرقت خدمة البوابة وقتًا أطول من المتوقع. أعد المحاولة بعد ثوانٍ.";
+  if (code === "portal_database_error") {
+    const reference = error instanceof StudentPortalError && error.reference ? ` (${error.reference})` : "";
+    return `وصلنا إلى خدمة البوابة لكن قاعدة البيانات رفضت العملية${reference}. راجع سجل Edge Function وفحص Build 87.`;
+  }
+  return "تعذر الاتصال بخدمة البوابة. أصبح الاتصال يمر عبر خادم الموقع لتجنب مشاكل CORS؛ إذا استمر الخطأ أعد نشر student-portal ثم راجع سجل الوظيفة.";
 }
 
 export default function StudentPortalPage() {
@@ -126,6 +133,20 @@ export default function StudentPortalPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [periodDays, setPeriodDays] = useState(30);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [darkMode, setDarkMode] = useState(false);
+
+  useEffect(() => {
+    const saved = localStorage.getItem("darkMode");
+    setDarkMode(saved === "true" || (saved === null && window.matchMedia("(prefers-color-scheme: dark)").matches));
+  }, []);
+
+  const toggleDarkMode = () => {
+    setDarkMode((current) => {
+      const next = !current;
+      localStorage.setItem("darkMode", String(next));
+      return next;
+    });
+  };
 
   const loadDashboard = useCallback(async (
     token: string,
@@ -254,7 +275,7 @@ export default function StudentPortalPage() {
 
   if (loading) {
     return (
-      <main className="min-h-screen bg-[#f7f4ed] flex items-center justify-center" dir="rtl">
+      <main className={`${darkMode ? "dark" : ""} min-h-screen bg-[var(--background)] text-[var(--foreground)] flex items-center justify-center`} dir="rtl">
         <Loader2 className="w-10 h-10 text-[#1f6b5d] animate-spin" />
       </main>
     );
@@ -262,18 +283,26 @@ export default function StudentPortalPage() {
 
   if (!dashboard) {
     return (
-      <main className="min-h-screen bg-[#f7f4ed] px-4 py-10 sm:py-16" dir="rtl">
+      <main className={`${darkMode ? "dark" : ""} min-h-screen bg-[var(--background)] text-[var(--foreground)] px-4 py-10 sm:py-16 transition-colors`} dir="rtl">
+        <button
+          type="button"
+          onClick={toggleDarkMode}
+          aria-label={darkMode ? "تفعيل الوضع الفاتح" : "تفعيل الوضع الداكن"}
+          className="fixed left-4 top-4 z-10 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3 text-[var(--foreground)] shadow-sm"
+        >
+          {darkMode ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+        </button>
         <div className="mx-auto max-w-md">
           <div className="text-center mb-8">
             <div className="w-16 h-16 mx-auto rounded-3xl bg-[#1f6b5d] text-white grid place-items-center shadow-lg shadow-emerald-900/10">
               <BookOpen className="w-8 h-8" />
             </div>
-            <h1 className="mt-5 text-3xl font-extrabold text-[#173e36]">بوابة الطالب وولي الأمر</h1>
-            <p className="mt-2 text-sm text-gray-500 leading-7">تابع الخطة والحضور والحفظ والمراجعة في مساحة خاصة وآمنة.</p>
+            <h1 className="mt-5 text-3xl font-extrabold text-[var(--foreground)]">بوابة الطالب وولي الأمر</h1>
+            <p className="mt-2 text-sm text-[var(--muted)] leading-7">تابع الخطة والحضور والحفظ والمراجعة في مساحة خاصة وآمنة.</p>
           </div>
 
-          <form onSubmit={handleLogin} className="bg-white rounded-[2rem] border border-[#e3ded2] p-6 sm:p-8 shadow-sm space-y-5">
-            <div className="grid grid-cols-2 rounded-2xl bg-[#f1eee6] p-1" role="tablist" aria-label="نوع الدخول">
+          <form onSubmit={handleLogin} className="bg-[var(--surface)] rounded-[2rem] border border-[var(--border)] p-6 sm:p-8 shadow-sm space-y-5">
+            <div className="grid grid-cols-2 rounded-2xl bg-[var(--surface-soft)] p-1" role="tablist" aria-label="نوع الدخول">
               <button
                 type="button"
                 role="tab"
@@ -284,7 +313,7 @@ export default function StudentPortalPage() {
                   setMessage(null);
                 }}
                 className={`rounded-xl px-3 py-3 text-sm font-extrabold transition ${
-                  loginMode === "student" ? "bg-white text-[#1f6b5d] shadow-sm" : "text-gray-500"
+                  loginMode === "student" ? "bg-[var(--surface)] text-[#1f6b5d] shadow-sm" : "text-[var(--muted)]"
                 }`}
               >
                 دخول الطالب
@@ -299,14 +328,14 @@ export default function StudentPortalPage() {
                   setMessage(null);
                 }}
                 className={`rounded-xl px-3 py-3 text-sm font-extrabold transition ${
-                  loginMode === "family" ? "bg-white text-[#1f6b5d] shadow-sm" : "text-gray-500"
+                  loginMode === "family" ? "bg-[var(--surface)] text-[#1f6b5d] shadow-sm" : "text-[var(--muted)]"
                 }`}
               >
                 دخول ولي الأمر
               </button>
             </div>
             <div>
-              <label className="block text-sm font-bold text-gray-700 mb-2">
+              <label className="block text-sm font-bold text-[var(--foreground)] mb-2">
                 {loginMode === "family" ? "كود العائلة" : "كود الطالب"}
               </label>
               <input
@@ -315,12 +344,12 @@ export default function StudentPortalPage() {
                 placeholder={loginMode === "family" ? "FAM-XXXXX-XXXXX-XXXXX-XXXXX" : "HAL-XXXXX-XXXXX-XXXXX-XXXXX"}
                 autoComplete="username"
                 required
-                className="w-full rounded-2xl border border-[#ded8cb] bg-[#fbfaf6] px-4 py-4 text-left font-bold tracking-wide outline-none focus:ring-2 focus:ring-[#1f6b5d]/20"
+                className="w-full rounded-2xl border border-[var(--border)] bg-[var(--surface-soft)] px-4 py-4 text-left font-bold tracking-wide outline-none focus:ring-2 focus:ring-[#1f6b5d]/20"
                 dir="ltr"
               />
             </div>
             <div>
-              <label className="block text-sm font-bold text-gray-700 mb-2">الرقم السري المكون من 6 أرقام</label>
+              <label className="block text-sm font-bold text-[var(--foreground)] mb-2">الرقم السري المكون من 6 أرقام</label>
               <div className="relative">
                 <input
                   value={pin}
@@ -330,20 +359,20 @@ export default function StudentPortalPage() {
                   autoComplete="current-password"
                   pattern="[0-9]{6}"
                   required
-                  className="w-full rounded-2xl border border-[#ded8cb] bg-[#fbfaf6] px-14 py-4 text-center text-xl font-extrabold tracking-[0.35em] outline-none focus:ring-2 focus:ring-[#1f6b5d]/20"
+                  className="w-full rounded-2xl border border-[var(--border)] bg-[var(--surface-soft)] px-14 py-4 text-center text-xl font-extrabold tracking-[0.35em] outline-none focus:ring-2 focus:ring-[#1f6b5d]/20"
                   dir="ltr"
                 />
-                <button type="button" onClick={() => setShowPin((value) => !value)} aria-label="إظهار الرقم السري" className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">
+                <button type="button" onClick={() => setShowPin((value) => !value)} aria-label="إظهار الرقم السري" className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--muted)]">
                   {showPin ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                 </button>
               </div>
             </div>
-            {message && <p role="alert" className="rounded-2xl bg-rose-50 border border-rose-100 px-4 py-3 text-sm font-bold text-rose-700">{message}</p>}
+            {message && <p role="alert" className="rounded-2xl bg-rose-50 border border-rose-100 px-4 py-3 text-sm font-bold text-rose-700 dark:bg-rose-950/35 dark:border-rose-900 dark:text-rose-300">{message}</p>}
             <button disabled={submitting} className="w-full rounded-2xl bg-[#1f6b5d] text-white py-4 font-extrabold flex items-center justify-center gap-2 disabled:opacity-60">
               {submitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <ShieldCheck className="w-5 h-5" />}
               دخول آمن
             </button>
-            <p className="text-xs text-center text-gray-400 leading-6">
+            <p className="text-xs text-center text-[var(--muted)] leading-6">
               {loginMode === "family"
                 ? "حساب العائلة يعرض الأبناء النشطين المرتبطين بها فقط. لا تشارك الرقم السري."
                 : "لا تشارك الرقم السري. رمز QR مخصص للتعريف والحضور وليس كلمة مرور."}
@@ -355,11 +384,11 @@ export default function StudentPortalPage() {
   }
 
   return (
-    <main className="portal-print min-h-screen bg-[#f7f4ed] text-[#173e36]" dir="rtl">
-      <header className="bg-[#174f45] text-white print:bg-white print:text-[#173e36]">
+    <main className={`${darkMode ? "dark" : ""} portal-print min-h-screen bg-[var(--background)] text-[var(--foreground)] transition-colors`} dir="rtl">
+      <header className="bg-[#174f45] text-white print:bg-[var(--surface)] print:text-[var(--foreground)]">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 flex flex-wrap items-center justify-between gap-4">
           <div>
-            <p className="text-emerald-100 print:text-gray-500 text-sm">{dashboard.organization.center_name} · {dashboard.organization.halaqa_name}</p>
+            <p className="text-emerald-100 print:text-[var(--muted)] text-sm">{dashboard.organization.center_name} · {dashboard.organization.halaqa_name}</p>
             <h1 className="text-2xl sm:text-3xl font-extrabold mt-1">مرحبًا، {dashboard.student.name}</h1>
             <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-bold text-emerald-100 print:text-gray-600">
               <span dir="ltr">{formatStudentCode(dashboard.student.student_code)}</span>
@@ -394,6 +423,14 @@ export default function StudentPortalPage() {
               <option className="text-gray-900" value={366}>سنة</option>
             </select>
             <button
+              type="button"
+              onClick={toggleDarkMode}
+              className="p-3 rounded-xl bg-white/10"
+              aria-label={darkMode ? "تفعيل الوضع الفاتح" : "تفعيل الوضع الداكن"}
+            >
+              {darkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+            </button>
+            <button
               onClick={() => sessionToken && loadDashboard(
                 sessionToken,
                 sessionKind,
@@ -411,10 +448,10 @@ export default function StudentPortalPage() {
 
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-7 space-y-7">
         {familyDashboard && (
-          <section className="print:hidden rounded-3xl border border-[#d9d2c4] bg-[#fffdf8] p-4 sm:p-5 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <section className="print:hidden rounded-3xl border border-[var(--border)] bg-[var(--surface)] p-4 sm:p-5 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <p className="font-extrabold text-[#173e36]">{familyDashboard.family.name}</p>
-              <p className="mt-1 text-xs text-gray-500">
+              <p className="font-extrabold text-[var(--foreground)]">{familyDashboard.family.name}</p>
+              <p className="mt-1 text-xs text-[var(--muted)]">
                 حساب ولي الأمر · {familyDashboard.students.length} من الأبناء النشطين
                 {familyDashboard.family.primary_guardian_name
                   ? ` · جهة التواصل: ${familyDashboard.family.primary_guardian_name}`
@@ -425,13 +462,13 @@ export default function StudentPortalPage() {
           </section>
         )}
         {familyDashboard && (
-          <section className="rounded-3xl border border-[#d9d2c4] bg-white p-5 sm:p-6 break-inside-avoid">
+          <section className="rounded-3xl border border-[var(--border)] bg-[var(--surface)] p-5 sm:p-6 break-inside-avoid">
             <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-3">
                 <FileClock className="h-6 w-6 text-[#1f6b5d]" />
                 <div>
                   <h2 className="text-xl font-extrabold">التقارير الدورية المنشورة</h2>
-                  <p className="mt-1 text-xs text-gray-500">
+                  <p className="mt-1 text-xs text-[var(--muted)]">
                     تُحفظ تلقائيًا داخل حساب العائلة بحسب الجدولة المعتمدة من الحلقة.
                   </p>
                 </div>
@@ -441,7 +478,7 @@ export default function StudentPortalPage() {
               </span>
             </div>
             {automaticReports.length === 0 ? (
-              <p className="rounded-2xl border border-dashed border-[#ded8cb] bg-[#fbfaf6] p-4 text-sm font-bold text-gray-500">
+              <p className="rounded-2xl border border-dashed border-[var(--border)] bg-[var(--surface-soft)] p-4 text-sm font-bold text-[var(--muted)]">
                 لم يُنشر تقرير دوري بعد. تبقى البيانات الآنية أعلاه متاحة دائمًا.
               </p>
             ) : (
@@ -461,7 +498,7 @@ export default function StudentPortalPage() {
                   return (
                     <article
                       key={report.id}
-                      className="rounded-2xl border border-[#eee9df] bg-[#fbfaf6] p-4"
+                      className="rounded-2xl border border-[var(--border)] bg-[var(--surface-soft)] p-4"
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div>
@@ -470,36 +507,36 @@ export default function StudentPortalPage() {
                               ? "تقرير أسبوعي"
                               : "تقرير شهري"}
                           </p>
-                          <p className="mt-1 text-xs text-gray-500">
+                          <p className="mt-1 text-xs text-[var(--muted)]">
                             {formatDate(report.period_start)} —{" "}
                             {formatDate(report.period_end)}
                           </p>
                         </div>
-                        <span className="rounded-full bg-white px-2.5 py-1 text-xs font-extrabold text-[#1f6b5d]">
+                        <span className="rounded-full bg-[var(--surface)] px-2.5 py-1 text-xs font-extrabold text-[#1f6b5d]">
                           منشور
                         </span>
                       </div>
                       {studentReport ? (
                         <div className="mt-4 grid grid-cols-2 gap-2 text-center">
-                          <div className="rounded-xl bg-white p-3">
+                          <div className="rounded-xl bg-[var(--surface)] p-3">
                             <p className="text-xl font-extrabold">
                               {attendanceTotal}
                             </p>
-                            <p className="text-xs text-gray-500">أيام الرصد</p>
+                            <p className="text-xs text-[var(--muted)]">أيام الرصد</p>
                           </div>
-                          <div className="rounded-xl bg-white p-3">
+                          <div className="rounded-xl bg-[var(--surface)] p-3">
                             <p className="text-xl font-extrabold">
                               {studentReport.summary.points_balance}
                             </p>
-                            <p className="text-xs text-gray-500">رصيد النقاط</p>
+                            <p className="text-xs text-[var(--muted)]">رصيد النقاط</p>
                           </div>
                         </div>
                       ) : (
-                        <p className="mt-4 text-xs font-bold text-gray-500">
+                        <p className="mt-4 text-xs font-bold text-[var(--muted)]">
                           لا يحتوي هذا الإصدار من التقرير على سجل للطالب المحدد.
                         </p>
                       )}
-                      <p className="mt-3 text-xs text-gray-400">
+                      <p className="mt-3 text-xs text-[var(--muted)]">
                         نُشر في{" "}
                         {new Date(report.published_at).toLocaleString("ar", {
                           dateStyle: "medium",
@@ -530,7 +567,7 @@ export default function StudentPortalPage() {
         </section>
 
         <section className="grid lg:grid-cols-3 gap-5">
-          <article className="lg:col-span-2 bg-white rounded-3xl border border-[#e3ded2] p-5 sm:p-6">
+          <article className="lg:col-span-2 bg-[var(--surface)] rounded-3xl border border-[var(--border)] p-5 sm:p-6">
             <div className="flex items-center gap-3 mb-5"><GraduationCap className="w-6 h-6 text-[#1f6b5d]" /><h2 className="text-xl font-extrabold">الخطة الحالية</h2></div>
             {dashboard.active_plan ? (
               <div className="grid sm:grid-cols-2 gap-4">
@@ -541,11 +578,11 @@ export default function StudentPortalPage() {
                 {dashboard.active_plan.notes && <div className="sm:col-span-2"><PlanLine label="ملاحظة المعلم" value={dashboard.active_plan.notes} /></div>}
               </div>
             ) : (
-              <p className="rounded-2xl bg-[#fbfaf6] p-5 text-gray-500">لا توجد خطة نشطة منشورة حاليًا.</p>
+              <p className="rounded-2xl bg-[var(--surface-soft)] p-5 text-[var(--muted)]">لا توجد خطة نشطة منشورة حاليًا.</p>
             )}
           </article>
 
-          <article className="bg-white rounded-3xl border border-[#e3ded2] p-5 sm:p-6">
+          <article className="bg-[var(--surface)] rounded-3xl border border-[var(--border)] p-5 sm:p-6">
             <div className="flex items-center gap-3 mb-5"><CalendarCheck className="w-6 h-6 text-[#1f6b5d]" /><h2 className="text-xl font-extrabold">آخر {dashboard.period_days} يومًا</h2></div>
             <div className="grid grid-cols-2 gap-3 text-center">
               {Object.entries(dashboard.summary.attendance).map(([status, count]) => (
@@ -558,26 +595,26 @@ export default function StudentPortalPage() {
         </section>
 
         <section className="grid lg:grid-cols-2 gap-5">
-          <article className="bg-white rounded-3xl border border-[#e3ded2] p-5 sm:p-6 break-inside-avoid">
+          <article className="bg-[var(--surface)] rounded-3xl border border-[var(--border)] p-5 sm:p-6 break-inside-avoid">
             <div className="flex items-center gap-3 mb-5"><Sparkles className="w-6 h-6 text-[#1f6b5d]" /><h2 className="text-xl font-extrabold">آخر الحفظ والمراجعة</h2></div>
             <div className="space-y-3">
-              {dashboard.recent_memorization.length === 0 && <p className="text-gray-500">لا يوجد تسميع منشور.</p>}
+              {dashboard.recent_memorization.length === 0 && <p className="text-[var(--muted)]">لا يوجد تسميع منشور.</p>}
               {dashboard.recent_memorization.map((entry, index) => (
-                <div key={`${entry.date}-${entry.surah}-${index}`} className="rounded-2xl bg-[#fbfaf6] border border-[#eee9df] p-4 flex items-start justify-between gap-4">
-                  <div><p className="font-extrabold">{entry.session_type === "review" ? "مراجعة" : "حفظ"} سورة {entry.surah}</p><p className="text-sm text-gray-500 mt-1">من الآية {entry.from_ayah} إلى {entry.to_ayah}</p></div>
-                  <div className="text-left shrink-0"><p className="text-xs text-gray-500">{formatDate(entry.date)}</p>{entry.degree && <p className="text-xs font-bold text-[#1f6b5d] mt-2">التقييم {entry.degree}/5</p>}</div>
+                <div key={`${entry.date}-${entry.surah}-${index}`} className="rounded-2xl bg-[var(--surface-soft)] border border-[var(--border)] p-4 flex items-start justify-between gap-4">
+                  <div><p className="font-extrabold">{entry.session_type === "review" ? "مراجعة" : "حفظ"} سورة {entry.surah}</p><p className="text-sm text-[var(--muted)] mt-1">من الآية {entry.from_ayah} إلى {entry.to_ayah}</p></div>
+                  <div className="text-left shrink-0"><p className="text-xs text-[var(--muted)]">{formatDate(entry.date)}</p>{entry.degree && <p className="text-xs font-bold text-[#1f6b5d] mt-2">التقييم {entry.degree}/5</p>}</div>
                 </div>
               ))}
             </div>
           </article>
 
-          <article className="bg-white rounded-3xl border border-[#e3ded2] p-5 sm:p-6 break-inside-avoid">
+          <article className="bg-[var(--surface)] rounded-3xl border border-[var(--border)] p-5 sm:p-6 break-inside-avoid">
             <div className="flex items-center gap-3 mb-5"><Clock3 className="w-6 h-6 text-[#1f6b5d]" /><h2 className="text-xl font-extrabold">سجل الحضور الأخير</h2></div>
             <div className="space-y-3">
-              {dashboard.recent_attendance.length === 0 && <p className="text-gray-500">لا يوجد حضور منشور.</p>}
+              {dashboard.recent_attendance.length === 0 && <p className="text-[var(--muted)]">لا يوجد حضور منشور.</p>}
               {dashboard.recent_attendance.map((entry) => (
-                <div key={entry.date} className="rounded-2xl bg-[#fbfaf6] border border-[#eee9df] p-4 flex items-center justify-between gap-4">
-                  <div><p className="font-bold">{formatDate(entry.date)}</p>{entry.notes && <p className="text-xs text-gray-500 mt-1">{entry.notes}</p>}</div>
+                <div key={entry.date} className="rounded-2xl bg-[var(--surface-soft)] border border-[var(--border)] p-4 flex items-center justify-between gap-4">
+                  <div><p className="font-bold">{formatDate(entry.date)}</p>{entry.notes && <p className="text-xs text-[var(--muted)] mt-1">{entry.notes}</p>}</div>
                   <span className={`rounded-full border px-3 py-1 text-xs font-extrabold ${attendanceStyle(entry.status)}`}>{attendanceLabel(entry.status)}</span>
                 </div>
               ))}
@@ -585,7 +622,7 @@ export default function StudentPortalPage() {
           </article>
         </section>
 
-        <section className="bg-white rounded-3xl border border-[#e3ded2] p-5 sm:p-6 break-inside-avoid">
+        <section className="bg-[var(--surface)] rounded-3xl border border-[var(--border)] p-5 sm:p-6 break-inside-avoid">
           <div className="flex items-center justify-between gap-4 mb-5">
             <div className="flex items-center gap-3">
               <ShieldAlert className="w-6 h-6 text-[#1f6b5d]" />
@@ -604,11 +641,11 @@ export default function StudentPortalPage() {
           ) : (
             <div className="grid gap-3 sm:grid-cols-2">
               {recentBehavior.map((entry, index) => (
-                <article key={`${entry.date}-${entry.reason}-${index}`} className="rounded-2xl bg-[#fbfaf6] border border-[#eee9df] p-4">
+                <article key={`${entry.date}-${entry.reason}-${index}`} className="rounded-2xl bg-[var(--surface-soft)] border border-[var(--border)] p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <p className="font-extrabold">{entry.reason}</p>
-                      {entry.notes && <p className="mt-1 text-xs leading-6 text-gray-500">{entry.notes}</p>}
+                      {entry.notes && <p className="mt-1 text-xs leading-6 text-[var(--muted)]">{entry.notes}</p>}
                     </div>
                     <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-extrabold ${
                       entry.amount < 0 ? "bg-rose-50 text-rose-700" : "bg-emerald-50 text-emerald-700"
@@ -616,7 +653,7 @@ export default function StudentPortalPage() {
                       {entry.amount > 0 ? `+${entry.amount}` : entry.amount}
                     </span>
                   </div>
-                  <div className="mt-3 flex items-center justify-between text-xs text-gray-500">
+                  <div className="mt-3 flex items-center justify-between text-xs text-[var(--muted)]">
                     <span>{formatDate(entry.date)}</span>
                     {entry.amount < 0 && (
                       <span className={entry.resolved ? "text-emerald-700" : "font-bold text-rose-700"}>
@@ -630,16 +667,16 @@ export default function StudentPortalPage() {
           )}
         </section>
 
-        <footer className="text-center text-xs text-gray-500 pb-8">من أجل الحرص على ابنكم ومتابعة تقدمه، ننتظر ملاحظاتكم وتعاونكم.</footer>
+        <footer className="text-center text-xs text-[var(--muted)] pb-8">من أجل الحرص على ابنكم ومتابعة تقدمه، ننتظر ملاحظاتكم وتعاونكم.</footer>
       </div>
     </main>
   );
 }
 
 function SummaryCard({ icon: Icon, label, value }: { icon: typeof BookOpen; label: string; value: string }) {
-  return <div className="bg-white rounded-3xl border border-[#e3ded2] p-4 sm:p-5"><Icon className="w-5 h-5 text-[#1f6b5d]" /><p className="text-xs text-gray-500 mt-3">{label}</p><p className="font-extrabold mt-1 text-base sm:text-lg">{value}</p></div>;
+  return <div className="bg-[var(--surface)] rounded-3xl border border-[var(--border)] p-4 sm:p-5"><Icon className="w-5 h-5 text-[#1f6b5d]" /><p className="text-xs text-[var(--muted)] mt-3">{label}</p><p className="font-extrabold mt-1 text-base sm:text-lg">{value}</p></div>;
 }
 
 function PlanLine({ label, value }: { label: string; value: string }) {
-  return <div className="rounded-2xl bg-[#fbfaf6] border border-[#eee9df] p-4"><p className="text-xs text-gray-500">{label}</p><p className="font-bold mt-1 leading-7">{value}</p></div>;
+  return <div className="rounded-2xl bg-[var(--surface-soft)] border border-[var(--border)] p-4"><p className="text-xs text-[var(--muted)]">{label}</p><p className="font-bold mt-1 leading-7">{value}</p></div>;
 }

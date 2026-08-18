@@ -14,6 +14,15 @@ import {
 import { useStore } from "@/store/useStore";
 import { localDateKey } from "@/utils/dateUtils";
 
+const formatPoints = (value: number) => {
+  if (!Number.isFinite(value)) return "0";
+  return new Intl.NumberFormat("en-US", {
+    maximumFractionDigits: 2,
+    minimumFractionDigits: 0,
+    useGrouping: false,
+  }).format(value);
+};
+
 export default function PointsPage() {
   const {
     students,
@@ -207,7 +216,7 @@ export default function PointsPage() {
                   <p className="text-[10px] font-bold text-gray-400 uppercase">نقاط</p>
                 </div>
                 <div className="text-center">
-                  <p className="text-2xl font-black text-orange-500">{student.totalPoints}</p>
+                  <p className="text-2xl font-black text-orange-500">{formatPoints(student.totalPoints)}</p>
                   <p className="text-[10px] font-bold text-gray-400 uppercase">نقطة</p>
                 </div>
                 <div className="text-center">
@@ -281,7 +290,7 @@ export default function PointsPage() {
                 return (
                   <div key={point.id} className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-5 flex flex-col md:flex-row md:items-center gap-4">
                     <div className={`w-11 h-11 rounded-2xl flex items-center justify-center font-black ${positive ? 'bg-green-50 text-green-600' : 'bg-rose-50 text-rose-600'}`}>
-                      {positive ? '+' : ''}{point.amount}
+                      {positive ? '+' : ''}{formatPoints(point.amount)}
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="font-black text-[var(--foreground)] truncate">{student?.name || 'طالب غير معروف'}</div>
@@ -355,7 +364,7 @@ export default function PointsPage() {
                   <option value="">اختر من القائمة المحددة</option>
                   {reasonChoices.map((choice, index) => (
                     <option key={index} value={index}>
-                      {choice.label} ({formData.type === "positive" ? "+" : "-"}{choice.amount} نقاط)
+                      {choice.label} ({formData.type === "positive" ? "+" : "-"}{formatPoints(choice.amount)} نقاط)
                     </option>
                   ))}
                 </select>

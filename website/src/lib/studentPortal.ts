@@ -1,6 +1,3 @@
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-
 export type PortalAccessKind = 'student' | 'family';
 
 export function formatPortalAccessCodeInput(
@@ -124,22 +121,18 @@ export interface GuardianAutomaticReport {
 }
 
 export class StudentPortalError extends Error {
-  constructor(public readonly code: string) {
-    super(code);
+  constructor(
+    public readonly code: string,
+    public readonly reference?: string,
+  ) {
+    super(reference ? `${code}:${reference}` : code);
   }
 }
 
 async function portalRequest<T>(payload: Record<string, unknown>): Promise<T> {
-  if (!supabaseUrl || !supabaseAnonKey) {
-    throw new StudentPortalError('portal_not_configured');
-  }
-  const response = await fetch(`${supabaseUrl}/functions/v1/student-portal`, {
+  const response = await fetch('/api/student-portal', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      apikey: supabaseAnonKey,
-      Authorization: `Bearer ${supabaseAnonKey}`,
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
     cache: 'no-store',
   });
@@ -148,7 +141,10 @@ async function portalRequest<T>(payload: Record<string, unknown>): Promise<T> {
     if (response.status === 404) {
       throw new StudentPortalError('portal_not_deployed');
     }
-    throw new StudentPortalError(result.error || 'portal_unavailable');
+    throw new StudentPortalError(
+      result.error || 'portal_unavailable',
+      typeof result.reference === 'string' ? result.reference : undefined,
+    );
   }
   return result as T;
 }

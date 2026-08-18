@@ -1,3 +1,14 @@
+## 4.3.0-alpha.30+87 — P1.27 Build 87 Hotfix 12
+
+- Replaced recitation `flutter_slidable` gesture competition with a passive deliberate horizontal-swipe card so vertical/diagonal scrolling remains reliable.
+- Exposed all student recitation actions in the overflow menu and added an expandable quick-action FAB for memorization, revision and talaqqin.
+- Routed student/family portal requests through a same-origin Next.js proxy with a bounded timeout and structured runtime error references.
+- Added service-role portal runtime health diagnostics and a repeatable Edge Function deployment helper.
+- Repaired supervision invitation RPC search paths to include Supabase `extensions`/pgcrypto and improved PostgREST error classification.
+- Bound Tailwind v4 dark variants to the app `.dark` class and added standalone portal theme switching.
+- Rounded web point rendering to a maximum of two decimal places.
+- SQLite remains schema 28.
+
 ## 4.3.0-alpha.29+86 — P1.27 Build 86 Hotfix 11
 
 - Added smart-plan selection mode with bulk delete, selected-plan A4 printing, select-all, and a separate print-all command.

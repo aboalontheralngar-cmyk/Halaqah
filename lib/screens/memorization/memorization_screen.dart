@@ -1,7 +1,6 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_slidable/flutter_slidable.dart';
 
 import '../../app/design_tokens.dart';
 import '../../app/theme.dart';
@@ -13,6 +12,7 @@ import '../../services/database_service.dart';
 import '../../services/student_learning_policy.dart';
 import '../../utils/helpers.dart';
 import '../../widgets/app_design_widgets.dart';
+import '../../widgets/deliberate_swipe_action_card.dart';
 import 'add_memorization_screen.dart';
 import 'recitation_history_screen.dart';
 import 'recitation_screen.dart';
@@ -37,6 +37,7 @@ class _MemorizationScreenState extends State<MemorizationScreen> {
   String _filter = 'all';
   String _sortBy = 'manual';
   List<String> _manualOrder = <String>[];
+  bool _quickActionsExpanded = false;
 
   @override
   void initState() {
@@ -314,7 +315,7 @@ class _MemorizationScreenState extends State<MemorizationScreen> {
                   borderRadius: BorderRadius.circular(AppRadii.sm),
                 ),
                 child: const Text(
-                  'اسحب البطاقة يمينًا للحفظ، ويسارًا للمراجعة. بقية الإجراءات من ⋮',
+                  'اسحب بوضوح يمينًا للحفظ ويسارًا للمراجعة. التمرير الرأسي لا يفتح الإجراءات، وبقية الخيارات من ⋮',
                   textAlign: TextAlign.center,
                   style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
                 ),
@@ -338,13 +339,169 @@ class _MemorizationScreenState extends State<MemorizationScreen> {
           ],
         ),
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _navigateToAddMemorization(null),
-        tooltip: 'إضافة حفظ مباشر',
-        icon: const Icon(Icons.add_rounded),
-        label: const Text('حفظ مباشر'),
+      floatingActionButton: _buildQuickActionsFab(),
+    );
+  }
+
+
+  Widget _buildQuickActionsFab() {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        if (_quickActionsExpanded) ...[
+          FloatingActionButton.extended(
+            heroTag: 'quick_talaqqin',
+            onPressed: () => _runQuickAction(_QuickRecitationAction.talaqqin),
+            icon: const Icon(Icons.record_voice_over_outlined),
+            label: const Text('تسجيل تلقين'),
+          ),
+          const SizedBox(height: 10),
+          FloatingActionButton.extended(
+            heroTag: 'quick_revision',
+            onPressed: () => _runQuickAction(_QuickRecitationAction.revision),
+            icon: const Icon(Icons.replay_outlined),
+            label: const Text('تسجيل مراجعة'),
+          ),
+          const SizedBox(height: 10),
+          FloatingActionButton.extended(
+            heroTag: 'quick_memorization',
+            onPressed: () => _runQuickAction(_QuickRecitationAction.memorization),
+            icon: const Icon(Icons.auto_stories_outlined),
+            label: const Text('تسجيل حفظ'),
+          ),
+          const SizedBox(height: 10),
+        ],
+        FloatingActionButton.extended(
+          heroTag: 'quick_recitation_menu',
+          onPressed: () => setState(
+            () => _quickActionsExpanded = !_quickActionsExpanded,
+          ),
+          tooltip: _quickActionsExpanded
+              ? 'إغلاق الإجراءات السريعة'
+              : 'تسجيل سريع',
+          icon: AnimatedRotation(
+            turns: _quickActionsExpanded ? 0.125 : 0,
+            duration: const Duration(milliseconds: 160),
+            child: Icon(_quickActionsExpanded ? Icons.close : Icons.add_rounded),
+          ),
+          label: Text(_quickActionsExpanded ? 'إغلاق' : 'تسجيل سريع'),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _runQuickAction(_QuickRecitationAction action) async {
+    if (!mounted) return;
+    setState(() => _quickActionsExpanded = false);
+    final eligible = _students.where((student) {
+      if (_activeHolds.containsKey(student.id)) return false;
+      return switch (action) {
+        _QuickRecitationAction.memorization =>
+          StudentLearningPolicy.canReceiveNewMemorization(student),
+        _QuickRecitationAction.revision =>
+          StudentLearningPolicy.canReceiveRevision(student),
+        _QuickRecitationAction.talaqqin =>
+          StudentLearningPolicy.canReceiveTalaqqin(student),
+      };
+    }).toList()
+      ..sort((a, b) => a.name.compareTo(b.name));
+
+    if (eligible.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('لا يوجد طلاب متاحون لهذا الإجراء الآن.')),
+      );
+      return;
+    }
+
+    final student = await showModalBottomSheet<Student>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (_) => _QuickStudentPickerSheet(
+        students: eligible,
+        title: switch (action) {
+          _QuickRecitationAction.memorization => 'اختر الطالب لتسجيل الحفظ',
+          _QuickRecitationAction.revision => 'اختر الطالب لتسجيل المراجعة',
+          _QuickRecitationAction.talaqqin => 'اختر الطالب لتسجيل التلقين',
+        },
       ),
     );
+    if (student == null || !mounted) return;
+
+    switch (action) {
+      case _QuickRecitationAction.memorization:
+        await _navigateToAddMemorization(student);
+        break;
+      case _QuickRecitationAction.revision:
+        await _navigateToRevision(student);
+        break;
+      case _QuickRecitationAction.talaqqin:
+        await _navigateToTalaqqin(student);
+        break;
+    }
+  }
+
+  void _handleStudentAction(Student student, String value) {
+    if (_activeHolds.containsKey(student.id)) {
+      _showHoldMessage(student);
+      return;
+    }
+
+    switch (value) {
+      case 'memorization':
+        if (!StudentLearningPolicy.canReceiveNewMemorization(student)) {
+          _showActionUnavailable(
+            'الحفظ الجديد غير متاح لهذا الطالب حسب حالته الحالية.',
+          );
+          return;
+        }
+        _navigateToAddMemorization(student);
+        break;
+      case 'revision':
+        if (!StudentLearningPolicy.canReceiveRevision(student)) {
+          _showActionUnavailable(
+            'المراجعة غير متاحة لهذا الطالب حسب حالته الحالية.',
+          );
+          return;
+        }
+        _navigateToRevision(student);
+        break;
+      case 'talaqqin':
+        if (!StudentLearningPolicy.canReceiveTalaqqin(student)) {
+          _showActionUnavailable(
+            'التلقين غير متاح لهذا الطالب حسب حالته الحالية.',
+          );
+          return;
+        }
+        _navigateToTalaqqin(student);
+        break;
+      case 'session':
+        _navigateToRecitation(student);
+        break;
+      case 'view':
+        _navigateToStudentView(student);
+        break;
+      case 'history':
+        _navigateToStudentHistory(student);
+        break;
+    }
+  }
+
+  void _showActionUnavailable(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<void> _navigateToStudentHistory(Student student) async {
+    if (!mounted) return;
+    await Navigator.push<void>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => RecitationHistoryScreen(initialStudent: student),
+      ),
+    );
+    if (mounted) await _loadData();
   }
 
   PopupMenuItem<String> _sortMenuItem(
@@ -534,35 +691,35 @@ class _MemorizationScreenState extends State<MemorizationScreen> {
               ),
             ),
             trailing: PopupMenuButton<String>(
-              tooltip: 'المزيد',
-              onSelected: (value) {
-                if (hold != null) {
-                  _showHoldMessage(student);
-                  return;
-                }
-                switch (value) {
-                  case 'talaqqin':
-                    _navigateToTalaqqin(student);
-                    break;
-                  case 'session':
-                    _navigateToRecitation(student);
-                    break;
-                  case 'view':
-                    _navigateToStudentView(student);
-                    break;
-                }
-              },
-              itemBuilder: (_) => [
-                if (canTalaqqin)
-                  const PopupMenuItem(
-                    value: 'talaqqin',
-                    child: ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: Icon(Icons.record_voice_over_outlined),
-                      title: Text('التلقين'),
-                    ),
+              tooltip: 'جميع إجراءات الطالب',
+              onSelected: (value) => _handleStudentAction(student, value),
+              itemBuilder: (_) => const [
+                PopupMenuItem(
+                  value: 'memorization',
+                  child: ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.auto_stories_outlined),
+                    title: Text('تسجيل الحفظ'),
                   ),
-                const PopupMenuItem(
+                ),
+                PopupMenuItem(
+                  value: 'revision',
+                  child: ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.replay_outlined),
+                    title: Text('تسجيل المراجعة'),
+                  ),
+                ),
+                PopupMenuItem(
+                  value: 'talaqqin',
+                  child: ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.record_voice_over_outlined),
+                    title: Text('تسجيل التلقين'),
+                  ),
+                ),
+                PopupMenuDivider(),
+                PopupMenuItem(
                   value: 'session',
                   child: ListTile(
                     contentPadding: EdgeInsets.zero,
@@ -570,12 +727,20 @@ class _MemorizationScreenState extends State<MemorizationScreen> {
                     title: Text('جلسة تسميع'),
                   ),
                 ),
-                const PopupMenuItem(
+                PopupMenuItem(
                   value: 'view',
                   child: ListTile(
                     contentPadding: EdgeInsets.zero,
                     leading: Icon(Icons.visibility_outlined),
                     title: Text('عرض المحفوظ'),
+                  ),
+                ),
+                PopupMenuItem(
+                  value: 'history',
+                  child: ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.history_rounded),
+                    title: Text('سجل التسميع'),
                   ),
                 ),
               ],
@@ -588,58 +753,30 @@ class _MemorizationScreenState extends State<MemorizationScreen> {
       ),
     );
 
-    // Force physical swipe semantics independent of the app's RTL direction:
-    // swipe right => memorization, swipe left => revision.
-    return Directionality(
-      textDirection: TextDirection.ltr,
-      child: Slidable(
-        key: ValueKey('student_recitation_${student.id}'),
-        startActionPane: canMemorize
-            ? ActionPane(
-                motion: const StretchMotion(),
-                extentRatio: 0.28,
-                children: [
-                  SlidableAction(
-                    onPressed: hold == null
-                        ? (_) {
-                            _navigateToAddMemorization(student);
-                          }
-                        : (_) {
-                            _showHoldMessage(student);
-                          },
-                    backgroundColor: context.semanticColors.success,
-                    foregroundColor: Colors.white,
-                    icon: memorizationDone
-                        ? Icons.edit_note_outlined
-                        : Icons.auto_stories_outlined,
-                    label: memorizationDone ? 'تعديل الحفظ' : 'الحفظ',
-                  ),
-                ],
-              )
-            : null,
-        endActionPane: canRevise
-            ? ActionPane(
-                motion: const StretchMotion(),
-                extentRatio: 0.28,
-                children: [
-                  SlidableAction(
-                    onPressed: hold == null
-                        ? (_) {
-                            _navigateToRevision(student);
-                          }
-                        : (_) {
-                            _showHoldMessage(student);
-                          },
-                    backgroundColor: context.semanticColors.info,
-                    foregroundColor: Colors.white,
-                    icon: revisionDone ? Icons.edit_note_outlined : Icons.replay,
-                    label: revisionDone ? 'تعديل المراجعة' : 'المراجعة',
-                  ),
-                ],
-              )
-            : null,
-        child: card,
-      ),
+    // Observe pointer movement passively instead of competing with the ListView.
+    // A vertical/diagonal drag always remains a normal scroll; only a clearly
+    // horizontal swipe with a deliberate distance opens the student action.
+    return DeliberateSwipeActionCard(
+      key: ValueKey('student_recitation_${student.id}'),
+      onSwipeRight: canMemorize
+          ? () => hold == null
+              ? _navigateToAddMemorization(student)
+              : _showHoldMessage(student)
+          : null,
+      onSwipeLeft: canRevise
+          ? () => hold == null
+              ? _navigateToRevision(student)
+              : _showHoldMessage(student)
+          : null,
+      rightLabel: memorizationDone ? 'تعديل الحفظ' : 'الحفظ',
+      leftLabel: revisionDone ? 'تعديل المراجعة' : 'المراجعة',
+      rightIcon: memorizationDone
+          ? Icons.edit_note_outlined
+          : Icons.auto_stories_outlined,
+      leftIcon: revisionDone ? Icons.edit_note_outlined : Icons.replay,
+      rightColor: context.semanticColors.success,
+      leftColor: context.semanticColors.info,
+      child: card,
     );
   }
 
@@ -824,5 +961,104 @@ class _MemorizationScreenState extends State<MemorizationScreen> {
       default:
         return planType;
     }
+  }
+}
+
+
+enum _QuickRecitationAction { memorization, revision, talaqqin }
+
+class _QuickStudentPickerSheet extends StatefulWidget {
+  const _QuickStudentPickerSheet({
+    required this.students,
+    required this.title,
+  });
+
+  final List<Student> students;
+  final String title;
+
+  @override
+  State<_QuickStudentPickerSheet> createState() =>
+      _QuickStudentPickerSheetState();
+}
+
+class _QuickStudentPickerSheetState extends State<_QuickStudentPickerSheet> {
+  final TextEditingController _searchController = TextEditingController();
+  String _query = '';
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final normalized = _query.trim().toLowerCase();
+    final visible = normalized.isEmpty
+        ? widget.students
+        : widget.students
+            .where((student) => student.name.toLowerCase().contains(normalized))
+            .toList();
+
+    return DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: 0.72,
+      minChildSize: 0.42,
+      maxChildSize: 0.92,
+      builder: (context, controller) => Padding(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+        child: Column(
+          children: [
+            Container(
+              width: 44,
+              height: 4,
+              margin: const EdgeInsets.only(bottom: 14),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.outlineVariant,
+                borderRadius: BorderRadius.circular(99),
+              ),
+            ),
+            Text(widget.title, style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _searchController,
+              autofocus: false,
+              decoration: const InputDecoration(
+                prefixIcon: Icon(Icons.search_rounded),
+                hintText: 'ابحث باسم الطالب',
+              ),
+              onChanged: (value) => setState(() => _query = value),
+            ),
+            const SizedBox(height: 10),
+            Expanded(
+              child: visible.isEmpty
+                  ? const Center(child: Text('لا توجد نتيجة مطابقة'))
+                  : ListView.separated(
+                      controller: controller,
+                      itemCount: visible.length,
+                      separatorBuilder: (_, _) => const Divider(height: 1),
+                      itemBuilder: (context, index) {
+                        final student = visible[index];
+                        return ListTile(
+                          leading: CircleAvatar(
+                            child: Text(
+                              student.name.isEmpty ? '؟' : student.name[0],
+                            ),
+                          ),
+                          title: Text(student.name),
+                          subtitle: Text(
+                            'المقرر: ${student.planAmount}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          onTap: () => Navigator.pop(context, student),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }

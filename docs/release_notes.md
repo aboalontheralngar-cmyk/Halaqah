@@ -1,3 +1,13 @@
+# Build 87 Hotfix 12 — portal reliability, supervision invitations and deliberate recitation gestures
+
+- **Recitation UX:** passive deliberate swipe no longer competes with vertical scrolling; the three-dot menu always exposes memorization, revision, talaqqin, live recitation, memorized view and history; an expandable FAB provides quick memorization/revision/talaqqin entry.
+- **Portal transport:** browser calls a same-origin Next.js `/api/student-portal` proxy with timeout/diagnostic handling instead of calling the Edge Function directly, eliminating browser CORS as a failure mode.
+- **Portal deployment:** Edge Function has structured database references and service-role health diagnostics; a PowerShell deployment helper refreshes allowed origin and rate-limit pepper before deployment.
+- **Supervision invitations:** invitation RPCs explicitly resolve pgcrypto through `extensions`; error classification no longer misreports a missing dependency function as a missing organization RPC.
+- **Web theme:** Tailwind v4 dark variants now follow the application `.dark` class; the standalone portal supports the same persisted light/dark choice.
+- **Points:** web point values are formatted to at most two decimal places.
+- **Version:** Flutter `4.3.0-alpha.30+87`, SQLite remains 28; Build 87 SQL is additive/idempotent.
+
 # Build 86 Hotfix 11 — bulk plans, slidable recitation and responsive UI
 
 - **Plans:** selection mode supports bulk delete and one-file printing for selected plans, plus a separate print-all action without creating new plans.

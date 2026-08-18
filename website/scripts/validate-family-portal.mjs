@@ -70,11 +70,15 @@ requireAll(familyPage, [
   'بوابة ولي الأمر',
 ], 'Web family access management');
 
-requireAll(read('lib/services/database_service.dart') + read('lib/services/local_database_schema.dart'), [
-  'static const int version = 27',
+const localFamilySchema = read('lib/services/database_service.dart') + read('lib/services/local_database_schema.dart');
+requireAll(localFamilySchema, [
   '_upgradeToVersion18',
   'family_code TEXT',
 ], 'Android local family identity migration');
+const schemaVersionMatch = localFamilySchema.match(/static const int version = (\d+);/);
+if (!schemaVersionMatch || Number(schemaVersionMatch[1]) < 27) {
+  throw new Error('Android local family identity migration requires SQLite schema 27 or newer.');
+}
 
 requireAll(read('lib/services/supabase_service.dart'), [
   'getFamilyPortalStatus',
