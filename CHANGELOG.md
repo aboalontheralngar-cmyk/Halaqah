@@ -1,3 +1,11 @@
+## 4.3.0-alpha.28+85 — P1.27 Build 85 Hotfix 10
+
+- مزامنة الحفظ والمراجعة تتحقق من الحد الأعلى لآيات السورة قبل إدخال الصف السحابي محليًا، ومع fallback صفّي يمنع سجلًا تاريخيًا تالفًا من إسقاط المرحلة كلها.
+- أضيف `profiles.onboarding_completed` لتمييز profile المصادقة الأولي عن الحساب الذي أكمل الاسم والدور والمركز/الجهة.
+- حساب Google أو البريد الجديد يذهب إلى onboarding الحقيقي بدل شاشة اختيار المركز الفارغة، مع تعبئة الاسم المقترح من بيانات المزود دون تخطي الاختيارات.
+- شاشة اختيار المركز والشريط الجانبي يعرضان اسم الحساب والبريد والدور، وتسجيل الخروج من الموقع ينهي جلسة Supabase فعليًا.
+- لا تغيير في SQLite أو dependency pins.
+
 ## 4.3.0-alpha.27+84 — P1.27 Build 84 Hotfix 9
 
 - Reworked cloud synchronization around one scoped watermark RPC, server `updated_at` triggers, and center/halaqa indexes so unchanged domains do not issue table reads; tombstone polling now skips when the remote max id did not advance.

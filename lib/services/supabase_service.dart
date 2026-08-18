@@ -2673,9 +2673,28 @@ class SupabaseService {
         final studentId = await _db.deleteMemorizationProgressFromSync(id);
         if (studentId != null) affectedStudents.add(studentId);
       }
-      affectedStudents.addAll(
-        await _db.upsertMemorizationProgressBatchFromSync(validRows),
-      );
+      try {
+        affectedStudents.addAll(
+          await _db.upsertMemorizationProgressBatchFromSync(validRows),
+        );
+      } on ArgumentError catch (error) {
+        AppLogger.warning(
+          'remote_batch_validation_fallback:${error.runtimeType}',
+          source: 'supabase.sync.memorization',
+        );
+        for (final progress in validRows) {
+          try {
+            await _db.upsertMemorizationProgressFromSync(progress);
+            affectedStudents.add(progress.studentId);
+          } on ArgumentError catch (rowError) {
+            skippedMalformedRows++;
+            AppLogger.warning(
+              'remote_row_skipped:${rowError.runtimeType}',
+              source: 'supabase.sync.memorization',
+            );
+          }
+        }
+      }
     });
 
     await _db.saveSetting(
@@ -2909,9 +2928,12 @@ class SupabaseService {
       throw const FormatException('Unknown remote memorization surah');
     }
 
+    final surah = matchingSurahs.first;
     final fromAyah = _requiredRemoteInt(remote, 'from_ayah');
     final toAyah = _requiredRemoteInt(remote, 'to_ayah');
-    if (fromAyah < 1 || toAyah < fromAyah) {
+    if (fromAyah < 1 ||
+        toAyah < fromAyah ||
+        toAyah > surah.totalAyahs) {
       throw const FormatException('Invalid remote memorization ayah range');
     }
 
@@ -2927,7 +2949,7 @@ class SupabaseService {
     return MemorizationProgress(
       id: id,
       studentId: studentId,
-      surahId: matchingSurahs.first.number,
+      surahId: surah.number,
       fromAyah: fromAyah,
       toAyah: toAyah,
       date: date,

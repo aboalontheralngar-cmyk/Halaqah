@@ -206,6 +206,12 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
     setMobileMenuOpen(false);
   };
 
+  const handleLogout = async () => {
+    if (supabase) await supabase.auth.signOut();
+    setUser(null);
+    router.replace("/login");
+  };
+
   // --- RENDER LOGIC STARTS HERE ---
 
   if (isPublicPage || pathname.startsWith("/manage-center") || isCenterIndependentPage) {
@@ -222,6 +228,17 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
 
   const centerNameSafe = currentCenter?.name || "المركز";
   const centerInitial = centerNameSafe[0] || "?";
+
+  const accountName =
+    profile?.fullName?.trim() ||
+    String(user?.user_metadata?.full_name || user?.user_metadata?.name || '').trim() ||
+    user?.email ||
+    'مستخدم';
+  const accountRoleLabel = profile?.role === 'supervisor'
+    ? 'جهة إشرافية'
+    : profile?.role === 'teacher'
+      ? 'معلم'
+      : 'مدير مركز';
 
   return (
     <div className={`${darkMode ? "dark" : ""} app-shell min-h-screen flex flex-col lg:flex-row transition-colors duration-200`} dir="rtl">
@@ -335,6 +352,19 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
           ))}
         </nav>
 
+        <div className="mb-3 p-4 bg-[var(--surface-soft)] rounded-3xl border border-[var(--border)]">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl flex items-center justify-center bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300">
+              <User className="w-5 h-5" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-black text-[var(--foreground)] truncate">{accountName}</p>
+              <p className="text-[10px] font-bold text-[var(--muted)] truncate">{user?.email || accountRoleLabel}</p>
+            </div>
+            <span className="text-[9px] font-black text-teal-700 dark:text-teal-300">{accountRoleLabel}</span>
+          </div>
+        </div>
+
         <div className="mt-auto mb-5 p-4 bg-[#f3efe6] dark:bg-[#18231f] rounded-3xl border border-[var(--border)]">
           <div className="flex items-center gap-3">
             <div className={`w-10 h-10 rounded-2xl flex items-center justify-center text-white font-bold ${centerType === 'men' ? "bg-teal-600" : centerType === 'women' ? "bg-rose-500" : "bg-amber-500"}`}>
@@ -363,10 +393,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
         </button>
 
         <button 
-          onClick={() => {
-            setUser(null);
-            router.push("/login");
-          }}
+          onClick={() => void handleLogout()}
           className="p-4 bg-rose-50 dark:bg-rose-900/20 rounded-2xl border border-rose-100/50 dark:border-rose-800/30 group hover:bg-rose-600 transition-all text-right"
         >
           <div className="flex items-center gap-3">

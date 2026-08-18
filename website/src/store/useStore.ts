@@ -29,6 +29,7 @@ export interface Profile {
   id: string;
   fullName: string;
   role: UserRole;
+  onboardingCompleted?: boolean;
 }
 
 export interface Supervisor {
@@ -234,6 +235,26 @@ export type AppUser = Pick<User, 'id' | 'email'> & {
   name?: string;
   user_metadata?: User['user_metadata'];
 };
+
+function authDisplayName(user: AppUser): string {
+  const metadata = user.user_metadata || {};
+  const candidate =
+    metadata.full_name ||
+    metadata.name ||
+    user.name ||
+    user.email?.split('@')[0] ||
+    'User';
+  return String(candidate).trim() || 'User';
+}
+
+function normalizeProfileRole(value: unknown): UserRole {
+  if (value === 'supervisor' || value === 'teacher') return value;
+  return 'center_admin';
+}
+
+function memberRoleToProfileRole(value: unknown): UserRole {
+  return value === 'teacher' ? 'teacher' : 'center_admin';
+}
 
 type MushafProgressRow = {
   id: string;
@@ -671,10 +692,14 @@ export const useStore = create<HalaqahStore>((set, get) => ({
 
   setUser: (user) => {
     set({ user });
-    if (user) {
-      get().fetchProfile();
-    } else {
-      set({ profile: null, currentCenter: null, userCenters: [], currentSupervisor: null, teachers: [] });
+    if (!user) {
+      set({
+        profile: null,
+        currentCenter: null,
+        userCenters: [],
+        currentSupervisor: null,
+        teachers: [],
+      });
     }
   },
 
@@ -685,71 +710,118 @@ export const useStore = create<HalaqahStore>((set, get) => ({
     const user = get().user;
     if (!user) return;
 
-    const { data, error } = await supabase
+    const { data: profileData, error: profileError } = await supabase
       .from('profiles')
       .select('*')
       .eq('id', user.id)
       .maybeSingle();
 
-    if (data && !error) {
-      set({ profile: { id: data.id, fullName: data.full_name, role: data.role } });
-      
-      const { data: supervisoryData, error: supervisoryError } = await supabase
-        .rpc('get_my_supervisors');
-      const organizations = Array.isArray(supervisoryData)
-        ? supervisoryData as Array<{ id: string; name: string; role: Supervisor['role'] }>
-        : [];
+    if (profileError) {
+      logOperationalError('profile.fetch', profileError);
+      set({ profile: null, currentSupervisor: null });
+      return;
+    }
 
-      if (!supervisoryError) {
-        set({ currentSupervisor: organizations[0] || null });
-      } else if (data.role === 'supervisor') {
-        // Compatibility fallback until the P7.3 migration is applied.
-        const { data: supData } = await supabase
-          .from('supervisors')
-          .select('*')
-          .eq('owner_id', user.id)
-          .maybeSingle();
-        if (supData) {
-          set({
-            currentSupervisor: {
-              id: supData.id,
-              name: supData.name,
-              role: 'owner',
-              code: supData.code,
-            },
-          });
-        }
-      }
-    } else {
-      // Check if user owns any centers (fallback for admins)
-      const { data: centerData } = await supabase
-        .from('centers')
-        .select('id, owner_id')
+    const { data: supervisoryData, error: supervisoryError } = await supabase
+      .rpc('get_my_supervisors');
+    const organizations = !supervisoryError && Array.isArray(supervisoryData)
+      ? supervisoryData as Array<{ id: string; name: string; role: Supervisor['role'] }>
+      : [];
+
+    let currentSupervisor: Supervisor | null = organizations[0] || null;
+    if (!currentSupervisor) {
+      const { data: ownedSupervisors } = await supabase
+        .from('supervisors')
+        .select('id,name,code')
         .eq('owner_id', user.id)
         .limit(1);
-      
-      if (centerData && centerData.length > 0) {
-        set({ profile: { id: user.id, fullName: user.user_metadata?.full_name || 'مدير المركز', role: 'center_admin' } });
-        return;
-      }
-
-      // Check center_members
-      const { data: memberData } = await supabase
-        .from('center_members')
-        .select('id, role, user_id')
-        .eq('email', user.email)
-        .maybeSingle();
-      
-      if (memberData) {
-        if (!memberData.user_id) {
-          await supabase
-            .from('center_members')
-            .update({ user_id: user.id })
-            .eq('id', memberData.id);
-        }
-        set({ profile: { id: user.id, fullName: user.user_metadata?.full_name || 'عضو', role: memberData.role as UserRole } });
+      const owned = ownedSupervisors?.[0];
+      if (owned) {
+        currentSupervisor = {
+          id: owned.id,
+          name: owned.name,
+          role: 'owner',
+          code: owned.code,
+        };
       }
     }
+
+    const { data: ownedCenters } = await supabase
+      .from('centers')
+      .select('id')
+      .eq('owner_id', user.id)
+      .limit(1);
+    const ownsCenter = Boolean(ownedCenters?.length);
+
+    let memberData: { id: string; role: string; user_id?: string | null } | null = null;
+    const { data: memberByUser } = await supabase
+      .from('center_members')
+      .select('id,role,user_id')
+      .eq('user_id', user.id)
+      .limit(1);
+    memberData = memberByUser?.[0] || null;
+
+    if (!memberData && user.email) {
+      const { data: memberByEmail } = await supabase
+        .from('center_members')
+        .select('id,role,user_id')
+        .eq('email', user.email)
+        .limit(1);
+      memberData = memberByEmail?.[0] || null;
+    }
+
+    if (memberData && !memberData.user_id) {
+      await supabase
+        .from('center_members')
+        .update({ user_id: user.id })
+        .eq('id', memberData.id);
+    }
+
+    const relationRole: UserRole | null = currentSupervisor
+      ? 'supervisor'
+      : ownsCenter
+        ? 'center_admin'
+        : memberData
+          ? memberRoleToProfileRole(memberData.role)
+          : null;
+    const onboardingCompleted = profileData?.onboarding_completed === true;
+    const hasEstablishedRelation = relationRole != null;
+
+    // Auth triggers are allowed to create a placeholder profile, but a row by
+    // itself is not onboarding completion. A new user must still choose their
+    // role and create/join an organization before entering the workspace.
+    if (!onboardingCompleted && !hasEstablishedRelation) {
+      set({ profile: null, currentSupervisor: null });
+      return;
+    }
+
+    const explicitName = String(profileData?.full_name || '').trim();
+    const displayName = explicitName || authDisplayName(user);
+    const role = onboardingCompleted || explicitName
+      ? normalizeProfileRole(profileData?.role)
+      : relationRole || 'center_admin';
+
+    if (!onboardingCompleted && hasEstablishedRelation) {
+      const { error: backfillError } = await supabase.from('profiles').upsert([{
+        id: user.id,
+        full_name: displayName,
+        role,
+        onboarding_completed: true,
+      }]);
+      if (backfillError) {
+        logOperationalError('profile.backfill', backfillError);
+      }
+    }
+
+    set({
+      profile: {
+        id: user.id,
+        fullName: displayName,
+        role,
+        onboardingCompleted: true,
+      },
+      currentSupervisor,
+    });
   },
 
   createSupervisor: async (name) => {

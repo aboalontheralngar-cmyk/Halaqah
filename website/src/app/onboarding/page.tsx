@@ -23,10 +23,14 @@ export default function OnboardingPage() {
   const router = useRouter();
   const {
     user,
+    profile,
+    setUser,
     fetchProfile
   } = useStore(
     useShallow((state) => ({
       user: state.user,
+      profile: state.profile,
+      setUser: state.setUser,
       fetchProfile: state.fetchProfile,
     })),
   );
@@ -43,10 +47,58 @@ export default function OnboardingPage() {
   });
 
   useEffect(() => {
-    if (!user) {
-      router.push("/login");
-    }
-  }, [router, user]);
+    let cancelled = false;
+
+    const applySuggestedName = (activeUser: NonNullable<typeof user>) => {
+      const metadata = activeUser.user_metadata || {};
+      const suggestedName = String(
+        metadata.full_name || metadata.name || activeUser.name || ''
+      ).trim();
+      if (suggestedName) {
+        setData((current) =>
+          current.fullName ? current : { ...current, fullName: suggestedName },
+        );
+      }
+    };
+
+    const ensureAuthenticatedUser = async () => {
+      if (user) {
+        if (profile) {
+          router.replace("/select-center");
+          return;
+        }
+        applySuggestedName(user);
+        return;
+      }
+
+      if (!supabase) {
+        router.replace("/login?configuration=missing");
+        return;
+      }
+
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (cancelled) return;
+      const sessionUser = sessionData.session?.user;
+      if (!sessionUser) {
+        router.replace("/login");
+        return;
+      }
+
+      setUser(sessionUser);
+      await fetchProfile();
+      if (cancelled) return;
+      if (useStore.getState().profile) {
+        router.replace("/select-center");
+        return;
+      }
+      applySuggestedName(sessionUser);
+    };
+
+    void ensureAuthenticatedUser();
+    return () => {
+      cancelled = true;
+    };
+  }, [fetchProfile, profile, router, setUser, user]);
 
   const handleComplete = async () => {
     if (!supabase || !user) return;
@@ -57,7 +109,8 @@ export default function OnboardingPage() {
       const { error: profileError } = await supabase.from('profiles').upsert([{ 
         id: user.id, 
         full_name: data.fullName, 
-        role: data.role 
+        role: data.role,
+        onboarding_completed: false,
       }]);
       if (profileError) throw profileError;
 
@@ -84,10 +137,16 @@ export default function OnboardingPage() {
           }
           throw new Error(supervisionErrorMessage(supervisorError, health));
         }
-        await fetchProfile();
       }
 
-      router.push("/select-center");
+      const { error: completionError } = await supabase
+        .from('profiles')
+        .update({ onboarding_completed: true })
+        .eq('id', user.id);
+      if (completionError) throw completionError;
+
+      await fetchProfile();
+      router.replace("/select-center");
     } catch (error: unknown) {
       alert(error instanceof Error ? error.message : "حدث خطأ أثناء إعداد الحساب");
     } finally {

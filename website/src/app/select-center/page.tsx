@@ -16,7 +16,8 @@ import {
   Loader2,
   Settings,
   ShieldCheck,
-  UserPlus
+  UserPlus,
+  User
 } from "lucide-react";
 import { useStore } from "@/store/useStore";
 import { supabase } from "@/lib/supabase";
@@ -250,6 +251,17 @@ export default function SelectCenterPage() {
     router.push("/supervision");
   };
 
+  const accountName =
+    profile?.fullName?.trim() ||
+    String(user?.user_metadata?.full_name || user?.user_metadata?.name || '').trim() ||
+    user?.email ||
+    'مستخدم';
+  const accountRoleLabel = profile?.role === 'supervisor'
+    ? 'جهة إشرافية'
+    : profile?.role === 'teacher'
+      ? 'معلم'
+      : 'مدير مركز';
+
   if (loading && step === "center" && centers.length === 0) {
     return (
       <div className="min-h-screen bg-[var(--background)] flex items-center justify-center">
@@ -280,6 +292,20 @@ export default function SelectCenterPage() {
               <ShieldCheck className="h-5 w-5" />
               لوحة {currentSupervisor.name}
             </button>
+          )}
+          {step === "center" && (
+            <div className="mx-auto mt-5 flex max-w-md items-center gap-4 rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-5 py-4 text-right shadow-sm">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-teal-50 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300">
+                <User className="h-5 w-5" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-black text-[var(--foreground)]">مرحبًا، {accountName}</p>
+                <p className="truncate text-xs font-bold text-[var(--muted)]">{user?.email || accountRoleLabel}</p>
+              </div>
+              <span className="rounded-full bg-teal-50 px-3 py-1 text-[10px] font-black text-teal-700 dark:bg-teal-900/30 dark:text-teal-300">
+                {accountRoleLabel}
+              </span>
+            </div>
           )}
         </div>
 

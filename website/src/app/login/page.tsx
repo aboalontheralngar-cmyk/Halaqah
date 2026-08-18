@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useRouter } from "next/navigation";
 import type { User } from "@supabase/supabase-js";
@@ -36,10 +36,12 @@ export default function AuthPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [configurationError, setConfigurationError] = useState("");
   const {
-    setUser
+    setUser,
+    fetchProfile,
   } = useStore(
     useShallow((state) => ({
       setUser: state.setUser,
+      fetchProfile: state.fetchProfile,
     })),
   );
 
@@ -49,16 +51,14 @@ export default function AuthPage() {
     confirmPassword: ""
   });
 
+  const finishAuthenticatedLogin = useCallback(async (user: User) => {
+    setUser(user);
+    await fetchProfile();
+    router.replace(useStore.getState().profile ? "/select-center" : "/onboarding");
+  }, [fetchProfile, router, setUser]);
+
   useEffect(() => {
     if (!supabase) return;
-
-    const finishOAuthLogin = async (user: User) => {
-      setUser(user);
-      // fetchProfile is triggered by setUser. Give the store a deterministic
-      // destination for fresh social accounts after the profile check settles.
-      await useStore.getState().fetchProfile();
-      router.replace(useStore.getState().profile ? "/select-center" : "/onboarding");
-    };
 
     const params = new URL(window.location.href).searchParams;
     const oauthError = params.get("oauth_error");
@@ -73,15 +73,15 @@ export default function AuthPage() {
     }
 
     void supabase.auth.getSession().then(({ data }) => {
-      if (data.session?.user) void finishOAuthLogin(data.session.user);
+      if (data.session?.user) void finishAuthenticatedLogin(data.session.user);
     });
 
     const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session?.user) void finishOAuthLogin(session.user);
+      if (session?.user) void finishAuthenticatedLogin(session.user);
     });
 
     return () => authListener.subscription.unsubscribe();
-  }, [router, setUser]);
+  }, [finishAuthenticatedLogin, router]);
 
   const handleGoogleLogin = async () => {
     if (!supabase) {
@@ -131,8 +131,7 @@ export default function AuthPage() {
           password: formData.password,
         });
         if (error) throw error;
-        setUser(data.user);
-        router.push("/select-center");
+        await finishAuthenticatedLogin(data.user);
       } else {
         // Sign Up
         const { data: authData, error: authError } = await supabase.auth.signUp({
@@ -141,9 +140,12 @@ export default function AuthPage() {
         });
         if (authError) throw authError;
         
-        if (authData.user) {
-          setUser(authData.user);
-          router.push("/onboarding");
+        if (authData.session?.user) {
+          await finishAuthenticatedLogin(authData.session.user);
+        } else if (authData.user) {
+          setConfigurationError(
+            "تم إنشاء الحساب. أكّد البريد أولًا، ثم سجّل الدخول لإكمال إعداد الحساب.",
+          );
         }
       }
     } catch (error: unknown) {

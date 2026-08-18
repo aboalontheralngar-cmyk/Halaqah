@@ -1,3 +1,12 @@
+# Build 85 Hotfix 10 — memorization sync resilience and first-account onboarding
+
+- **Memorization sync:** cloud rows are validated against the real surah ayah count before local replay. A defensive row fallback skips only malformed legacy rows instead of failing the whole `memorization` stage.
+- **Account onboarding:** `profiles.onboarding_completed` distinguishes an auth-created placeholder profile from a configured account. Existing center/supervision/member accounts are backfilled as complete.
+- **OAuth/email routing:** all authenticated entry paths wait for profile readiness and route incomplete accounts to `/onboarding`; Google metadata only prefills the name.
+- **Identity UI:** `/select-center` and the desktop dashboard sidebar show the signed-in name, email and role.
+- **Session safety:** dashboard logout calls Supabase `signOut()` before clearing local state.
+- **Version:** Flutter `4.3.0-alpha.28+85`, SQLite schema remains 28.
+
 # Build 84 Hotfix 9 — sync delta engine, OAuth completion, revision ranges and report rewards
 
 - **Sync:** one authenticated `get_halaqah_sync_watermarks` preflight identifies changed cloud domains and the latest tombstone id. Unchanged domains are skipped without table `SELECT`s, while local cloud-replay guards stop downloaded rows from becoming dirty uploads again. Server-side scope/updated-at indexes support the same predicates used by Flutter.
