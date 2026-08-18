@@ -1,5 +1,7 @@
 # Build 87 Hotfix 12 — portal reliability, supervision invitations and deliberate recitation gestures
 
+> **Patch 1 — quality gate / Windows deployment (2026-08-18):** fixed the Flutter analyzer/test regressions introduced in the first Build 87 bundle, and rewrote `tools/deploy_student_portal.ps1` using ASCII-only messages plus an automatic `website` working directory so Windows PowerShell 5.1 does not fail on UTF-8 mojibake. No SQL change is required.
+
 - **Recitation UX:** passive deliberate swipe no longer competes with vertical scrolling; the three-dot menu always exposes memorization, revision, talaqqin, live recitation, memorized view and history; an expandable FAB provides quick memorization/revision/talaqqin entry.
 - **Portal transport:** browser calls a same-origin Next.js `/api/student-portal` proxy with timeout/diagnostic handling instead of calling the Edge Function directly, eliminating browser CORS as a failure mode.
 - **Portal deployment:** Edge Function has structured database references and service-role health diagnostics; a PowerShell deployment helper refreshes allowed origin and rate-limit pepper before deployment.
@@ -1138,4 +1140,3 @@ Build 75 يركز على صحة العمل اليومي على أكثر من ج�
 - تحديث اعتماد `path` في `pubspec.yaml` من `1.8.3` إلى `1.9.1`.
 - لا يتضمن هذا التصحيح أي migration جديدة، ولا يعيد تطبيق SQL Build 75.
 - إذا ظهر في Supabase SQL Editor الخطأ `Failed to fetch (api.supabase.com)` أثناء VERIFY، لا تعتبره فشلًا في migration؛ أعد تشغيل ملف VERIFY فقط بعد استعادة اتصال لوحة Supabase بالمشروع.
-

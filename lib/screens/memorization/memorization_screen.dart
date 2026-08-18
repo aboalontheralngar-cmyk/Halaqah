@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 
 import '../../app/design_tokens.dart';
-import '../../app/theme.dart';
 import '../../models/daily_record.dart';
 import '../../models/quran_course.dart';
 import '../../models/student.dart';
@@ -1036,7 +1035,7 @@ class _QuickStudentPickerSheetState extends State<_QuickStudentPickerSheet> {
                   : ListView.separated(
                       controller: controller,
                       itemCount: visible.length,
-                      separatorBuilder: (_, _) => const Divider(height: 1),
+                      separatorBuilder: (context, index) => const Divider(height: 1),
                       itemBuilder: (context, index) {
                         final student = visible[index];
                         return ListTile(

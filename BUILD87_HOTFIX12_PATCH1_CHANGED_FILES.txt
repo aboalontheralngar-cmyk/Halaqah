@@ -1,0 +1,16 @@
+Build 87 Hotfix 12 Patch 1
+
+Changed files:
+- lib/screens/memorization/memorization_screen.dart
+  - removes unused theme import
+  - fixes duplicate underscore parameters in separatorBuilder
+- test/deliberate_swipe_action_card_test.dart
+  - separates vertical and diagonal scroll regressions so ListView disposal after the first drag cannot break the second assertion
+- tools/deploy_student_portal.ps1
+  - ASCII-only PowerShell source for Windows PowerShell 5.1 compatibility
+  - automatically executes from website/ where supabase/config.toml and the student-portal function live
+  - passes --project-ref directly for secrets and function deployment
+- docs/release_notes.md
+- P1.27_BUILD87_HOTFIX12_PATCH1_INSTALL_NOTE.md
+
+No SQL migration is required.
